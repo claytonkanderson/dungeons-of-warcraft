@@ -149,6 +149,57 @@ func _rebuild() -> void:
 	title.position = Vector2(14, -26)
 	root.add_child(title)
 
+	# Normal Attack in the spare socket (page bottom-right): bind it back to
+	# either hand or a hotkey, same gestures as any learned skill
+	var atk_sheet = db.load_sheet("ui/skilliconpanel")
+	if atk_sheet != null:
+		var apos := Vector2(175.0, 386.0) * SCALE
+		var at_a := AtlasTexture.new()
+		at_a.atlas = atk_sheet.texture
+		at_a.region = Rect2(2 * atk_sheet.cell.x, 0,
+				atk_sheet.cell.x, atk_sheet.cell.y)
+		var ai := TextureRect.new()
+		ai.texture = at_a
+		ai.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		ai.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		ai.position = apos
+		ai.size = Vector2(30, 30) * SCALE
+		ai.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		root.add_child(ai)
+		for hk in gs.hotkeys:
+			if str(gs.hotkeys[hk]) == "Attack":
+				var ahl := Label.new()
+				ahl.text = str(hk)
+				ahl.add_theme_font_size_override("font_size", 13)
+				ahl.add_theme_color_override("font_color", Color(0.5, 1.0, 0.5))
+				ahl.add_theme_color_override("font_outline_color", Color(0, 0, 0))
+				ahl.add_theme_constant_override("outline_size", 4)
+				ahl.position = apos + Vector2(2, -2)
+				root.add_child(ahl)
+		var ab := Button.new()
+		ab.flat = true
+		ab.position = apos
+		ab.size = Vector2(30, 30) * SCALE
+		ab.mouse_entered.connect(func():
+			_hover_skill = "Attack"
+			tooltip.text = "Normal Attack\nctrl+click: LMB   right-click: RMB\nF1-F5: bind hotkey"
+			tooltip.visible = true
+			tooltip.position = root.position + ab.position + Vector2(-160, 0))
+		ab.mouse_exited.connect(func():
+			tooltip.visible = false
+			_hover_skill = "")
+		ab.gui_input.connect(func(ev):
+			if not (ev is InputEventMouseButton and ev.pressed):
+				return
+			var p: Player = get_tree().get_first_node_in_group("player")
+			if p == null:
+				return
+			if ev.button_index == MOUSE_BUTTON_LEFT and ev.ctrl_pressed:
+				p.action_skill[0] = "Attack"
+			elif ev.button_index == MOUSE_BUTTON_RIGHT:
+				p.action_skill[1] = "Attack")
+		root.add_child(ab)
+
 	var icon_sheet = db.load_sheet("ui/amskillicon")
 	for s in _amazon_skills_on_page(tab + 1):
 		var pos: Vector2 = (GRID_ORIGIN + Vector2(s.col - 1, s.row - 1) * GRID_STEP) * SCALE
@@ -242,7 +293,8 @@ func _input(e: InputEvent) -> void:
 		elif e.keycode == KEY_3: tab = 2; _rebuild()
 		elif e.keycode >= KEY_F1 and e.keycode <= KEY_F5:
 			# D2-style: bind the hovered, learned skill to this key
-			if _hover_skill != "" and gs.skill_level(_hover_skill) > 0:
+			if _hover_skill != "" and (_hover_skill == "Attack"
+					or gs.skill_level(_hover_skill) > 0):
 				gs.hotkeys["F%d" % (e.keycode - KEY_F1 + 1)] = _hover_skill
 				get_node("/root/Sfx").event_ui("button")
 				_rebuild()

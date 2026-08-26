@@ -824,7 +824,7 @@ func _unhandled_input(e: InputEvent) -> void:
 			if player != null and not player.ui_locked:
 				var gsk := get_node("/root/GameState")
 				var sk := str(gsk.hotkeys.get("F%d" % (e.keycode - KEY_F1 + 1), ""))
-				if sk != "" and gsk.skill_level(sk) > 0:
+				if sk != "" and (sk == "Attack" or gsk.skill_level(sk) > 0):
 					player.action_skill[1] = sk
 					get_node("/root/Sfx").event_ui("button")
 		elif e.keycode == KEY_F9:
