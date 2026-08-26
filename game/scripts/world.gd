@@ -771,10 +771,19 @@ func _combat_test() -> void:
 	DirAccess.make_dir_recursive_absolute(shots)
 	if not OS.has_feature("movie"):
 		Engine.max_fps = 60
+	else:
+		# demo take: a mid-run heroine so the archery connects on camera
+		var dgs := get_node("/root/GameState")
+		dgs.level = 6
+		dgs.stat = {"str": 25, "dex": 60, "vit": 30, "ene": 20}
+		dgs.skills = {"Critical Strike": 3}
+		dgs._recalc()
+		dgs.hp = dgs.hp_max
+		dgs.mana = dgs.mana_max
 	print("attack len=%.2f release=%.2f" % [player._attack_len, player.attack_release])
 	var fired := 0
 	var best: WowCreature = null
-	for f in range(1200):
+	for f in range(900):
 		if best == null or best.state == WowCreature.State.DEAD \
 				or player.global_position.distance_to(best.global_position) > 30.0:
 			best = null
@@ -812,10 +821,44 @@ func _combat_test() -> void:
 			print("f=%d atk=%.2f arrows=%d target=%s state=%d hp=%.0f dist=%.1f" % [
 				f, player.attack_time, arrows.size(), best.cname, best.state,
 				best.hp, player.global_position.distance_to(best.global_position)])
-		if f % 20 == 0:
+		if f % 20 == 0 and not OS.has_feature("movie"):
 			await RenderingServer.frame_post_draw
 			get_viewport().get_texture().get_image().save_png(
 				shots + "/c_%03d.png" % (f / 20))
+	# the loot moment: labels on, sweep the pile, admire the haul
+	force_labels = true
+	var guard := 0
+	while not ground_items.is_empty() and guard < 1400:
+		guard += 1
+		var nearest: GroundItem = null
+		var nd := 1e9
+		for gi in ground_items:
+			var d: float = player.global_position.distance_to(gi.global_position)
+			if d < nd:
+				nd = d
+				nearest = gi
+		if nearest == null:
+			break
+		var to := nearest.global_position - player.global_position
+		to.y = 0.0
+		player.yaw = lerp_angle(player.yaw, atan2(-to.x, -to.z), 0.15)
+		player.pitch = lerpf(player.pitch, -0.4, 0.1)
+		if to.length() > 1.8:
+			var dir := to.normalized()
+			player.velocity.x = dir.x * Player.WALK
+			player.velocity.z = dir.z * Player.WALK
+			player.move_and_slide()
+		else:
+			player.velocity = Vector3.ZERO
+			_pickup_nearest()
+			for w in range(18):
+				await get_tree().physics_frame
+		await get_tree().physics_frame
+	force_labels = false
+	player.pitch = 0.0
+	inv_ui.toggle()
+	for f in range(240):
+		await get_tree().physics_frame
 	var alive := 0
 	var dead := 0
 	for mob in monsters:
