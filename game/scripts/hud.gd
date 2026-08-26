@@ -128,19 +128,6 @@ func _ready() -> void:
 	bow.scale = Vector2(4, 4)
 	bow.rotation = -0.5
 	add_child(bow)
-	gs.equipment_changed.connect(_update_viewmodel)
-	_update_viewmodel()
-
-
-func _update_viewmodel() -> void:
-	## The FPS weapon sprite mirrors the equipped main-hand weapon.
-	var tex: Texture2D = null
-	var w: Dictionary = gs.equipped.get("weap", {})
-	if not w.is_empty():
-		tex = get_node("/root/ItemDB").inv_texture(str(w.get("code", "")))
-	if tex == null:
-		tex = _tex_load("ui/viewmodel_bow.png")
-	bow.texture = tex
 
 	panel_ui = PanelControl.new()
 	panel_ui.hud = self
@@ -150,6 +137,22 @@ func _update_viewmodel() -> void:
 	info.add_theme_color_override("font_color", Color(0.9, 0.85, 0.7))
 	info.add_theme_font_size_override("font_size", 16)
 	add_child(info)
+
+	gs.equipment_changed.connect(_update_viewmodel)
+	_update_viewmodel()
+
+
+func _update_viewmodel() -> void:
+	## The FPS weapon sprite mirrors the equipped main-hand weapon.
+	## (Only the texture: the panel and info label are built once in _ready —
+	## rebuilding them here stacked duplicates on every equipment change.)
+	var tex: Texture2D = null
+	var w: Dictionary = gs.equipped.get("weap", {})
+	if not w.is_empty():
+		tex = get_node("/root/ItemDB").inv_texture(str(w.get("code", "")))
+	if tex == null:
+		tex = _tex_load("ui/viewmodel_bow.png")
+	bow.texture = tex
 
 
 func kick() -> void:
@@ -161,17 +164,17 @@ var _area_t := 0.0
 var _item_labels := []
 
 
-func show_area(name: String) -> void:
+func show_area(name: String, color := Color(0.9, 0.82, 0.6), dur := 3.0) -> void:
 	if _area_label == null:
 		_area_label = Label.new()
 		_area_label.add_theme_font_size_override("font_size", 42)
-		_area_label.add_theme_color_override("font_color", Color(0.9, 0.82, 0.6))
 		_area_label.add_theme_color_override("font_outline_color", Color(0, 0, 0))
 		_area_label.add_theme_constant_override("outline_size", 8)
 		add_child(_area_label)
+	_area_label.add_theme_color_override("font_color", color)
 	_area_label.text = name
 	_area_label.visible = true
-	_area_t = 3.0
+	_area_t = dur
 
 
 func show_item_labels(items: Array, cam: Camera3D) -> void:

@@ -172,7 +172,7 @@ func _input(e: InputEvent) -> void:
 
 
 func die() -> void:
-	# death -> instant respawn at the instance entrance for now
+	# death -> respawn at the instance entrance; no other penalty
 	get_node("/root/Sfx").event("player_death", global_position)
 	var gs := get_node("/root/GameState")
 	gs.respawn()
@@ -180,6 +180,8 @@ func die() -> void:
 	if t != null and t.has_method("respawn_position"):
 		global_position = t.respawn_position()
 		velocity = Vector3.ZERO
+	if hud != null:
+		hud.show_area("You have died...", Color(0.85, 0.12, 0.12), 4.5)
 
 
 func _start_attack(slot: int) -> void:

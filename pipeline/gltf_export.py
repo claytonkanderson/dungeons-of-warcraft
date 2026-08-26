@@ -320,6 +320,11 @@ def export_glb(model, skin, textures, out_path, seq_filter=None,
             pp = pivots[bone.parent] if bone.parent >= 0 else (0, 0, 0)
             # translation
             times, vals = bone.trans.keys(model, di, "f", 3)
+            if times and bone.trans.gseq >= 0:
+                # global-sequence tracks run their own long timeline; baked
+                # verbatim they stretch every clip (0.7s runs became 6.7s
+                # with a long tail hold). Freeze them at their first pose.
+                times, vals = [times[0]], [vals[0]]
             if times:
                 ts = [t / 1000 for t in times]
                 vs = []
@@ -333,6 +338,8 @@ def export_glb(model, skin, textures, out_path, seq_filter=None,
                 channel(bi, "translation", [0.0], [tuple(rest_t)], "VEC3")
             # rotation
             times, vals = bone.rot.keys(model, di, "H", 4)
+            if times and bone.rot.gseq >= 0:
+                times, vals = [times[0]], [vals[0]]
             if times:
                 ts = [t / 1000 for t in times]
                 vs = []
@@ -348,6 +355,8 @@ def export_glb(model, skin, textures, out_path, seq_filter=None,
                 channel(bi, "rotation", [0.0], [(0, 0, 0, 1)], "VEC4")
             # scale
             times, vals = bone.scale.keys(model, di, "f", 3)
+            if times and bone.scale.gseq >= 0:
+                times, vals = [times[0]], [vals[0]]
             if times:
                 ts = [t / 1000 for t in times]
                 vs = [(v[1], v[2], v[0]) for v in vals]
