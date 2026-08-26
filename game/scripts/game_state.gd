@@ -5,9 +5,9 @@ signal leveled_up(level: int)
 signal hp_changed
 signal xp_changed
 
-var level := 1
-var xp := 0
-var skill_points := 0
+var level := 14               # a seasoned start: points arrive unallocated
+var xp := 0                   # seeded from the exp table in _ready
+var skill_points := 14
 var current_level := 1        # world level id
 var pending_from := 0         # warp transition source (transient)
 var waypoints: Array = [1]    # activated waypoint level ids
@@ -27,9 +27,33 @@ var exp_table: Array = []
 func _ready() -> void:
 	var gd: Dictionary = get_node("/root/SpriteDB").gamedata()
 	exp_table = gd.get("experience", [])
+	if xp == 0 and level > 1 and level <= exp_table.size():
+		xp = int(str(exp_table[level - 1]))
 	_recalc()
 	hp = hp_max
 	mana = mana_max
+
+
+func grant_starter_kit() -> void:
+	## Fresh character: level-appropriate gear (all equippable at base
+	## stats), arrows in the off-hand, a stocked belt, walking money.
+	var gen := get_node("/root/ItemGen")
+	for pair in [["weap", "sbw"], ["tors", "hla"], ["head", "cap"],
+			["glov", "lgl"], ["boot", "lbt"], ["belt", "vbl"]]:
+		var inst: Dictionary = {}
+		for attempt in range(6):
+			inst = gen.maybe_magic(str(pair[1]), level)
+			if not inst.is_empty():
+				break
+		equipped[str(pair[0])] = {"code": pair[1], "inst": inst}
+	equipped["shie"] = {"code": "aqv", "inst": {}}
+	belt = [{"code": "hp2", "count": 3}, {"code": "mp2", "count": 2}, {}, {}]
+	gold = 250
+	_recalc()
+	hp = hp_max
+	mana = mana_max
+	equipment_changed.emit()
+	inventory_changed.emit()
 
 
 func _recalc() -> void:
@@ -49,7 +73,7 @@ const SLOTS := ["head", "tors", "weap", "shie", "glov", "boot", "belt",
 		"ring1", "ring2", "amul"]
 var equipped := {}             # slot -> {code, inst}
 var mods := {}                 # aggregated equipment modifiers
-var stat_points := 0
+var stat_points := 70
 
 # equipment property codes we aggregate
 const MOD_MAP := {

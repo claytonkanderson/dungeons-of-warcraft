@@ -129,6 +129,8 @@ func _play(role: String, blend := 0.2) -> void:
 func slow(duration: float, factor := 0.4) -> void:
 	_slow_t = maxf(_slow_t, duration)
 	_slow_factor = factor
+	if anim != null:
+		anim.speed_scale = 0.45   # chilled: the whole body drags
 
 
 func burn(dps: float, duration: float) -> void:
@@ -146,6 +148,8 @@ func take_damage(dmg: float) -> void:
 	hp -= dmg
 	if hp <= 0.0:
 		state = State.DEAD
+		if anim != null:
+			anim.speed_scale = 1.0
 		_play("death", 0.1)
 		set_collision_layer_value(1, false)
 		died.emit(self)
@@ -238,6 +242,8 @@ func _physics_process(dt: float) -> void:
 		_slow_t -= dt
 		if _slow_t <= 0.0:
 			_slow_factor = 0.4
+			if anim != null:
+				anim.speed_scale = 1.0
 	if _burn_t > 0.0:
 		_burn_t -= dt
 		take_damage(_burn_dps * dt)

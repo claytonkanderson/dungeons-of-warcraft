@@ -31,8 +31,8 @@ func _tex_load(rel: String) -> Texture2D:
 	return t
 
 
-func _icon_tex(icon_frame: int) -> AtlasTexture:
-	var sheet = get_node("/root/SpriteDB").load_sheet("ui/amskillicon")
+func _icon_tex(icon_frame: int, sheet_name := "ui/amskillicon") -> AtlasTexture:
+	var sheet = get_node("/root/SpriteDB").load_sheet(sheet_name)
 	if sheet == null:
 		return null
 	var at := AtlasTexture.new()
@@ -75,22 +75,28 @@ class PanelControl:
 			var font := ThemeDB.fallback_font
 			draw_string(font, bpos + Vector2(26, 36) * s, cnt,
 					HORIZONTAL_ALIGNMENT_LEFT, -1, maxi(1, int(12 * s)), Color(1, 1, 1))
-		# assigned skill icons
+		# assigned skill icons: always visible — normal Attack shows the
+		# classic swing glyph from the generic skill icon panel
 		for i in range(2):
 			var p: Player = hud.get_tree().get_first_node_in_group("player")
 			if p == null:
 				break
 			var skill: String = p.action_skill[i]
-			var icon := -1
-			if skill != "Attack":
+			var at: AtlasTexture = null
+			if skill == "Attack":
+				at = hud._icon_tex(2, "ui/skilliconpanel")
+			else:
 				var sd: Dictionary = hud.get_node("/root/SpriteDB").gamedata() \
 						.get("skilldesc", {}).get(skill.to_lower(), {})
-				icon = int(str(sd.get("icon", "-1")).to_int()) if not sd.is_empty() else -1
+				var icon := int(str(sd.get("icon", "-1")).to_int()) \
+						if not sd.is_empty() else -1
+				if icon >= 0:
+					at = hud._icon_tex(icon)
+				if at == null:
+					at = hud._icon_tex(2, "ui/skilliconpanel")
 			var pos: Vector2 = (hud.SKILL_L if i == 0 else hud.SKILL_R) * s
-			if icon >= 0:
-				var at := hud._icon_tex(icon)
-				if at != null:
-					draw_texture_rect(at, Rect2(pos, Vector2(48, 48) * s), false)
+			if at != null:
+				draw_texture_rect(at, Rect2(pos, Vector2(48, 48) * s), false)
 
 	func _orb(tex: Texture2D, tl: Vector2, frac: float, s: float,
 			tint := Color(1, 1, 1)) -> void:

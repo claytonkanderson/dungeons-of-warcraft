@@ -45,9 +45,13 @@ func _load_json(path: String) -> Dictionary:
 func _ready() -> void:
 	wow_dir = _assets_dir().path_join("wow/deadmines")
 	var gs := get_node("/root/GameState")
-	if not gs.session_loaded and not OS.get_cmdline_user_args().has("--fresh"):
+	if not gs.session_loaded:
 		gs.session_loaded = true
-		gs.load_game(null)
+		var loaded := false
+		if not OS.get_cmdline_user_args().has("--fresh"):
+			loaded = gs.load_game(null)
+		if not loaded:
+			gs.grant_starter_kit()
 	for a in OS.get_cmdline_user_args():
 		if str(a).begins_with("--shots="):
 			_shot_dir = str(a).substr(8)
@@ -541,8 +545,12 @@ func _launch_arrow(gs, skill: String, origin: Vector3, d2: Vector3) -> void:
 	var mrow: Dictionary = gd.get("missiles", {}).get(mis, {})
 	if not mrow.is_empty():
 		var cf := str(mrow.get("CelFile", "")).strip_edges().to_lower()
-		if cf != "" and get_node("/root/SpriteDB").load_sheet("missiles/" + cf) != null:
-			cel = cf
+		if cf != "":
+			if get_node("/root/SpriteDB").load_sheet("missiles/" + cf) != null:
+				cel = cf
+			elif cf.contains("lightning") and get_node("/root/SpriteDB") \
+					.load_sheet("missiles/lightningbolt") != null:
+				cel = "lightningbolt"   # javelin-tree bolts reuse the bolt art
 		var ex := str(mrow.get("ExplosionMissile", "")).strip_edges()
 		if ex != "":
 			var xrow: Dictionary = gd.get("missiles", {}).get(ex, {})
@@ -603,28 +611,27 @@ func _physics_process(dt: float) -> void:
 		if hit:
 			var col: Object = hit["collider"]
 			if col is WowCreature and col.state != WowCreature.State.DEAD:
-				var chance := GameState.chance_to_hit(
-					gs.attack_rating(), col.defense, gs.level, col.mlevel)
-				if randf() < chance:
-					var wd: Vector2 = gs.weapon_damage()
-					var dmg := randf_range(wd.x, wd.y)
-					if randf() < gs.crit_chance():
-						dmg *= 2.0
-					dmg += gs.gear_elemental() * GameState.DMG_MULT
-					var edmg: Vector2 = a.get("edmg", Vector2.ZERO)
-					if edmg.y > 0.0:
-						dmg += randf_range(edmg.x, edmg.y) * GameState.DMG_MULT
-					var sk := str(a.get("skill", ""))
-					if a.get("etype", "") == "cold":
-						var factor := 0.25 if sk in ["Ice Arrow", "Freezing Arrow"] else 0.4
-						col.slow(2.0 + 0.5 * gs.skill_level(sk), factor)
-					if sk == "Immolation Arrow":
-						col.burn(6.0 * gs.skill_level(sk) * GameState.DMG_MULT / 5.0, 3.0)
-					col.take_damage(dmg)
-					get_node("/root/Sfx").event("arrow_impact", hit["position"])
-					_skill_impact(a, hit["position"])
-					if randf() < gs.pierce_chance():
-						continue    # arrow pierces through
+				# an arrow that physically connects always hits — the FPS aim
+				# replaces D2's attack-rating roll for missiles
+				var wd: Vector2 = gs.weapon_damage()
+				var dmg := randf_range(wd.x, wd.y)
+				if randf() < gs.crit_chance():
+					dmg *= 2.0
+				dmg += gs.gear_elemental() * GameState.DMG_MULT
+				var edmg: Vector2 = a.get("edmg", Vector2.ZERO)
+				if edmg.y > 0.0:
+					dmg += randf_range(edmg.x, edmg.y) * GameState.DMG_MULT
+				var sk := str(a.get("skill", ""))
+				if a.get("etype", "") == "cold":
+					var factor := 0.25 if sk in ["Ice Arrow", "Freezing Arrow"] else 0.4
+					col.slow(2.0 + 0.5 * gs.skill_level(sk), factor)
+				if sk == "Immolation Arrow":
+					col.burn(6.0 * gs.skill_level(sk) * GameState.DMG_MULT / 5.0, 3.0)
+				col.take_damage(dmg)
+				get_node("/root/Sfx").event("arrow_impact", hit["position"])
+				_skill_impact(a, hit["position"])
+				if randf() < gs.pierce_chance():
+					continue    # arrow pierces through
 			var explode := str(a.get("explode", ""))
 			if explode != "":
 				var boom := BillboardAnim.new()
@@ -771,15 +778,6 @@ func _combat_test() -> void:
 	DirAccess.make_dir_recursive_absolute(shots)
 	if not OS.has_feature("movie"):
 		Engine.max_fps = 60
-	else:
-		# demo take: a mid-run heroine so the archery connects on camera
-		var dgs := get_node("/root/GameState")
-		dgs.level = 6
-		dgs.stat = {"str": 25, "dex": 60, "vit": 30, "ene": 20}
-		dgs.skills = {"Critical Strike": 3}
-		dgs._recalc()
-		dgs.hp = dgs.hp_max
-		dgs.mana = dgs.mana_max
 	print("attack len=%.2f release=%.2f" % [player._attack_len, player.attack_release])
 	var fired := 0
 	var best: WowCreature = null

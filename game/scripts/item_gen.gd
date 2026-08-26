@@ -120,11 +120,13 @@ func type_chain(code: String) -> Dictionary:
 
 
 func roll_drop(mlvl: int) -> Dictionary:
+	## Quality skewed generous: every roll is rare-or-better, with a heavy
+	## unique/set share. Item data itself stays true to the D2 tables.
 	_ensure_loaded()
 	var r := randf()
-	if r < 0.15 and not uniques.is_empty():
+	if r < 0.25 and not uniques.is_empty():
 		return _roll_unique(mlvl)
-	elif r < 0.30 and not setitems.is_empty():
+	elif r < 0.45 and not setitems.is_empty():
 		return _roll_set(mlvl)
 	return _roll_rare(mlvl)
 

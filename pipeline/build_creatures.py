@@ -43,10 +43,19 @@ HAND_TUNED = {
 GAME_SEQS = {0, 1, 4, 5, 9, 10, 16, 17, 18, 19, 31, 32, 51}
 
 # --- D2 stat mapping tuning -------------------------------------------------
-HP_TUNE = 0.10        # wow hp -> D2 hp (lvl-17 trash ~390 -> ~39, 2-3 hits)
-DMG_TUNE = 0.40       # wow damage/hit -> D2 damage (trash ~25 -> ~10)
-XP_TARGET = 560_000   # total xp of all spawns: full clear ~ level 20-21
-MLVL_SHIFT = 12       # wow level - shift = D2 mlvl (for hit-chance math)
+# Player starts at level 14 with starter gear; skills carry the damage.
+# Trash ~4 plain arrows / 1-2 skill arrows, elites meaty, bosses long.
+HP_TUNE = 0.18        # wow hp -> D2 hp (lvl-17 trash ~390 -> ~70)
+DMG_TUNE = 0.60       # wow damage/hit -> D2 damage (trash ~25 -> ~15)
+MLVL_SHIFT = 4        # wow level - shift = D2 mlvl (matches plvl 14 start)
+START_LEVEL = 14      # xp normalized so a full clear runs 14 -> ~TARGET_LEVEL
+TARGET_LEVEL = 28
+
+
+def xp_target():
+    gd = json.loads((ASSETS / "gamedata.json").read_text())
+    e = gd["experience"]
+    return int(str(e[TARGET_LEVEL])) - int(str(e[START_LEVEL - 1]))
 
 
 def sql_rows(path, pattern):
@@ -185,7 +194,7 @@ def load_stats():
     for c in pl.get("creatures", []):
         counts[int(c["entry"])] = counts.get(int(c["entry"]), 0) + 1
     total = sum(stats[e]["Exp"] * n for e, n in counts.items() if e in stats)
-    scale = XP_TARGET / total if total else 1.0
+    scale = xp_target() / total if total else 1.0
     for e in stats:
         stats[e]["Exp"] = max(1, int(stats[e]["Exp"] * scale))
     print(f"xp normalize: raw total {total:.0f} -> scale {scale:.2f}")
