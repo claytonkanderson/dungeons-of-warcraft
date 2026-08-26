@@ -432,6 +432,7 @@ func drink(i: int) -> void:
 signal skills_changed
 
 var skills := {}               # skill name -> points allocated
+var hotkeys := {}              # "F1".."F5" -> skill name (D2-style binds)
 
 
 var poison_dps := 0.0
@@ -511,7 +512,7 @@ func save_game(player) -> void:
 		"inv": inv_items, "hp": hp, "mana": mana,
 		"stat_points": stat_points, "equipped": equipped,
 		"current_level": current_level, "waypoints": waypoints,
-		"belt": belt, "stash": stash_items,
+		"belt": belt, "stash": stash_items, "hotkeys": hotkeys,
 	}
 	if player != null:
 		d["pos"] = [player.global_position.x, player.global_position.y,
@@ -549,6 +550,7 @@ func load_game(player) -> bool:
 	mana = float(d.get("mana", mana_max))
 	belt = d.get("belt", [{}, {}, {}, {}])
 	stash_items = d.get("stash", [])
+	hotkeys = d.get("hotkeys", {})
 	current_level = int(d.get("current_level", 1))
 	waypoints = d.get("waypoints", [1])
 	if not waypoints.has(1):

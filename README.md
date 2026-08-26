@@ -31,7 +31,8 @@ run_game.bat -- --shots=DIR --at=x,y,z    # screenshot probe
 Controls: WASD + mouse (warp-look — never MOUSE_MODE_CAPTURED on this
 machine), Shift run, LMB/RMB = D2 action slots, T skill tree (ctrl/right
 click assigns slots), I inventory, C char sheet, E pickup, Alt loot
-labels, 1-4 belt potions, F5 save, Esc frees the mouse.
+labels, 1-4 belt potions, F1-F5 skill hotkeys (bind by hovering a learned skill in
+the tree and pressing the key), F9 save, Esc frees the mouse.
 
 ## Rebuild assets (git-ignored, ~150 MB)
 

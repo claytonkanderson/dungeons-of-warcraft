@@ -16,6 +16,7 @@ var tab := 0
 var root: Control
 var tooltip: Label
 var _tex := {}
+var _hover_skill := ""   # skill under the cursor: F1-F5 binds it
 
 @onready var gs := get_node("/root/GameState")
 @onready var db := get_node("/root/SpriteDB")
@@ -157,7 +158,9 @@ func _rebuild() -> void:
 		btn.position = pos
 		btn.size = Vector2(48, 48) * SCALE
 		btn.mouse_entered.connect(_on_hover.bind(s, btn))
-		btn.mouse_exited.connect(func(): tooltip.visible = false)
+		btn.mouse_exited.connect(func():
+			tooltip.visible = false
+			_hover_skill = "")
 		btn.gui_input.connect(_on_icon_input.bind(s))
 		root.add_child(btn)
 		if icon_sheet != null:
@@ -185,9 +188,20 @@ func _rebuild() -> void:
 			ll.add_theme_constant_override("outline_size", 4)
 			ll.position = pos + Vector2(48, 48) * SCALE - Vector2(16, 22)
 			root.add_child(ll)
+		for hk in gs.hotkeys:
+			if str(gs.hotkeys[hk]) == str(s.name):
+				var hl := Label.new()
+				hl.text = str(hk)
+				hl.add_theme_font_size_override("font_size", 13)
+				hl.add_theme_color_override("font_color", Color(0.5, 1.0, 0.5))
+				hl.add_theme_color_override("font_outline_color", Color(0, 0, 0))
+				hl.add_theme_constant_override("outline_size", 4)
+				hl.position = pos + Vector2(2, -2)
+				root.add_child(hl)
 
 
 func _on_hover(s: Dictionary, btn: Button) -> void:
+	_hover_skill = str(s.name)
 	var r: Dictionary = s.def
 	var lines := [s.name,
 		"Level %d" % gs.skill_level(s.name),
@@ -198,6 +212,7 @@ func _on_hover(s: Dictionary, btn: Button) -> void:
 		if req != "":
 			lines.append("Requires: " + req)
 	lines.append("click: +1   ctrl+click: LMB   right-click: RMB")
+	lines.append("F1-F5: bind hotkey")
 	tooltip.text = "\n".join(lines)
 	tooltip.visible = true
 	tooltip.position = root.position + btn.position + Vector2(-160, 0)
@@ -225,3 +240,9 @@ func _input(e: InputEvent) -> void:
 		if e.keycode == KEY_1: tab = 0; _rebuild()
 		elif e.keycode == KEY_2: tab = 1; _rebuild()
 		elif e.keycode == KEY_3: tab = 2; _rebuild()
+		elif e.keycode >= KEY_F1 and e.keycode <= KEY_F5:
+			# D2-style: bind the hovered, learned skill to this key
+			if _hover_skill != "" and gs.skill_level(_hover_skill) > 0:
+				gs.hotkeys["F%d" % (e.keycode - KEY_F1 + 1)] = _hover_skill
+				get_node("/root/Sfx").event_ui("button")
+				_rebuild()

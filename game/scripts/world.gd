@@ -798,7 +798,15 @@ func _unhandled_input(e: InputEvent) -> void:
 			_pickup_nearest()
 		elif e.keycode >= KEY_1 and e.keycode <= KEY_4:
 			get_node("/root/GameState").drink(e.keycode - KEY_1)
-		elif e.keycode == KEY_F5:
+		elif e.keycode >= KEY_F1 and e.keycode <= KEY_F5:
+			# skill hotkeys: swap the RMB skill (binding happens in the tree)
+			if player != null and not player.ui_locked:
+				var gsk := get_node("/root/GameState")
+				var sk := str(gsk.hotkeys.get("F%d" % (e.keycode - KEY_F1 + 1), ""))
+				if sk != "" and gsk.skill_level(sk) > 0:
+					player.action_skill[1] = sk
+					get_node("/root/Sfx").event_ui("button")
+		elif e.keycode == KEY_F9:
 			get_node("/root/GameState").save_game(player)
 			if hud_node != null:
 				hud_node.show_area("Saved")
