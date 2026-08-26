@@ -16,6 +16,7 @@ ItemText="*res://scripts/item_text.gd"
 D2Font="*res://scripts/d2_font.gd"
 Sfx="*res://scripts/sfx.gd"
 Music="*res://scripts/music.gd"
+WowSfx="*res://scripts/wow_sfx.gd"
 
 [display]
 

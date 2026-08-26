@@ -373,6 +373,15 @@ func _spawn_player(gs) -> void:
 	add_child(player)
 
 
+# WowSfx voice groups by creature entry (peasant files aren't in the local
+# storage yet — mapped anyway so they speak the day they extract)
+const VOICE_MAP := {598: "peasant", 3586: "peasant", 4416: "peasant",
+		622: "goblin", 641: "goblin", 642: "goblin", 647: "goblin",
+		1731: "goblin", 1763: "goblin", 3947: "goblin",
+		645: "murloc", 644: "ogre"}
+const HEAVY_HITTERS := [642, 644, 646]   # shredder, ogre, Smite swing heavy
+
+
 func _spawn_creatures(entries: Array) -> void:
 	var cinfo := _load_json(wow_dir.path_join("creatures/creatures.json"))
 	var cache: Dictionary = {}
@@ -422,6 +431,8 @@ func _spawn_creatures(entries: Array) -> void:
 		add_child(mob)
 		mob.setup(str(info.get("name", key)), info, _find_anim_player(model),
 				radius)
+		mob.voice = str(VOICE_MAP.get(int(c["entry"]), ""))
+		mob.impact_kind = "heavy" if int(c["entry"]) in HEAVY_HITTERS else "sword"
 		mob.target = player
 		mob.died.connect(_on_monster_died)
 		monsters.append(mob)

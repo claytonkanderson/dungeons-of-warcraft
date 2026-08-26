@@ -14,6 +14,8 @@ const TURN_SPEED := 10.0
 signal died(mob)
 
 var cname := ""
+var voice := ""              # WowSfx voice group ("goblin", "murloc", ...)
+var impact_kind := "sword"   # WowSfx foley when a swing lands on the player
 var stats := {}
 var hp := 10.0
 var hp_max := 10.0
@@ -152,6 +154,7 @@ func take_damage(dmg: float) -> void:
 		if anim != null:
 			anim.speed_scale = 1.0
 		_play("death", 0.1)
+		get_node("/root/WowSfx").voice(voice, "death", global_position)
 		set_collision_layer_value(1, false)
 		died.emit(self)
 		gs.award_xp(xp_value)
@@ -159,6 +162,7 @@ func take_damage(dmg: float) -> void:
 	if passive:
 		# a kicked critter finally fights back
 		passive = false
+	get_node("/root/WowSfx").voice(voice, "wound", global_position, 0.4)
 	# bosses shrug off most hits instead of being stun-locked
 	if is_boss and randf() > 0.25:
 		return
@@ -171,6 +175,7 @@ func take_damage(dmg: float) -> void:
 func _start_attack(casting: bool) -> void:
 	state = State.ATTACK
 	var role := "cast" if casting else "attack"
+	get_node("/root/WowSfx").voice(voice, "attack", global_position, 0.35)
 	_play(role, 0.1)
 	var clip: String = clips.get(role, "")
 	var length := 1.0
@@ -209,6 +214,7 @@ func _strike() -> void:
 	if randf() < chance:
 		if randf() < gs.dodge_chance():
 			return
+		get_node("/root/WowSfx").impact(impact_kind, target.global_position, 0.9)
 		get_node("/root/Sfx").event("player_gethit", target.global_position, 0.5)
 		if gs.take_damage(dmg) and target.has_method("die"):
 			target.die()
@@ -289,6 +295,7 @@ func _physics_process(dt: float) -> void:
 			if dist < 22.0 and _los:
 				state = State.CHASE
 				_los_lost = 0.0
+				get_node("/root/WowSfx").voice(voice, "aggro", global_position)
 				_play("run")
 		State.CHASE:
 			_atk_cd -= dt
