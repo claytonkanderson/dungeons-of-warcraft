@@ -1,0 +1,6 @@
+assets/
+game/.godot/
+shots/
+video/
+__pycache__/
+*.pyc
