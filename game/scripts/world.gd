@@ -102,17 +102,34 @@ func respawn_position() -> Vector3:
 	return spawn
 
 
+var _env: Environment
+
+
 func _lighting() -> void:
 	# WMO vertex colors carry the baked lighting; flat ambient reveals them
-	var env := Environment.new()
-	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color(0.02, 0.02, 0.03)
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.55, 0.55, 0.6)
-	env.ambient_light_energy = 1.0
+	_env = Environment.new()
+	_env.background_mode = Environment.BG_COLOR
+	_env.background_color = Color(0.02, 0.02, 0.03)
+	_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	_env.ambient_light_color = Color(0.55, 0.55, 0.6)
+	_env.ambient_light_energy = 1.0
 	var we := WorldEnvironment.new()
-	we.environment = env
+	we.environment = _env
 	add_child(we)
+
+
+func _outdoor_sky() -> void:
+	## Night sky over the cove once terrain exists (WMOs stay unlit/baked).
+	var sky_mat := ProceduralSkyMaterial.new()
+	sky_mat.sky_top_color = Color(0.04, 0.06, 0.12)
+	sky_mat.sky_horizon_color = Color(0.22, 0.24, 0.32)
+	sky_mat.ground_bottom_color = Color(0.02, 0.02, 0.04)
+	sky_mat.ground_horizon_color = Color(0.18, 0.20, 0.26)
+	sky_mat.sun_angle_max = 0.0
+	var sky := Sky.new()
+	sky.sky_material = sky_mat
+	_env.background_mode = Environment.BG_SKY
+	_env.sky = sky
 
 
 func _load_glb(path: String) -> Node3D:
@@ -171,6 +188,25 @@ func _build_world(placements: Dictionary) -> void:
 	mesh_count += _place_set(placements.get("doodads", []), wmo_nodes)
 	mesh_count += _place_set(placements.get("props", []), wmo_nodes)
 	print("collision built for %d meshes" % mesh_count)
+
+	# outdoor terrain + water from the ADT pass (optional; run build_terrain.py)
+	var terr := _load_json(wow_dir.path_join("terrain/terrain.json"))
+	if terr.has("tiles"):
+		var t0 := Time.get_ticks_msec()
+		for t in terr.tiles:
+			var node := _load_glb(wow_dir.path_join("terrain/" + str(t)))
+			if node == null:
+				continue
+			add_child(node)
+			for mi in _find_meshes(node):
+				mi.create_trimesh_collision()
+		if str(terr.get("water", "")) != "":
+			var wnode := _load_glb(wow_dir.path_join("terrain/" + str(terr.water)))
+			if wnode != null:
+				add_child(wnode)
+		_outdoor_sky()
+		print("terrain: %d tiles in %d ms" % [terr.tiles.size(),
+				Time.get_ticks_msec() - t0])
 
 	# fall-through guard from the main WMO's lowest group
 	var meta := _load_json(wow_dir.path_join("deadmines_meta.json"))
