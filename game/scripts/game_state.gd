@@ -111,6 +111,52 @@ func resist(etype: String) -> float:
 	return minf(75.0, float(mods.get(key, 0)) + float(mods.get("res-all", 0)))
 
 
+var _setbonus := {}            # items/sets bonus tables (setbonus.json)
+var _setmap := {}              # set item name -> set name (setitems.json)
+
+
+func _load_setdata() -> void:
+	if not _setbonus.is_empty():
+		return
+	var f := FileAccess.open(ProjectSettings.globalize_path(
+		"res://../assets/items/setbonus.json"), FileAccess.READ)
+	if f != null:
+		var d: Variant = JSON.parse_string(f.get_as_text())
+		if d is Dictionary:
+			_setbonus = d
+	if _setbonus.is_empty():
+		_setbonus = {"items": {}, "sets": {}}
+	var f2 := FileAccess.open(ProjectSettings.globalize_path(
+		"res://../assets/items/setitems.json"), FileAccess.READ)
+	if f2 != null:
+		var arr: Variant = JSON.parse_string(f2.get_as_text())
+		if arr is Array:
+			for it in arr:
+				_setmap[str(it.get("name", ""))] = str(it.get("set", ""))
+
+
+func set_worn_counts() -> Dictionary:
+	## set name -> number of its pieces currently equipped
+	_load_setdata()
+	var counts := {}
+	for slot in equipped:
+		var inst: Dictionary = equipped[slot].get("inst", {})
+		if str(inst.get("quality", "")) != "set":
+			continue
+		var sname := str(_setmap.get(str(inst.get("name", "")), ""))
+		if sname != "":
+			counts[sname] = int(counts.get(sname, 0)) + 1
+	return counts
+
+
+func _apply_prop(p: Dictionary) -> void:
+	var key = MOD_MAP.get(str(p.get("code", "")))
+	if key == null:
+		return
+	mods[key] = int(mods.get(key, 0)) \
+			+ int(p.get("val", str(p.get("min", "0")).to_int()))
+
+
 func _aggregate_mods() -> void:
 	mods = {}
 	for slot in equipped:
@@ -122,11 +168,35 @@ func _aggregate_mods() -> void:
 			else:
 				flat.append(p)
 		for p in flat:
-			var key = MOD_MAP.get(str(p.get("code", "")))
-			if key == null:
-				continue
-			mods[key] = int(mods.get(key, 0)) \
-					+ int(p.get("val", str(p.get("min", "0")).to_int()))
+			_apply_prop(p)
+	# D2 set bonuses: per-item aprops unlock at 2..5 pieces worn; set-wide
+	# partial bonuses stack per threshold; full bonus with the whole set
+	var counts := set_worn_counts()
+	if counts.is_empty():
+		return
+	for slot in equipped:
+		var inst: Dictionary = equipped[slot].get("inst", {})
+		if str(inst.get("quality", "")) != "set":
+			continue
+		var worn := int(counts.get(
+			str(_setmap.get(str(inst.get("name", "")), "")), 0))
+		var aprops: Array = _setbonus.get("items", {}) \
+				.get(str(inst.get("name", "")), [])
+		for i in range(aprops.size()):
+			if worn >= i + 2:
+				for p in aprops[i]:
+					_apply_prop(p)
+	for sname in counts:
+		var sdef: Dictionary = _setbonus.get("sets", {}).get(sname, {})
+		var worn := int(counts[sname])
+		var partial: Array = sdef.get("partial", [])
+		for i in range(partial.size()):
+			if worn >= i + 2:
+				for p in partial[i]:
+					_apply_prop(p)
+		if worn >= 2 and worn >= int(sdef.get("count", 99)):
+			for p in sdef.get("full", []):
+				_apply_prop(p)
 
 
 func total_stat(name: String) -> int:

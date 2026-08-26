@@ -61,6 +61,7 @@ func play_at(key: String, pos: Vector3, min_gap_frames := 3) -> void:
 	p.pitch_scale = randf_range(0.96, 1.05)
 	p.unit_size = 6.0
 	p.max_distance = 70.0
+	p.bus = "SFX"
 	var host: Node = get_tree().current_scene
 	if host == null:
 		host = self
@@ -86,6 +87,7 @@ func play_ui(key: String, min_gap_frames := 3) -> void:
 	var p := AudioStreamPlayer.new()
 	p.stream = stream
 	p.volume_db = _volume_db(key)
+	p.bus = "SFX"
 	add_child(p)
 	p.finished.connect(p.queue_free)
 	p.play()

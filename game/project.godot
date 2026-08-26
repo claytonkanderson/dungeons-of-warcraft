@@ -8,6 +8,7 @@ config/features=PackedStringArray("4.7")
 
 [autoload]
 
+Settings="*res://scripts/settings.gd"
 SpriteDB="*res://scripts/sprite_db.gd"
 GameState="*res://scripts/game_state.gd"
 ItemDB="*res://scripts/item_db.gd"

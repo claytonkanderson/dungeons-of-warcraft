@@ -169,10 +169,7 @@ func _input(e: InputEvent) -> void:
 			_start_attack(0)
 		elif e.button_index == MOUSE_BUTTON_RIGHT:
 			_start_attack(1)
-	elif e is InputEventKey and e.pressed and e.keycode == KEY_ESCAPE:
-		if not ui_locked:
-			look_enabled = false
-			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	# Esc is handled by the world: panels close first, then the menu opens
 
 
 func die() -> void:

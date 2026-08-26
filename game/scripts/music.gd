@@ -24,10 +24,11 @@ func _ready() -> void:
 	manifest = parsed
 	_ambience = AudioStreamPlayer.new()
 	_ambience.volume_db = float(manifest.get("ambience_db", -8.0))
-	_ambience.bus = "Master"
+	_ambience.bus = "Music"
 	add_child(_ambience)
 	_music = AudioStreamPlayer.new()
 	_music.volume_db = float(manifest.get("music_db", -6.0))
+	_music.bus = "Music"
 	add_child(_music)
 	_music.finished.connect(_on_music_done)
 	_start_ambience()

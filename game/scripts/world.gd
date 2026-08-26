@@ -21,6 +21,7 @@ var hud_node: HUD
 var inv_ui: InventoryUI
 var tree_ui: SkillTreeUI
 var char_ui: CharSheet
+var menu_ui: MenuUI
 var force_labels := false
 var _shot_dir := ""
 var _at_override := Vector3.INF
@@ -84,6 +85,9 @@ func _ready() -> void:
 	add_child(tree_ui)
 	char_ui = CharSheet.new()
 	add_child(char_ui)
+	menu_ui = MenuUI.new()
+	menu_ui.world = self
+	add_child(menu_ui)
 	player.action_skill = [str(gs._saved_action[0]), str(gs._saved_action[1])]
 	hud_node.show_area("The Deadmines")
 	# WASAPI init fails intermittently on this machine (sleepy BT headset as
@@ -177,6 +181,11 @@ func _ui_test() -> void:
 	for i in range(8):
 		await RenderingServer.frame_post_draw
 	get_viewport().get_texture().get_image().save_png(shots + "/ui_tree.png")
+	tree_ui.toggle()
+	toggle_menu()
+	for i in range(8):
+		await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(shots + "/ui_menu.png")
 	print("ui captures done")
 
 
@@ -837,7 +846,8 @@ func _sync_ui() -> void:
 	## attacks, no warp-look; all closed -> back to FPS control.
 	var any_open: bool = (inv_ui != null and inv_ui.open) \
 			or (tree_ui != null and tree_ui.open) \
-			or (char_ui != null and char_ui.open)
+			or (char_ui != null and char_ui.open) \
+			or (menu_ui != null and menu_ui.open)
 	if player == null:
 		return
 	player.ui_locked = any_open
@@ -900,7 +910,7 @@ func _unhandled_input(e: InputEvent) -> void:
 				char_ui.toggle()
 				_sync_ui()
 		elif e.keycode == KEY_ESCAPE:
-			# Esc closes whatever panels are up before it ever frees the look
+			# Esc closes panels first; with nothing open it toggles the menu
 			var closed := false
 			for panel in [inv_ui, tree_ui, char_ui]:
 				if panel != null and panel.open:
@@ -908,6 +918,15 @@ func _unhandled_input(e: InputEvent) -> void:
 					closed = true
 			if closed:
 				_sync_ui()
+			else:
+				toggle_menu()
+
+
+func toggle_menu() -> void:
+	if menu_ui == null:
+		return
+	menu_ui.toggle()
+	_sync_ui()
 
 
 func _process(_dt: float) -> void:
@@ -918,6 +937,18 @@ func _process(_dt: float) -> void:
 		hud_node.show_item_labels(ground_items, cam)
 	else:
 		hud_node.hide_item_labels()
+	# creature under the crosshair -> D2-style name + health plate up top
+	var cam2: Camera3D = player.get_node("Camera3D")
+	var from := cam2.global_position
+	var q := PhysicsRayQueryParameters3D.create(
+		from, from - cam2.global_transform.basis.z * 45.0)
+	q.exclude = [player.get_rid()]
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	if hit and hit["collider"] is WowCreature \
+			and hit["collider"].state != WowCreature.State.DEAD:
+		hud_node.show_target(hit["collider"])
+	else:
+		hud_node.hide_target()
 
 
 func _notification(what: int) -> void:

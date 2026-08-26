@@ -52,6 +52,7 @@ func _play_at(names: Array, pos: Vector3, vol_db := -4.0,
 	p.pitch_scale = randf_range(0.95, 1.06)
 	p.unit_size = 6.0
 	p.max_distance = 60.0
+	p.bus = "SFX"
 	var host: Node = get_tree().current_scene
 	if host == null:
 		host = self

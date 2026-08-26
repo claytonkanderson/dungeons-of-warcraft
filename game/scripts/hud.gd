@@ -177,6 +177,49 @@ func show_area(name: String, color := Color(0.9, 0.82, 0.6), dur := 3.0) -> void
 	_area_t = dur
 
 
+var _tgt_root: Control
+var _tgt_name: Label
+var _tgt_bg: ColorRect
+var _tgt_fill: ColorRect
+
+
+func show_target(mob) -> void:
+	## D2-style plate at the top: creature name over a health bar.
+	if _tgt_root == null:
+		_tgt_root = Control.new()
+		add_child(_tgt_root)
+		_tgt_name = Label.new()
+		get_node("/root/D2Font").style(_tgt_name, 16)
+		_tgt_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_tgt_name.add_theme_color_override("font_outline_color", Color(0, 0, 0))
+		_tgt_name.add_theme_constant_override("outline_size", 5)
+		_tgt_root.add_child(_tgt_name)
+		_tgt_bg = ColorRect.new()
+		_tgt_bg.color = Color(0.0, 0.0, 0.0, 0.75)
+		_tgt_root.add_child(_tgt_bg)
+		_tgt_fill = ColorRect.new()
+		_tgt_fill.color = Color(0.55, 0.05, 0.05)
+		_tgt_root.add_child(_tgt_fill)
+	var vp := get_viewport().get_visible_rect().size
+	var w := 280.0
+	_tgt_root.visible = true
+	_tgt_name.text = str(mob.cname)
+	_tgt_name.add_theme_color_override("font_color",
+			Color(0.95, 0.75, 0.25) if mob.is_boss else Color(0.92, 0.9, 0.85))
+	_tgt_name.position = Vector2(vp.x * 0.5 - w * 0.5, 14)
+	_tgt_name.size = Vector2(w, 22)
+	_tgt_bg.position = Vector2(vp.x * 0.5 - w * 0.5, 40)
+	_tgt_bg.size = Vector2(w, 14)
+	var frac: float = clampf(mob.hp / maxf(1.0, mob.hp_max), 0.0, 1.0)
+	_tgt_fill.position = _tgt_bg.position + Vector2(1, 1)
+	_tgt_fill.size = Vector2((w - 2) * frac, 12)
+
+
+func hide_target() -> void:
+	if _tgt_root != null:
+		_tgt_root.visible = false
+
+
 func show_item_labels(items: Array, cam: Camera3D) -> void:
 	while _item_labels.size() < items.size():
 		var l := Label.new()

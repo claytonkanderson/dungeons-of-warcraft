@@ -44,6 +44,7 @@ func show_item(entry: Dictionary, at: Vector2) -> void:
 		_base_lines(it, inst)
 		for line in get_node("/root/ItemText").lines_for(inst):
 			_line(str(line), MAGIC_BLUE)
+		_set_lines(inst)
 	else:
 		_line(base_name, Color.WHITE)
 		_base_lines(it, {})
@@ -57,6 +58,60 @@ func show_item(entry: Dictionary, at: Vector2) -> void:
 	var vp := get_viewport_rect().size
 	position = Vector2(clampf(at.x - sz.x * 0.5, 8, vp.x - sz.x - 8),
 			clampf(at.y - sz.y - 12, 8, vp.y - sz.y - 8))
+
+
+const SET_GREEN := Color(0.10, 0.85, 0.10)
+const SET_GREY := Color(0.5, 0.5, 0.5)
+
+
+func _set_lines(inst: Dictionary) -> void:
+	## Set bonus section: this item's aprops per threshold, green when the
+	## worn count unlocks them, grey when still locked (D2 style).
+	if str(inst.get("quality", "")) != "set":
+		return
+	var gs := get_node("/root/GameState")
+	var txt := get_node("/root/ItemText")
+	var iname := str(inst.get("name", ""))
+	var counts: Dictionary = gs.set_worn_counts()
+	var sname := str(gs._setmap.get(iname, ""))
+	var worn := int(counts.get(sname, 0))
+	var aprops: Array = gs._setbonus.get("items", {}).get(iname, [])
+	var any := false
+	for i in range(aprops.size()):
+		var plist: Array = aprops[i]
+		if plist.is_empty():
+			continue
+		if not any:
+			any = true
+			_line(" ", Color.WHITE)
+		var active: bool = worn >= i + 2
+		for line in txt.lines_for({"props": plist}):
+			_line("%s (%d items)" % [str(line), i + 2],
+					SET_GREEN if active else SET_GREY)
+	# set-wide bonuses on every piece of the set
+	var sdef: Dictionary = gs._setbonus.get("sets", {}).get(sname, {})
+	var partial: Array = sdef.get("partial", [])
+	var shown_hdr := false
+	for i in range(partial.size()):
+		var plist2: Array = partial[i]
+		if plist2.is_empty():
+			continue
+		if not shown_hdr:
+			shown_hdr = true
+			_line(" ", Color.WHITE)
+			_line(sname, SET_GREEN if worn >= 2 else SET_GREY)
+		for line in txt.lines_for({"props": plist2}):
+			_line("%s (%d items)" % [str(line), i + 2],
+					SET_GREEN if worn >= i + 2 else SET_GREY)
+	var full: Array = sdef.get("full", [])
+	if not full.is_empty():
+		if not shown_hdr:
+			_line(" ", Color.WHITE)
+			_line(sname, SET_GREEN if worn >= 2 else SET_GREY)
+		var complete: bool = worn >= 2 and worn >= int(sdef.get("count", 99))
+		for line in txt.lines_for({"props": full}):
+			_line("%s (full set)" % str(line),
+					SET_GREEN if complete else SET_GREY)
 
 
 func hide_item() -> void:
