@@ -3,8 +3,8 @@ extends Node
 ## An instance: {code, quality, name, base_name, props: Array, color: Color}
 
 const ASSETS := "res://../assets"
-# false = the whole catalog can drop regardless of monster level
-const LEVEL_FILTER := false
+# Drops are gated by REQUIRED level vs the player's CURRENT level: nothing
+# rolls that the amazon cannot wear right now. The pool widens as she levels.
 
 var uniques: Array = []
 var setitems: Array = []
@@ -34,9 +34,9 @@ func maybe_magic(code: String, mlvl: int) -> Dictionary:
 	var pre := {}
 	var suf := {}
 	if randf() < 0.6:
-		pre = _pick_one_affix(affixes.get("prefixes", []), chain)
+		pre = _pick_one_affix(affixes.get("prefixes", []), chain, _plvl())
 	if pre.is_empty() or randf() < 0.6:
-		suf = _pick_one_affix(affixes.get("suffixes", []), chain)
+		suf = _pick_one_affix(affixes.get("suffixes", []), chain, _plvl())
 	if pre.is_empty() and suf.is_empty():
 		return {}
 	var base_name := str(it.get("name", code))
@@ -58,8 +58,10 @@ func maybe_magic(code: String, mlvl: int) -> Dictionary:
 			"color": COLOR_MAGIC.to_html()}, maxlvl)
 
 
-func _pick_one_affix(pool: Array, chain: Dictionary) -> Dictionary:
+func _pick_one_affix(pool: Array, chain: Dictionary, max_lvl := 99) -> Dictionary:
 	var eligible := pool.filter(func(a):
+		if int(str(a.get("lvl", "1")).to_int()) > max_lvl:
+			return false
 		var ity: Array = a.get("itypes", [])
 		var ety: Array = a.get("etypes", [])
 		for e in ety:
@@ -148,14 +150,21 @@ func _roll_vals(plist: Array) -> Array:
 	return out
 
 
-func _lvl_ok(lvl, mlvl: int) -> bool:
-	if not LEVEL_FILTER:
-		return true
-	return int(str(lvl).to_int()) <= mlvl + 5
+func _plvl() -> int:
+	return int(get_node("/root/GameState").level)
 
 
-func _roll_unique(mlvl: int) -> Dictionary:
-	var pool := uniques.filter(func(u): return _lvl_ok(u.get("lvl", "1"), mlvl))
+func _req_of(entry: Dictionary) -> int:
+	## Effective required level of a unique/set row: its own lvlreq or its
+	## base item's, whichever is higher (mirrors _finish()).
+	var base_req := str(db.item(str(entry.get("code", ""))) \
+			.get("levelreq", "")).to_int()
+	return maxi(str(entry.get("lvlreq", "1")).to_int(), base_req)
+
+
+func _roll_unique(_mlvl: int) -> Dictionary:
+	var plvl := _plvl()
+	var pool := uniques.filter(func(u): return _req_of(u) <= plvl)
 	if pool.is_empty():
 		pool = uniques
 	var u: Dictionary = pool[randi() % pool.size()]
@@ -168,8 +177,9 @@ func _roll_unique(mlvl: int) -> Dictionary:
 			str(u.get("lvlreq", "1")).to_int())
 
 
-func _roll_set(mlvl: int) -> Dictionary:
-	var pool := setitems.filter(func(s): return _lvl_ok(s.get("lvl", "1"), mlvl))
+func _roll_set(_mlvl: int) -> Dictionary:
+	var plvl := _plvl()
+	var pool := setitems.filter(func(s): return _req_of(s) <= plvl)
 	if pool.is_empty():
 		pool = setitems
 	var s: Dictionary = pool[randi() % pool.size()]
@@ -207,7 +217,12 @@ func _roll_rare(mlvl: int) -> Dictionary:
 		# data missing: at least return a plain base item
 		return {"code": "hax", "quality": "rare", "name": "Broken Axe",
 				"base_name": "Hand Axe", "props": [], "color": COLOR_RARE.to_html()}
-	var code: String = _rare_pool_cache[randi() % _rare_pool_cache.size()]
+	var plvl := _plvl()
+	var pool := _rare_pool_cache.filter(func(c):
+		return str(db.item(str(c)).get("levelreq", "")).to_int() <= plvl)
+	if pool.is_empty():
+		pool = _rare_pool_cache
+	var code: String = pool[randi() % pool.size()]
 	var chain := type_chain(str(db.item(code).get("type", "")))
 	var props := []
 	var np := 1 + randi() % 3
@@ -227,11 +242,14 @@ func _roll_rare(mlvl: int) -> Dictionary:
 			maxlvl * 3 / 4)
 
 
-func _pick_affixes(pool: Array, chain: Dictionary, count: int, mlvl: int) -> Array:
+func _pick_affixes(pool: Array, chain: Dictionary, count: int, _mlvl: int) -> Array:
+	# rare required level is 3/4 of the highest affix level (see _roll_rare's
+	# _finish call), so affixes up to plvl * 4/3 keep the item wearable now
+	var max_affix: int = _plvl() * 4 / 3
 	var eligible := pool.filter(func(a):
 		if not a.get("rare", false):
 			return false
-		if LEVEL_FILTER and int(str(a.get("lvl", "1")).to_int()) > mlvl + 8:
+		if int(str(a.get("lvl", "1")).to_int()) > max_affix:
 			return false
 		var ity: Array = a.get("itypes", [])
 		var ety: Array = a.get("etypes", [])

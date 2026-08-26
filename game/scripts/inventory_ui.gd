@@ -47,9 +47,8 @@ func _ready() -> void:
 	add_child(panel)
 	gold_label = Label.new()
 	gold_label.add_theme_color_override("font_color", Color(0.95, 0.85, 0.4))
-	gold_label.add_theme_font_size_override("font_size", 16)
-	gold_label.add_theme_color_override("font_outline_color", Color(0, 0, 0))
-	gold_label.add_theme_constant_override("outline_size", 4)
+	get_node("/root/D2Font").style(gold_label, 16)
+	gold_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	panel.add_child(gold_label)
 	gs.inventory_changed.connect(_refresh)
 	gs.equipment_changed.connect(_refresh)
@@ -58,30 +57,25 @@ func _ready() -> void:
 
 
 func toggle() -> void:
+	# mouse/look state is owned by the world's _sync_ui()
 	open = not open
 	panel.visible = open
 	if open:
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		_layout()
 		_refresh()
 	else:
 		carried = null
 		if tooltip_card != null:
 			tooltip_card.hide_item()
-		Input.mouse_mode = Input.MOUSE_MODE_HIDDEN
-	# freeze mouse-look while the panel is up
-	var p: Player = get_tree().get_first_node_in_group("player")
-	if p != null:
-		p.look_enabled = not open
-		if not open:
-			p._center_mouse()
 
 
 func _layout() -> void:
 	var vp := get_viewport().get_visible_rect().size
 	panel.size = Vector2(320, 432) * ART_SCALE
 	panel.position = Vector2(vp.x - panel.size.x - 24, (vp.y - panel.size.y) * 0.5)
-	gold_label.position = Vector2(64, 392) * ART_SCALE
+	# centered inside the wide gold-amount box at the page bottom
+	gold_label.position = Vector2(102, 393) * ART_SCALE
+	gold_label.size = Vector2(97, 17) * ART_SCALE
 
 
 func _grid_origin() -> Vector2:
@@ -189,9 +183,34 @@ func _input(e: InputEvent) -> void:
 		return
 	if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT \
 			and carried != null:
-		var local: Vector2 = panel.get_local_mouse_position() - _grid_origin()
-		var gx := int(floor(local.x / CELL))
-		var gy := int(floor(local.y / CELL))
+		var local: Vector2 = panel.get_local_mouse_position()
+		if not Rect2(Vector2.ZERO, panel.size).has_point(local):
+			# carried item released outside the page: drop it on the ground
+			var w: Node = get_tree().get_first_node_in_group("world")
+			if w != null and w.has_method("drop_entry"):
+				var entry = carried
+				carried = null
+				w.drop_entry(entry)
+				_refresh()
+			return
+		# carried item released on its matching equipment slot: equip it
+		for slot in SLOT_RECTS:
+			var rect: Rect2 = SLOT_RECTS[slot]
+			if Rect2(rect.position * ART_SCALE, rect.size * ART_SCALE).has_point(local):
+				var want := str(gs.slot_for(str(carried.get("code", ""))))
+				var ring_ok: bool = slot in ["ring1", "ring2"] \
+						and want in ["ring1", "ring2"]
+				if slot == want or ring_ok:
+					var entry2 = carried
+					carried = null
+					if gs.equip_entry(entry2):
+						if tooltip_card != null:
+							tooltip_card.hide_item()
+					_refresh()
+					return
+		var cell: Vector2 = local - _grid_origin()
+		var gx := int(floor(cell.x / CELL))
+		var gy := int(floor(cell.y / CELL))
 		if gx >= 0 and gy >= 0 and gs.inv_move(carried, gx, gy):
 			carried = null
 			_refresh()

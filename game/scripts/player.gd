@@ -16,6 +16,7 @@ const PITCH_LIMIT := PI / 4.0   # +/-45 deg: sprites read badly from steep angle
 const STAMINA_MAX := 100.0
 const STAMINA_DRAIN := 8.0       # per second while running
 const STAMINA_REGEN := 12.0
+const JUMP_VEL := 7.5            # ~1.3 m hop against the 22 m/s^2 gravity
 
 var yaw := 0.0
 var pitch := 0.0
@@ -147,8 +148,13 @@ func refresh_attack_style() -> void:
 		attack_release = trig / sheet.fps
 
 
+var ui_locked := false   # a UI panel owns the mouse: never attack or re-capture
+
+
 func _input(e: InputEvent) -> void:
 	if e is InputEventMouseButton and e.pressed:
+		if ui_locked:
+			return
 		if not look_enabled:
 			# click to resume mouse look after Esc
 			look_enabled = true
@@ -160,8 +166,9 @@ func _input(e: InputEvent) -> void:
 		elif e.button_index == MOUSE_BUTTON_RIGHT:
 			_start_attack(1)
 	elif e is InputEventKey and e.pressed and e.keycode == KEY_ESCAPE:
-		look_enabled = false
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		if not ui_locked:
+			look_enabled = false
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
 func die() -> void:
@@ -230,6 +237,8 @@ func _physics_process(dt: float) -> void:
 
 	if is_on_floor():
 		velocity.y = 0.0
+		if Input.is_key_pressed(KEY_SPACE) and not ui_locked:
+			velocity.y = JUMP_VEL
 	else:
 		velocity.y -= GRAVITY * dt
 	move_and_slide()

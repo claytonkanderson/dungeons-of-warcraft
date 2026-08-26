@@ -47,19 +47,13 @@ func _tex_load(rel: String) -> Texture2D:
 
 
 func toggle() -> void:
+	# mouse/look state is owned by the world's _sync_ui()
 	open = not open
 	root.visible = open
-	var p: Player = get_tree().get_first_node_in_group("player")
 	if open:
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		_rebuild()
 	else:
 		tooltip.visible = false
-		Input.mouse_mode = Input.MOUSE_MODE_HIDDEN
-	if p != null:
-		p.look_enabled = not open
-		if not open:
-			p._center_mouse()
 
 
 func _amazon_skills_on_page(page: int) -> Array:
@@ -102,12 +96,44 @@ func _rebuild() -> void:
 		tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		root.add_child(tr)
 
-	# tab-selector boxes in the chrome column (right edge of the page)
+	# tab plates in the chrome column (border-measured: 87x99 at x 228,
+	# y 111/219/327): signature skill icon + short name, active tab lit
+	var icon_sheet_tabs = db.load_sheet("ui/amskillicon")
+	var tab_short := ["Bow", "Passive", "Javelin"]
 	for i in range(3):
+		var plate := Vector2(228.0, 111.0 + i * 108.0) * SCALE
+		var psize2 := Vector2(87.0, 99.0) * SCALE
+		var active := i == tab
+		var sig := _amazon_skills_on_page(i + 1)
+		sig.sort_custom(func(a, b): return a.row * 10 + a.col < b.row * 10 + b.col)
+		if icon_sheet_tabs != null and not sig.is_empty():
+			var at0 := AtlasTexture.new()
+			at0.atlas = icon_sheet_tabs.texture
+			at0.region = Rect2(int(sig[0].icon) * icon_sheet_tabs.cell.x, 0,
+					icon_sheet_tabs.cell.x, icon_sheet_tabs.cell.y)
+			var ti := TextureRect.new()
+			ti.texture = at0
+			ti.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+			ti.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			ti.size = Vector2(48, 48) * SCALE
+			ti.position = plate + Vector2((psize2.x - ti.size.x) * 0.5, 8 * SCALE)
+			ti.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			ti.modulate = Color(1, 1, 1) if active else Color(0.45, 0.45, 0.5)
+			root.add_child(ti)
+		var tl := Label.new()
+		tl.text = tab_short[i]
+		get_node("/root/D2Font").style(tl, 16)
+		tl.add_theme_color_override("font_color",
+				Color(1.0, 0.9, 0.5) if active else Color(0.55, 0.55, 0.55))
+		tl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		tl.position = plate + Vector2(0, 62 * SCALE)
+		tl.size = Vector2(psize2.x, 20 * SCALE)
+		tl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		root.add_child(tl)
 		var tb := Button.new()
 		tb.flat = true
-		tb.position = Vector2(258.0, 118.0 + i * 106.0) * SCALE
-		tb.size = Vector2(60.0, 96.0) * SCALE
+		tb.position = plate
+		tb.size = psize2
 		tb.pressed.connect(func():
 			tab = i
 			_rebuild())

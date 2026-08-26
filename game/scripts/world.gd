@@ -43,6 +43,7 @@ func _load_json(path: String) -> Dictionary:
 
 
 func _ready() -> void:
+	add_to_group("world")
 	wow_dir = _assets_dir().path_join("wow/deadmines")
 	var gs := get_node("/root/GameState")
 	if not gs.session_loaded:
@@ -100,6 +101,42 @@ func _ready() -> void:
 	elif OS.get_cmdline_user_args().has("--combat-test"):
 		await _combat_test()
 		get_tree().quit()
+	elif OS.get_cmdline_user_args().has("--ui-test"):
+		await _ui_test()
+		get_tree().quit()
+
+
+func _ui_test() -> void:
+	var shots := ProjectSettings.globalize_path("res://../shots")
+	DirAccess.make_dir_recursive_absolute(shots)
+	var gs := get_node("/root/GameState")
+	gs.hp = gs.hp_max * 0.65
+	gs.mana = gs.mana_max * 0.4
+	var gen := get_node("/root/ItemGen")
+	for i in range(3):
+		var inst: Dictionary = gen.roll_drop(10)
+		gs.inv_try_add(str(inst.get("code", "")), inst)
+	for i in range(8):
+		await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(shots + "/ui_hud.png")
+	char_ui.toggle()
+	_sync_ui()
+	for i in range(8):
+		await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(shots + "/ui_char.png")
+	char_ui.toggle()
+	inv_ui.toggle()
+	_sync_ui()
+	for i in range(8):
+		await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(shots + "/ui_inv.png")
+	inv_ui.toggle()
+	tree_ui.toggle()
+	_sync_ui()
+	for i in range(8):
+		await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(shots + "/ui_tree.png")
+	print("ui captures done")
 
 
 func respawn_position() -> Vector3:
@@ -719,6 +756,42 @@ func _pickup_nearest() -> void:
 	best.queue_free()
 
 
+func _sync_ui() -> void:
+	## One owner for mouse/look state: panels open -> visible cursor, no
+	## attacks, no warp-look; all closed -> back to FPS control.
+	var any_open: bool = (inv_ui != null and inv_ui.open) \
+			or (tree_ui != null and tree_ui.open) \
+			or (char_ui != null and char_ui.open)
+	if player == null:
+		return
+	player.ui_locked = any_open
+	player.look_enabled = not any_open
+	if any_open:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	else:
+		Input.mouse_mode = Input.MOUSE_MODE_HIDDEN
+		player._center_mouse()
+
+
+func drop_entry(entry: Dictionary) -> void:
+	## An item dragged out of the inventory lands at the amazon's feet.
+	var gs := get_node("/root/GameState")
+	gs.inv_items.erase(entry)
+	var gi := GroundItem.new()
+	add_child(gi)
+	var inst: Dictionary = entry.get("inst", {})
+	if inst.is_empty():
+		gi.drop(str(entry.get("code", "")))
+	else:
+		gi.drop_instance(inst)
+	var fwd: Vector3 = -player.global_transform.basis.z
+	gi.global_position = player.global_position \
+			+ Vector3(fwd.x, 0, fwd.z).normalized() * 1.2 + Vector3(0, 0.02, 0)
+	ground_items.append(gi)
+	get_node("/root/Sfx").event("flippy", gi.global_position)
+	gs.inventory_changed.emit()
+
+
 func _unhandled_input(e: InputEvent) -> void:
 	if e is InputEventKey and e.pressed and not e.echo:
 		if e.keycode == KEY_E:
@@ -732,13 +805,25 @@ func _unhandled_input(e: InputEvent) -> void:
 		elif e.keycode == KEY_I:
 			if inv_ui != null:
 				inv_ui.toggle()
+				_sync_ui()
 				get_node("/root/Sfx").event_ui("button")
 		elif e.keycode == KEY_T:
 			if tree_ui != null:
 				tree_ui.toggle()
+				_sync_ui()
 		elif e.keycode == KEY_C:
 			if char_ui != null:
 				char_ui.toggle()
+				_sync_ui()
+		elif e.keycode == KEY_ESCAPE:
+			# Esc closes whatever panels are up before it ever frees the look
+			var closed := false
+			for panel in [inv_ui, tree_ui, char_ui]:
+				if panel != null and panel.open:
+					panel.toggle()
+					closed = true
+			if closed:
+				_sync_ui()
 
 
 func _process(_dt: float) -> void:
@@ -855,6 +940,7 @@ func _combat_test() -> void:
 	force_labels = false
 	player.pitch = 0.0
 	inv_ui.toggle()
+	_sync_ui()
 	for f in range(240):
 		await get_tree().physics_frame
 	var alive := 0

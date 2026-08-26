@@ -29,19 +29,12 @@ func _ready() -> void:
 
 
 func toggle() -> void:
+	# mouse/look state is owned by the world's _sync_ui()
 	open = not open
 	root.visible = open
-	var p: Player = get_tree().get_first_node_in_group("player")
 	if open:
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		_layout()
 		_refresh()
-	else:
-		Input.mouse_mode = Input.MOUSE_MODE_HIDDEN
-	if p != null:
-		p.look_enabled = not open
-		if not open:
-			p._center_mouse()
 
 
 func _layout() -> void:
@@ -106,14 +99,18 @@ func _refresh() -> void:
 		_put(str(r[0]), 164, float(r[2]), r[3])
 		var v: int = int(gs.mods.get(str(r[1]), 0)) + int(gs.mods.get("res-all", 0))
 		_put("%d%%" % v, 268, float(r[2]), Color(1, 1, 1), 40.0)
-	# stat point allocation
+	# stat point allocation: remaining count in the small bottom box,
+	# a scaled + button beside each stat value box
 	if gs.stat_points > 0:
-		_put("Points: %d" % gs.stat_points, 12, 372, Color(1, 0.3, 0.3))
+		_put("Stat Points", 30, 390, Color(1, 0.3, 0.3))
+		_put(str(gs.stat_points), 127, 390, Color(1, 1, 1), 26.0)
 		for r in rows:
 			var pb := Button.new()
 			pb.text = "+"
-			pb.position = Vector2(122, float(r[2])) * SCALE
-			pb.size = Vector2(22, 22)
+			pb.add_theme_font_size_override("font_size", 20)
+			pb.add_theme_color_override("font_color", Color(0.95, 0.85, 0.5))
+			pb.position = Vector2(122.0, float(r[2]) - 2.0) * SCALE
+			pb.size = Vector2(20, 20) * SCALE
 			var key := str(r[1])
 			pb.pressed.connect(func():
 				gs.allocate_stat(key)

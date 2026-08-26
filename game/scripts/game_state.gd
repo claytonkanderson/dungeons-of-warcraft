@@ -43,8 +43,9 @@ func grant_starter_kit() -> void:
 		var inst: Dictionary = {}
 		for attempt in range(6):
 			inst = gen.maybe_magic(str(pair[1]), level)
-			if not inst.is_empty():
+			if not inst.is_empty() and int(inst.get("reqlvl", 0)) <= level:
 				break
+			inst = {}
 		equipped[str(pair[0])] = {"code": pair[1], "inst": inst}
 	equipped["shie"] = {"code": "aqv", "inst": {}}
 	belt = [{"code": "hp2", "count": 3}, {"code": "mp2", "count": 2}, {}, {}]

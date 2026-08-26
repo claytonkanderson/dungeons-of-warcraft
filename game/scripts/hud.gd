@@ -8,8 +8,14 @@ const PANEL_H := 104.0
 # calibrated positions within the strip (see shots/ui_calibrate.png)
 var ORB_L := Vector2(33.0, 8.0)       # health orb top-left (80x80 fill)
 var ORB_R := Vector2(591.0, 8.0)      # mana orb top-left
-var SKILL_L := Vector2(150.0, 55.0)   # assigned skill icon boxes
-var SKILL_R := Vector2(506.0, 55.0)
+# gold-border-measured boxes in the composited 704x104 strip
+var SKILL_L := Vector2(158.0, 62.0)   # assigned skill icon boxes (30x38)
+var SKILL_R := Vector2(515.0, 62.0)
+const SKILL_SIZE := Vector2(30.0, 38.0)
+const BELT_X := 374.5                 # four 29x30 sockets, 31px pitch
+const BELT_Y := 65.0
+const BELT_PITCH := 31.0
+const BELT_SIZE := Vector2(28.0, 30.0)
 
 var bow: TextureRect
 var info: Label
@@ -60,7 +66,7 @@ class PanelControl:
 		var htint := Color(0.35, 1.0, 0.35) if gs.is_poisoned() else Color(1, 1, 1)
 		_orb(orb_h, hud.ORB_L, hfrac, s, htint)
 		_orb(orb_m, hud.ORB_R, mfrac, s)
-		# belt potions in the four panel boxes (keys 1-4)
+		# belt potions in the four panel sockets (keys 1-4)
 		var db = hud.get_node("/root/ItemDB")
 		for bi in range(4):
 			var slot: Dictionary = gs.belt[bi] if bi < gs.belt.size() else {}
@@ -69,12 +75,12 @@ class PanelControl:
 			var ptex: Texture2D = db.inv_texture(str(slot.get("code", "")))
 			if ptex == null:
 				continue
-			var bpos := Vector2(342.0 + bi * 41.0, 60.0) * s
-			draw_texture_rect(ptex, Rect2(bpos, Vector2(38, 38) * s), false)
+			var bpos := Vector2(HUD.BELT_X + bi * HUD.BELT_PITCH, HUD.BELT_Y) * s
+			draw_texture_rect(ptex, Rect2(bpos, HUD.BELT_SIZE * s), false)
 			var cnt := str(slot.get("count", 1))
 			var font := ThemeDB.fallback_font
-			draw_string(font, bpos + Vector2(26, 36) * s, cnt,
-					HORIZONTAL_ALIGNMENT_LEFT, -1, maxi(1, int(12 * s)), Color(1, 1, 1))
+			draw_string(font, bpos + Vector2(18, 12) * s, cnt,
+					HORIZONTAL_ALIGNMENT_LEFT, -1, maxi(1, int(10 * s)), Color(1, 1, 1))
 		# assigned skill icons: always visible — normal Attack shows the
 		# classic swing glyph from the generic skill icon panel
 		for i in range(2):
@@ -96,7 +102,7 @@ class PanelControl:
 					at = hud._icon_tex(2, "ui/skilliconpanel")
 			var pos: Vector2 = (hud.SKILL_L if i == 0 else hud.SKILL_R) * s
 			if at != null:
-				draw_texture_rect(at, Rect2(pos, Vector2(48, 48) * s), false)
+				draw_texture_rect(at, Rect2(pos, HUD.SKILL_SIZE * s), false)
 
 	func _orb(tex: Texture2D, tl: Vector2, frac: float, s: float,
 			tint := Color(1, 1, 1)) -> void:
