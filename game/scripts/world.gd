@@ -112,6 +112,26 @@ func _ready() -> void:
 	elif OS.get_cmdline_user_args().has("--ui-test"):
 		await _ui_test()
 		get_tree().quit()
+	elif OS.get_cmdline_user_args().has("--walk-test"):
+		# stride around the cove ground between dock and ship — the area
+		# that swallowed the player — and report footing
+		player.global_position = Vector3(50, 16, 125)
+		var lost := 0
+		for f in range(900):
+			var a := f * 0.01
+			player.velocity.x = cos(a) * 3.5
+			player.velocity.z = sin(a) * 3.5
+			player.move_and_slide()
+			if not player.is_on_floor() and player.velocity.y < -12.0:
+				lost += 1
+			await get_tree().physics_frame
+			if f % 150 == 0:
+				print("f=%d pos=(%.1f, %.1f, %.1f) floor=%s" % [f,
+						player.global_position.x, player.global_position.y,
+						player.global_position.z, player.is_on_floor()])
+		print("walk test done: y=%.1f freefall_frames=%d" %
+				[player.global_position.y, lost])
+		get_tree().quit()
 	elif OS.get_cmdline_user_args().has("--fps-probe"):
 		print("audio devices: ", AudioServer.get_output_device_list(),
 				" current: ", AudioServer.output_device,
@@ -262,6 +282,16 @@ func _build_world(placements: Dictionary) -> void:
 			add_child(node)
 			for mi in _find_meshes(node):
 				mi.create_trimesh_collision()
+				# terrain winding isn't guaranteed upward (the calibrated
+				# transform can mirror it) and one-sided trimesh collision
+				# let the player fall through near the ship — collide from
+				# both sides
+				for body in mi.get_children():
+					if body is StaticBody3D:
+						for cs in body.get_children():
+							if cs is CollisionShape3D \
+									and cs.shape is ConcavePolygonShape3D:
+								cs.shape.backface_collision = true
 		if str(terr.get("water", "")) != "":
 			var wnode := _load_glb(wow_dir.path_join("terrain/" + str(terr.water)))
 			if wnode != null:
@@ -635,11 +665,25 @@ func _launch_arrow(gs, skill: String, origin: Vector3, d2: Vector3) -> void:
 		"xbow_fire" if player.weapon_class == "xbw" else "bow_fire", origin)
 
 
+var _ground_recent := Vector3.ZERO   # solid footing snapshots: falling
+var _ground_safe := Vector3.ZERO     # through returns you here, not to spawn
+var _ground_t := 0.0
+
+
 func _physics_process(dt: float) -> void:
 	_update_enemy_missiles(dt)
-	if player != null and player.global_position.y < floor_y:
-		player.global_position = spawn
-		player.velocity = Vector3.ZERO
+	if player != null:
+		if player.is_on_floor():
+			_ground_t += dt
+			if _ground_t >= 2.0:
+				_ground_t = 0.0
+				_ground_safe = _ground_recent if _ground_recent != Vector3.ZERO \
+						else player.global_position
+				_ground_recent = player.global_position
+		if player.global_position.y < floor_y:
+			player.global_position = _ground_safe + Vector3(0, 1.5, 0) \
+					if _ground_safe != Vector3.ZERO else spawn
+			player.velocity = Vector3.ZERO
 	if arrows.is_empty():
 		return
 	var gs := get_node("/root/GameState")
