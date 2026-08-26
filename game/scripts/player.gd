@@ -62,10 +62,27 @@ func _center_mouse() -> void:
 var look_enabled := true
 var _accum := Vector2.ZERO       # motion-event relative sum since last frame
 var _warp_comp := Vector2.ZERO   # pending warp jump to cancel
+var _focused := true             # alt-tabbed: hands off the mouse entirely
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		_focused = false
+		_accum = Vector2.ZERO
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	elif what == NOTIFICATION_APPLICATION_FOCUS_IN:
+		_focused = true
+		_refocus_swallow = true   # the click that refocused us is not an attack
+		if look_enabled and not ui_locked:
+			Input.mouse_mode = Input.MOUSE_MODE_HIDDEN
+			_center_mouse()
+
+
+var _refocus_swallow := false
 
 
 func _process(_dt: float) -> void:
-	if look_enabled and not ui_locked:
+	if look_enabled and not ui_locked and _focused:
 		if _accum != Vector2.ZERO:
 			yaw -= _accum.x * SENS
 			pitch = clampf(pitch - _accum.y * SENS, -PITCH_LIMIT, PITCH_LIMIT)
@@ -132,11 +149,14 @@ var ui_locked := false   # a UI panel owns the mouse: never attack or re-capture
 
 func _input(e: InputEvent) -> void:
 	if e is InputEventMouseMotion:
-		if look_enabled and not ui_locked:
+		if look_enabled and not ui_locked and _focused:
 			_accum += e.relative + _warp_comp
 		_warp_comp = Vector2.ZERO
 		return
 	if e is InputEventMouseButton and e.pressed:
+		if _refocus_swallow:
+			_refocus_swallow = false
+			return
 		if ui_locked:
 			return
 		if not look_enabled:

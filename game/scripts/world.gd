@@ -773,13 +773,13 @@ func _on_monster_died(dead: WowCreature) -> void:
 				+ Vector3(cos(a) * r, 0.02, sin(a) * r)
 		ground_items.append(gi)
 	get_node("/root/Sfx").event("flippy", dead.global_position)
-	# guaranteed quality drops: one per kill, more for bosses, a shower
-	# for the Kingpin himself
-	var ndrops := 1
+	# quality drops: common mobs 70% of the time, mini-bosses a handful,
+	# a shower for the Kingpin himself
+	var ndrops := 1 if randf() < 0.7 else 0
 	if dead.is_final_boss:
 		ndrops = 7
 	elif dead.is_boss:
-		ndrops = 2
+		ndrops = 4
 	for di in range(ndrops):
 		var inst: Dictionary = get_node("/root/ItemGen").roll_drop(dead.mlevel)
 		if inst.is_empty():
