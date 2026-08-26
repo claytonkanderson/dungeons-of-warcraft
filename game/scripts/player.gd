@@ -45,8 +45,6 @@ func _ready() -> void:
 	if not is_inside_tree():
 		return
 	_center_mouse()
-	_prev_mouse = get_viewport().get_visible_rect().size * 0.5
-	_warp_settle = 2
 
 
 func _center_mouse() -> void:
@@ -54,53 +52,34 @@ func _center_mouse() -> void:
 	if vp == null:
 		return
 	var c := vp.get_visible_rect().size * 0.5
+	# the warp itself lands as a motion event: pre-cancel it so re-centring
+	# never turns the camera (this replaced the old 2-frame settle window,
+	# which threw real motion away and made fast turns feel chunky)
+	_warp_comp = vp.get_mouse_position() - c
 	Input.warp_mouse(c)
 
 
 var look_enabled := true
-var _prev_mouse := Vector2.ZERO
-var _warp_settle := 0        # frames to ignore after a warp (warp is async)
-var last_delta := Vector2.ZERO
-var _log: FileAccess
-var _log_t := 0.0
+var _accum := Vector2.ZERO       # motion-event relative sum since last frame
+var _warp_comp := Vector2.ZERO   # pending warp jump to cancel
 
 
-func _process(dt: float) -> void:
-	if not look_enabled:
-		return
-	var vp := get_viewport()
-	var c := vp.get_visible_rect().size * 0.5
-	var pos := vp.get_mouse_position()
-	var warped := false
-
-	if _warp_settle > 0:
-		# swallow stale positions until the warp has landed
-		_warp_settle -= 1
-		_prev_mouse = pos
-		last_delta = Vector2.ZERO
-	else:
-		# delta from what we actually observed last frame - never from centre,
-		# so a pending warp can't be re-applied as rotation
-		last_delta = pos - _prev_mouse
-		if last_delta != Vector2.ZERO:
-			yaw -= last_delta.x * SENS
-			pitch = clampf(pitch - last_delta.y * SENS, -PITCH_LIMIT, PITCH_LIMIT)
-		_prev_mouse = pos
-		# re-centre only when drifting toward the window edge
+func _process(_dt: float) -> void:
+	if look_enabled and not ui_locked:
+		if _accum != Vector2.ZERO:
+			yaw -= _accum.x * SENS
+			pitch = clampf(pitch - _accum.y * SENS, -PITCH_LIMIT, PITCH_LIMIT)
+			_accum = Vector2.ZERO
+		# rotation applied per rendered frame (not per physics tick) so the
+		# camera stays smooth when the frame rate drifts off 60
+		rotation.y = yaw
+		if cam != null:
+			cam.rotation = Vector3(pitch, 0, 0)
+		var vp := get_viewport()
+		var c := vp.get_visible_rect().size * 0.5
+		var pos := vp.get_mouse_position()
 		if absf(pos.x - c.x) > c.x * 0.5 or absf(pos.y - c.y) > c.y * 0.5:
-			Input.warp_mouse(c)
-			_prev_mouse = c
-			_warp_settle = 2
-			warped = true
-
-	_log_t += dt
-	if _log != null and _log_t < 20.0:
-		_log.store_line("%.3f pos=%.0f,%.0f d=%.1f,%.1f warp=%s settle=%d yaw=%.3f pitch=%.3f mode=%d" %
-				[_log_t, pos.x, pos.y, last_delta.x, last_delta.y,
-				 warped, _warp_settle, yaw, pitch, Input.mouse_mode])
-	elif _log != null:
-		_log.close()
-		_log = null
+			_center_mouse()
 	# attack timing from the real A1/BOW animation: length and release frame
 	var sheet = get_node("/root/SpriteDB").load_sheet("amazon/am_a1_bow")
 	if sheet != null and sheet.fps > 0.0:
@@ -152,6 +131,11 @@ var ui_locked := false   # a UI panel owns the mouse: never attack or re-capture
 
 
 func _input(e: InputEvent) -> void:
+	if e is InputEventMouseMotion:
+		if look_enabled and not ui_locked:
+			_accum += e.relative + _warp_comp
+		_warp_comp = Vector2.ZERO
+		return
 	if e is InputEventMouseButton and e.pressed:
 		if ui_locked:
 			return

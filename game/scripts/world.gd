@@ -86,6 +86,14 @@ func _ready() -> void:
 	add_child(char_ui)
 	player.action_skill = [str(gs._saved_action[0]), str(gs._saved_action[1])]
 	hud_node.show_area("The Deadmines")
+	# WASAPI init fails intermittently on this machine (sleepy BT headset as
+	# the default device) and Godot falls back to a silent dummy driver —
+	# surface it instead of letting the session be quietly mute
+	var devs := AudioServer.get_output_device_list()
+	if devs.is_empty() or (devs.size() == 1
+			and str(devs[0]).to_lower().contains("dummy")):
+		hud_node.show_area("Audio device failed - game will be silent\n(check the Windows default output device, then restart)",
+				Color(1.0, 0.55, 0.3), 8.0)
 	var timer := Timer.new()
 	timer.wait_time = 15.0
 	timer.timeout.connect(func(): gs.save_game(player))
@@ -103,6 +111,19 @@ func _ready() -> void:
 		get_tree().quit()
 	elif OS.get_cmdline_user_args().has("--ui-test"):
 		await _ui_test()
+		get_tree().quit()
+	elif OS.get_cmdline_user_args().has("--fps-probe"):
+		print("audio devices: ", AudioServer.get_output_device_list(),
+				" current: ", AudioServer.output_device,
+				" mix_rate: ", AudioServer.get_mix_rate())
+		for i in range(90):
+			await get_tree().process_frame
+		var t0 := Time.get_ticks_msec()
+		for i in range(300):
+			await get_tree().process_frame
+		var dt := Time.get_ticks_msec() - t0
+		print("fps over 300 frames: %.1f (engine says %.1f)"
+				% [300000.0 / dt, Engine.get_frames_per_second()])
 		get_tree().quit()
 
 

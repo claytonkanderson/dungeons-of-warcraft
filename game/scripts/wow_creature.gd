@@ -41,6 +41,7 @@ var ranged_etype := "fire"
 
 var _atk_cd := 0.0
 var _retarget_t := 0.0
+var _dormant := false
 var _los_check_t := 0.0
 var _los_lost := 0.0
 var _los := true
@@ -258,6 +259,16 @@ func _physics_process(dt: float) -> void:
 			if d < bd:
 				bd = d
 				target = t
+		# LOD: idle creatures far from everyone stop animating and skip
+		# physics — 213 live skeletons were costing the whole frame budget
+		var far: bool = state == State.IDLE and bd > 45.0
+		if far != _dormant:
+			_dormant = far
+			if anim != null:
+				anim.process_mode = Node.PROCESS_MODE_DISABLED if far \
+						else Node.PROCESS_MODE_INHERIT
+	if _dormant:
+		return
 	if not is_on_floor():
 		velocity.y -= GRAVITY * dt
 	else:
