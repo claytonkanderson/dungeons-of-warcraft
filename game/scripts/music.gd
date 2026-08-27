@@ -63,6 +63,25 @@ func _start_ambience() -> void:
 	_ambience.play()
 
 
+func set_dungeon(id: String) -> void:
+	## Swap the ambience loop for the dungeon's own, when one was extracted.
+	if _ambience == null:
+		return
+	var byd: Dictionary = manifest.get("dungeon_ambience", {})
+	var fname := str(byd.get(id, ""))
+	if fname == "":
+		return
+	var stream := _load_stream(fname)
+	if stream == null:
+		return
+	if stream is AudioStreamMP3 or stream is AudioStreamOggVorbis:
+		stream.loop = true
+	elif stream is AudioStreamWAV:
+		stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	_ambience.stream = stream
+	_ambience.play()
+
+
 func _on_music_done() -> void:
 	var gap: Array = manifest.get("gap", [15, 45])
 	_gap_t = randf_range(float(gap[0]), float(gap[1]))

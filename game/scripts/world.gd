@@ -46,6 +46,9 @@ func _load_json(path: String) -> Dictionary:
 func _ready() -> void:
 	add_to_group("world")
 	var gs := get_node("/root/GameState")
+	for a in OS.get_cmdline_user_args():
+		if str(a).begins_with("--dungeon="):
+			gs.current_dungeon = str(a).substr(10)
 	wow_dir = _assets_dir().path_join("wow/%s" % gs.current_dungeon)
 	if not gs.session_loaded:
 		gs.session_loaded = true
@@ -90,6 +93,7 @@ func _ready() -> void:
 	add_child(menu_ui)
 	player.action_skill = [str(gs._saved_action[0]), str(gs._saved_action[1])]
 	hud_node.show_area(get_node("/root/Dungeons").display_name(gs.current_dungeon))
+	get_node("/root/Music").set_dungeon(str(gs.current_dungeon))
 	# WASAPI init fails intermittently on this machine (sleepy BT headset as
 	# the default device) and Godot falls back to a silent dummy driver —
 	# surface it instead of letting the session be quietly mute

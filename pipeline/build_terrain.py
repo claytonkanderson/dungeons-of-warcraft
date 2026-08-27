@@ -224,20 +224,19 @@ class GlbWriter:
         return len(glb)
 
 
-def main():
-    s = Storage()
-    (ox, oy, oz), mat = calibrate(s)
-
-    def to_gl(wx, wy, wz):
-        dn, dw = wx - ox, wy - oy
-        xl = mat[0][0] * dn + mat[0][1] * dw
-        yl = mat[1][0] * dn + mat[1][1] * dw
-        return (-yl * YARD, (wz - oz) * YARD, -xl * YARD)
-
-    wdt = s.read_fdid(780605)
+def build_for(s, wdt_fdid, to_gl, out_dir):
+    """Bake every ADT tile of one map. No-op for global-WMO maps."""
+    wdt = s.read_fdid(wdt_fdid)
     c = chunks_of(wdt)
+    if b"MAIN" not in c or b"MAID" not in c:
+        print("terrain: no ADT tiles (global-WMO map), skipping")
+        return
     main_c, maid = c[b"MAIN"], c[b"MAID"]
-    out_dir = OUT / "deadmines" / "terrain"
+    n_tiles = sum(1 for i in range(4096)
+                  if int.from_bytes(main_c[i * 8:i * 8 + 4], "little") & 1)
+    if n_tiles == 0:
+        print("terrain: no ADT tiles flagged, skipping")
+        return
     out_dir.mkdir(parents=True, exist_ok=True)
 
     tex_cache = {}
@@ -427,6 +426,19 @@ def _rgba(atlas):
     a = np.clip(atlas, 0, 255).astype(np.uint8)
     rgba = np.dstack([a, np.full(a.shape[:2], 255, dtype=np.uint8)])
     return rgba.tobytes()
+
+
+def main():
+    s = Storage()
+    (ox, oy, oz), mat = calibrate(s)
+
+    def to_gl(wx, wy, wz):
+        dn, dw = wx - ox, wy - oy
+        xl = mat[0][0] * dn + mat[0][1] * dw
+        yl = mat[1][0] * dn + mat[1][1] * dw
+        return (-yl * YARD, (wz - oz) * YARD, -xl * YARD)
+
+    build_for(s, 780605, to_gl, OUT / "deadmines" / "terrain")
 
 
 if __name__ == "__main__":

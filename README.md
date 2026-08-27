@@ -45,12 +45,15 @@ nothing is committed.
 2. WoW world: copy `assets/out/deadmines` from `D:\tree\warcraft-art`
    into `assets/wow/deadmines`, or re-run `pipeline/extract_deadmines.py`
    + `build_placements.py` here.
-3. `python pipeline/build_creatures.py` — 23 creature GLBs with the
+3. `python pipeline/build_dungeon.py --dungeon <id>` builds any configured
+   dungeon end to end (WMOs, placements, creatures, terrain, ambience);
+   `--all` batches every entry in pipeline/dungeon_config.py.
+4. `python pipeline/build_creatures.py --dungeon <id>` — 23 creature GLBs with the
    gameplay animation set + `creatures.json` stats (`--stats-only` to
    retune without re-exporting).
-4. `python pipeline/build_terrain.py` — 36 ADT tiles baked to GLBs
+5. `python pipeline/build_terrain.py` — 36 ADT tiles baked to GLBs
    (splat textures, MCNR shading, MH2O ocean mesh). Needs numpy.
-5. `python pipeline/build_audio.py` — WoW ambience/music via name-hash
+6. `python pipeline/build_audio.py` — WoW ambience/music via name-hash
    lookup (soundkit db2s are absent locally; paths are the trick).
 
 Paths (WoW install, AzerothCore SQL dump) live in `pipeline/config.py`.

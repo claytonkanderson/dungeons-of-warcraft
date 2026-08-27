@@ -29,7 +29,8 @@ func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if str(a) in ["--combat-test", "--ui-test", "--fps-probe",
 				"--walk-test", "--fresh"] or str(a).begins_with("--shots=") \
-				or str(a).begins_with("--at="):
+				or str(a).begins_with("--at=") \
+				or str(a).begins_with("--dungeon="):
 			get_tree().change_scene_to_file.call_deferred("res://scenes/world.tscn")
 			return
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
