@@ -58,6 +58,13 @@ def export_wmo_glb(root, groups, textures, out_path, meta_path=None,
         if m["flags"] & 0x04:
             mat["doubleSided"] = True
         materials_out.append(mat)
+    liquid_mat = len(materials_out)
+    materials_out.append({
+        "pbrMetallicRoughness": {"metallicFactor": 0.0,
+                                 "roughnessFactor": 1.0,
+                                 "baseColorFactor": [0.08, 0.26, 0.34, 0.55]},
+        "alphaMode": "BLEND", "doubleSided": True, "name": "wmo_liquid",
+        "extensions": {"KHR_materials_unlit": {}}})
 
     # ----- groups
     nodes, meshes, meta_groups = [], [], []
@@ -100,6 +107,42 @@ def export_wmo_glb(root, groups, textures, out_path, meta_path=None,
         meshes.append({"primitives": prims, "name": info["name"] or f"g{gi}"})
         nodes.append({"name": info["name"] or f"group{gi}",
                       "mesh": len(meshes) - 1})
+        # liquid surface as its own node ("liquid*" — the game skips
+        # collision on these)
+        if g.liquid:
+            L = g.liquid
+            LT = 4.1666665
+            cx, cy, cz = L["corner"]
+            lpos = []
+            for j in range(L["yv"]):
+                for i in range(L["xv"]):
+                    w = (cx + i * LT, cy + j * LT,
+                         L["heights"][j * L["xv"] + i])
+                    lpos.append(tuple(c * YARD for c in _cv(w)))
+            lids = []
+            for ty in range(L["yt"]):
+                for tx in range(L["xt"]):
+                    f = L["tiles"][ty * L["xt"] + tx]
+                    if (f & 0x0F) == 0x0F:
+                        continue
+                    v0 = ty * L["xv"] + tx
+                    v1 = v0 + 1
+                    v2 = v0 + L["xv"]
+                    v3 = v2 + 1
+                    lids += [v0, v1, v2, v1, v3, v2]
+            if lids:
+                lblob = b"".join(struct.pack("<3f", *p) for p in lpos)
+                lmins = [min(p[i] for p in lpos) for i in range(3)]
+                lmaxs = [max(p[i] for p in lpos) for i in range(3)]
+                a_lp = acc(view(lblob, 34962), 5126, len(lpos), "VEC3",
+                           min=lmins, max=lmaxs)
+                a_li = acc(view(b"".join(struct.pack("<H", i) for i in lids),
+                                34963), 5123, len(lids), "SCALAR")
+                meshes.append({"primitives": [{
+                    "attributes": {"POSITION": a_lp}, "indices": a_li,
+                    "material": liquid_mat}], "name": f"liquid{gi}"})
+                nodes.append({"name": f"liquid{gi}",
+                              "mesh": len(meshes) - 1})
         bb = info["bbox"]
         c0 = tuple(c * YARD for c in _cv(bb[0:3]))
         c1 = tuple(c * YARD for c in _cv(bb[3:6]))

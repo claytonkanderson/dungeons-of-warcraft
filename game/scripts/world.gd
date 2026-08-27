@@ -16,6 +16,146 @@ var arrows: Array = []
 var enemy_missiles: Array = []
 var ground_items: Array = []
 var friendlies: Array = []
+var breakables: Array = []
+var doors: Array = []           # {name, node, open, rule}
+var interactables: Array = []   # {kind, name, node, used}
+
+
+func _spawn_gameobjects(placements: Dictionary) -> void:
+	var rules: Dictionary = placements.get("door_rules", {})
+	var cache: Dictionary = {}
+	for g in placements.get("gameobjects", []):
+		var glb := wow_dir.path_join("gobj/%d.glb" % int(g["fdid"]))
+		var node: Node3D
+		var fresh := false
+		if cache.has(glb):
+			node = cache[glb].duplicate()
+		elif FileAccess.file_exists(glb):
+			node = _load_glb(glb)
+			fresh = node != null
+			if fresh:
+				cache[glb] = node
+		if node == null:
+			continue
+		add_child(node)
+		node.position = Vector3(g["pos"][0], g["pos"][1], g["pos"][2])
+		node.rotation.y = float(g["yaw"])
+		var gname := str(g["name"])
+		var gtype := int(g["type"])
+		if gtype == 0:
+			# a door is solid until something opens it
+			if fresh:
+				for mi in _find_meshes(node):
+					mi.create_trimesh_collision()
+			doors.append({"name": gname, "node": node, "open": false,
+					"rule": rules.get(gname, {})})
+			if rules.get(gname, {}).is_empty():
+				interactables.append({"kind": "door", "name": gname,
+						"node": node, "used": false})
+		elif gtype == 1:
+			interactables.append({"kind": "lever", "name": gname,
+					"node": node, "used": false})
+		elif gtype == 10 and gname.containsn("cannon"):
+			interactables.append({"kind": "cannon", "name": gname,
+					"node": node, "used": false})
+		elif gname.containsn("vein"):
+			interactables.append({"kind": "vein", "name": gname,
+					"node": node, "used": false})
+		elif gtype in [2, 3, 5, 25]:
+			interactables.append({"kind": "chest", "name": gname,
+					"node": node, "used": false})
+	print("gameobjects: %d doors, %d interactables" %
+			[doors.size(), interactables.size()])
+
+
+func _open_door(d: Dictionary, boom := false) -> void:
+	if d["open"]:
+		return
+	d["open"] = true
+	var node: Node3D = d["node"]
+	for mi in _find_meshes(node):
+		for b in mi.get_children():
+			if b is StaticBody3D:
+				b.set_collision_layer_value(1, false)
+	get_node("/root/WowSfx").impact("wood", node.global_position)
+	if boom:
+		get_node("/root/Sfx").event("fire_impact", node.global_position)
+	var tw := create_tween()
+	tw.tween_property(node, "rotation:y", node.rotation.y + 1.85, 1.1) \
+			.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	if hud_node != null:
+		hud_node.show_area("%s opens" % d["name"], Color(0.9, 0.82, 0.6), 2.5)
+
+
+func _try_interact() -> bool:
+	var gs := get_node("/root/GameState")
+	for it in interactables:
+		if it["used"]:
+			continue
+		var node: Node3D = it["node"]
+		if player.global_position.distance_to(node.global_position) > 3.2:
+			continue
+		var pos := node.global_position
+		match str(it["kind"]):
+			"door":
+				for d in doors:
+					if d["node"] == node:
+						_open_door(d)
+				it["used"] = true
+			"lever":
+				it["used"] = true
+				get_node("/root/Sfx").event_ui("button")
+				var best = null
+				var bd := 1e9
+				for d in doors:
+					if d["open"]:
+						continue
+					var dd: float = pos.distance_to(d["node"].global_position)
+					if dd < bd:
+						bd = dd
+						best = d
+				if best != null:
+					_open_door(best)
+			"cannon":
+				it["used"] = true
+				get_node("/root/Sfx").event("fire_impact", pos)
+				for d in doors:
+					if not d["open"] and str(d.get("rule", {})
+							.get("cannon", "")) == str(it["name"]):
+						_open_door(d, true)
+			"chest":
+				it["used"] = true
+				get_node("/root/Sfx").event_ui("pickup")
+				var big: bool = str(it["name"]).containsn("smite") \
+						or str(it["name"]).containsn("mysterious")
+				var rolls := 2 if big else \
+						(1 if str(it["name"]).containsn("battered") else 0)
+				for i in range(rolls):
+					var inst: Dictionary = get_node("/root/ItemGen") \
+							.roll_drop(gs.level)
+					if inst.is_empty():
+						continue
+					var qi := GroundItem.new()
+					add_child(qi)
+					qi.drop_instance(inst)
+					qi.global_position = pos + Vector3(
+							randf_range(-0.6, 0.6), 0.05, randf_range(-0.6, 0.6))
+					ground_items.append(qi)
+				var gg := GroundItem.new()
+				add_child(gg)
+				gg.drop("gold", randi_range(60, 180))
+				gg.global_position = pos + Vector3(0, 0.05, 0.4)
+				ground_items.append(gg)
+			"vein":
+				it["used"] = true
+				get_node("/root/WowSfx").impact("wood", pos, 0.8)
+				var vg := GroundItem.new()
+				add_child(vg)
+				vg.drop("gold", randi_range(30, 90))
+				vg.global_position = pos + Vector3(0, 0.05, 0.3)
+				ground_items.append(vg)
+		return true
+	return false
 var hud_node: HUD
 var inv_ui: InventoryUI
 var tree_ui: SkillTreeUI
@@ -74,6 +214,7 @@ func _ready() -> void:
 		spawn = _at_override
 	_spawn_player(gs)
 	_spawn_creatures(placements.get("creatures", []))
+	_spawn_gameobjects(placements)
 
 	hud_node = HUD.new()
 	add_child(hud_node)
@@ -274,6 +415,8 @@ func _build_world(placements: Dictionary) -> void:
 		add_child(node)
 		wmo_nodes[int(w["uid"])] = node
 		for mi in _find_meshes(node):
+			if str(mi.name).begins_with("liquid"):
+				continue    # water surfaces are visual only
 			mi.create_trimesh_collision()
 			mesh_count += 1
 	mesh_count += _place_set(placements.get("doodads", []), wmo_nodes)
@@ -348,11 +491,15 @@ func _place_set(entries: Array, wmo_nodes: Dictionary) -> int:
 		var sc: float = d.get("scale", 1.0)
 		node.scale = Vector3.ONE * sc
 		placed += 1
+		var brk: bool = int(d.get("brk", 0)) == 1
 		if fresh:  # duplicates inherit the collision children
 			for mi in _find_meshes(node):
-				if mi.get_aabb().get_longest_axis_size() * sc > 4.0:
+				if brk or mi.get_aabb().get_longest_axis_size() * sc > 4.0:
 					mi.create_trimesh_collision()
 					collisions += 1
+		if brk:
+			node.set_meta("brk", true)
+			breakables.append(node)
 	print("placed %d instances (%d with collision)" % [placed, collisions])
 	return collisions
 
@@ -533,10 +680,30 @@ func _skill_impact(a: Dictionary, pos: Vector3) -> void:
 				mob.burn(4.0 * lvl * GameState.DMG_MULT / 5.0, 3.0)
 
 
+func _melee_params() -> Vector2:
+	## (reach, half-arc): bigger D2 weapons cleave further and wider —
+	## a dagger pokes, a great poleaxe sweeps the whole doorway.
+	var gs := get_node("/root/GameState")
+	var reach := 2.6
+	var arc := 0.8
+	var w: Dictionary = gs.equipped.get("weap", {})
+	if not w.is_empty():
+		var it: Dictionary = get_node("/root/ItemDB").item(str(w.get("code", "")))
+		var cells: int = maxi(1, str(it.get("invwidth", "1")).to_int()) \
+				* maxi(1, str(it.get("invheight", "1")).to_int())
+		var two_hand: bool = str(it.get("2handmindam", "")).to_int() > 0
+		reach = 2.4 + 0.22 * cells + (0.5 if two_hand else 0.0)
+		arc = 0.7 + 0.07 * cells + (0.2 if two_hand else 0.0)
+	return Vector2(reach, minf(arc, 1.5))
+
+
 func _melee_swing(origin: Vector3, dir: Vector3) -> void:
+	# a swing that geometrically connects always hits (like arrows) — the
+	# aim and the weapon's cleave replace D2's attack-rating roll
 	var gs := get_node("/root/GameState")
 	var sfx := get_node("/root/Sfx")
 	sfx.event("staff_swing" if player.weapon_class == "stf" else "melee_swing", origin)
+	var p := _melee_params()
 	var flat_dir := Vector3(dir.x, 0, dir.z).normalized()
 	var connected := false
 	for mob in monsters:
@@ -544,19 +711,19 @@ func _melee_swing(origin: Vector3, dir: Vector3) -> void:
 			continue
 		var to: Vector3 = mob.global_position - player.global_position
 		to.y = 0.0
-		if to.length() > 3.0 + mob.attack_range - 2.0:
+		if to.length() > p.x + mob.attack_range - 2.0:
 			continue
-		if flat_dir.angle_to(to.normalized()) > 0.9:
+		if flat_dir.angle_to(to.normalized()) > p.y:
 			continue
-		var chance := GameState.chance_to_hit(
-			gs.attack_rating(), mob.defense, gs.level, mob.mlevel)
-		if randf() < chance:
-			var wd: Vector2 = gs.weapon_damage()
-			mob.take_damage(randf_range(wd.x, wd.y)
-					+ gs.gear_elemental() * GameState.DMG_MULT)
-			if not connected:
-				connected = true
-				sfx.event("blade_impact", mob.global_position)
+		var wd: Vector2 = gs.weapon_damage()
+		var dmg := randf_range(wd.x, wd.y)
+		if randf() < gs.crit_chance():
+			dmg *= 2.0
+		mob.take_damage(dmg + gs.gear_elemental() * GameState.DMG_MULT)
+		if not connected:
+			connected = true
+			sfx.event("blade_impact", mob.global_position)
+	_break_in_arc(flat_dir, p.x, p.y)
 
 
 func _on_fire(slot: int, origin: Vector3, dir: Vector3) -> void:
@@ -754,6 +921,10 @@ func _physics_process(dt: float) -> void:
 				_skill_impact(a, hit["position"])
 				if randf() < gs.pierce_chance():
 					continue    # arrow pierces through
+			else:
+				var brk := _brk_root_of(col)
+				if brk != null:
+					_break_prop(brk)
 			var explode := str(a.get("explode", ""))
 			if explode != "":
 				var boom := BillboardAnim.new()
@@ -769,6 +940,66 @@ func _physics_process(dt: float) -> void:
 		if a["life"] <= 0.0:
 			arrows.erase(a)
 			node.queue_free()
+
+
+# ---------------------------------------------------------------------------
+# Destructibles
+# ---------------------------------------------------------------------------
+func _brk_root_of(col: Object) -> Node3D:
+	## Walk up from a hit collider to a live breakable prop root, if any.
+	var n: Node = col as Node
+	for i in range(5):
+		if n == null:
+			return null
+		if n.has_meta("brk") and not n.has_meta("brk_dead"):
+			return n
+		n = n.get_parent()
+	return null
+
+
+func _break_prop(root: Node3D) -> void:
+	if root.has_meta("brk_dead"):
+		return
+	root.set_meta("brk_dead", true)
+	breakables.erase(root)
+	var pos := root.global_position
+	get_node("/root/WowSfx").impact("wood", pos)
+	get_node("/root/Sfx").event("arrow_impact", pos, 0.6)
+	for mi in _find_meshes(root):
+		for body in mi.get_children():
+			if body is StaticBody3D:
+				body.set_collision_layer_value(1, false)
+	var tw := create_tween()
+	tw.tween_property(root, "scale", root.scale * 0.05, 0.16)
+	tw.tween_callback(root.hide)
+	# a little something inside, sometimes
+	var r := randf()
+	var gi: GroundItem = null
+	if r < 0.30:
+		gi = GroundItem.new()
+		add_child(gi)
+		gi.drop("gold", randi_range(40, 160))
+	elif r < 0.42:
+		gi = GroundItem.new()
+		add_child(gi)
+		gi.drop(["hp2", "mp2", "hp3"][randi() % 3])
+	if gi != null:
+		gi.global_position = pos + Vector3(0, 0.05, 0)
+		ground_items.append(gi)
+
+
+func _break_in_arc(flat_dir: Vector3, reach: float, arc: float) -> void:
+	for b in breakables.duplicate():
+		if not is_instance_valid(b):
+			breakables.erase(b)
+			continue
+		var to: Vector3 = b.global_position - player.global_position
+		to.y = 0.0
+		if to.length() > reach + 0.6:
+			continue
+		if flat_dir.angle_to(to.normalized()) > arc:
+			continue
+		_break_prop(b)
 
 
 # ---------------------------------------------------------------------------
@@ -812,6 +1043,10 @@ func _on_monster_died(dead: WowCreature) -> void:
 		qi.global_position = dead.global_position \
 				+ Vector3(cos(qa) * qr, 0.02, sin(qa) * qr)
 		ground_items.append(qi)
+	# boss-keyed doors swing open on the kill
+	for dr in doors:
+		if not dr["open"] and str(dr.get("rule", {}).get("boss", "")) == dead.cname:
+			_open_door(dr)
 	# the final boss marks the dungeon complete and advances the ladder
 	if dead.is_final_boss:
 		var gsd := get_node("/root/GameState")
@@ -888,7 +1123,8 @@ func drop_entry(entry: Dictionary) -> void:
 func _unhandled_input(e: InputEvent) -> void:
 	if e is InputEventKey and e.pressed and not e.echo:
 		if e.keycode == KEY_E:
-			_pickup_nearest()
+			if not _try_interact():
+				_pickup_nearest()
 		elif e.keycode >= KEY_1 and e.keycode <= KEY_4:
 			get_node("/root/GameState").drink(e.keycode - KEY_1)
 		elif e.keycode >= KEY_F1 and e.keycode <= KEY_F5:

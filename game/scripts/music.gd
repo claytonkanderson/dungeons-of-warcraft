@@ -10,6 +10,7 @@ var manifest: Dictionary = {}
 var _music: AudioStreamPlayer
 var _ambience: AudioStreamPlayer
 var _gap_t := 0.0
+var _pool: Array = []      # active music rotation (dungeon mood or default)
 
 
 func _ready() -> void:
@@ -64,22 +65,48 @@ func _start_ambience() -> void:
 
 
 func set_dungeon(id: String) -> void:
-	## Swap the ambience loop for the dungeon's own, when one was extracted.
+	## Entering a dungeon: its own ambience loop (or the default), its own
+	## music mood pool, and the menu theme stops.
 	if _ambience == null:
 		return
 	var byd: Dictionary = manifest.get("dungeon_ambience", {})
 	var fname := str(byd.get(id, ""))
-	if fname == "":
+	if fname != "":
+		var stream := _load_stream(fname)
+		if stream != null:
+			if stream is AudioStreamMP3 or stream is AudioStreamOggVorbis:
+				stream.loop = true
+			elif stream is AudioStreamWAV:
+				stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
+			_ambience.stream = stream
+	if not _ambience.playing:
+		if _ambience.stream == null:
+			_start_ambience()
+		else:
+			_ambience.play()
+	_pool = manifest.get("dungeon_music", {}).get(id, [])
+	if _music != null and _music.playing:
+		_music.stop()           # the menu theme ends at the dungeon door
+	_gap_t = randf_range(4.0, 10.0)
+	set_process(true)
+
+
+func set_menu() -> void:
+	## The main menu: title theme on loop, no cave ambience.
+	if _music == null:
 		return
-	var stream := _load_stream(fname)
+	if _ambience != null:
+		_ambience.stop()
+	var mm := str(manifest.get("menu_music", ""))
+	if mm == "":
+		return
+	var stream := _load_stream(mm)
 	if stream == null:
 		return
 	if stream is AudioStreamMP3 or stream is AudioStreamOggVorbis:
 		stream.loop = true
-	elif stream is AudioStreamWAV:
-		stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
-	_ambience.stream = stream
-	_ambience.play()
+	_music.stream = stream
+	_music.play()
 
 
 func _on_music_done() -> void:
@@ -93,7 +120,8 @@ func _process(dt: float) -> void:
 	_gap_t -= dt
 	if _gap_t > 0.0:
 		return
-	var tracks: Array = manifest.get("music", [])
+	var tracks: Array = _pool if not _pool.is_empty() \
+			else manifest.get("music", [])
 	if tracks.is_empty():
 		set_process(false)
 		return

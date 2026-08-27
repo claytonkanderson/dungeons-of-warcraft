@@ -34,6 +34,7 @@ func _ready() -> void:
 			get_tree().change_scene_to_file.call_deferred("res://scenes/world.tscn")
 			return
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	get_node("/root/Music").set_menu()
 	gs.migrate_legacy_save()
 	_build()
 	_refresh()

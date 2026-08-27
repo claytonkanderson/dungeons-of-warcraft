@@ -133,6 +133,80 @@ def build(s, did, cfg):
                 "yaw": t.yaw_of(ryd), "scale": sc / 1024.0,
             })
 
+    # ---- gameobjects: doors, levers, cannon, chests, veins ----
+    out["gameobjects"] = []
+    import re as _re
+    tpl = {}
+    tpl_pat = _re.compile(r"^\((\d+), ?(\d+), ?(\d+), ?'((?:[^'\\]|\\.)*)'")
+    from config import AC as _AC
+    for line in (_AC / "gameobject_template.sql").read_text(
+            encoding="utf-8").splitlines():
+        m = tpl_pat.match(line)
+        if m:
+            tpl[int(m.group(1))] = (int(m.group(2)), int(m.group(3)),
+                                    m.group(4).replace("\\'", "'"))
+    go_spawns = []
+    sp_pat = _re.compile(r"^\((\d+), ?(\d+), ?%d, ?" % cfg["ac_map"])
+    for line in (_AC / "gameobject.sql").read_text(
+            encoding="utf-8").splitlines():
+        if sp_pat.match(line):
+            f = line.strip("(),;").split(",")
+            go_spawns.append((int(f[1]), float(f[7]), float(f[8]),
+                              float(f[9]), float(f[10])))
+    if go_spawns:
+        from db2 import WDC5
+        gdi = WDC5(s.read_path("dbfilesclient/gameobjectdisplayinfo.db2"))
+        go_dir = out_dir / "gobj"
+        go_dir.mkdir(parents=True, exist_ok=True)
+        exported = {}
+        for entry, gx, gy, gz, go_o in go_spawns:
+            ginfo = tpl.get(entry)
+            if ginfo is None:
+                continue
+            gtype, disp, gname = ginfo
+            row = gdi.rows.get(disp)
+            if not row:
+                continue
+            fdid = row[2]     # gameobjectdisplayinfo: FileDataID after GeoBox
+            if not isinstance(fdid, int) or fdid <= 0:
+                continue
+            if fdid not in exported:
+                dest = go_dir / f"{fdid}.glb"
+                okf = dest.exists()
+                if not okf:
+                    try:
+                        gm = M2Model(s.read_fdid(fdid))
+                        if gm.sfid and gm.vertices:
+                            gskin = Skin(s.read_fdid(gm.sfid[0]))
+                            gt = {}
+                            for ti, tex in enumerate(gm.textures):
+                                tf = None
+                                if tex["type"] == 0:
+                                    if ti < len(gm.txid) and gm.txid[ti]:
+                                        tf = gm.txid[ti]
+                                    elif tex["name"]:
+                                        tf = s.root.fdid_for_path(tex["name"])
+                                if tf:
+                                    try:
+                                        gt[ti] = blp_to_png(s.read_fdid(tf))
+                                    except CascError:
+                                        pass
+                            export_static_glb(gm, gskin, gt, dest)
+                            okf = True
+                    except (CascError, KeyError, ValueError, struct.error) as e:
+                        print(f"  gameobject {gname} model {fdid}: {e}")
+                exported[fdid] = okf
+            if not exported[fdid]:
+                continue
+            out["gameobjects"].append({
+                "entry": entry, "name": gname, "type": gtype, "fdid": fdid,
+                "pos": t.to_gl(gx, gy, gz),
+                "yaw": t.dir_to_gl_yaw(math.cos(go_o), math.sin(go_o)),
+            })
+        print(f"gameobjects: {len(out['gameobjects'])} placed, "
+              f"{sum(1 for v in exported.values() if v)} models")
+    out["door_rules"] = cfg.get("doors", {})
+
     # entrance
     ent = entrance(cfg["ac_map"])
     if ent:
@@ -156,15 +230,31 @@ def build(s, did, cfg):
     # ---- doodad/prop models ----
     dd_dir = out_dir / "doodads"
     dd_dir.mkdir(parents=True, exist_ok=True)
+    names_path = dd_dir / "names.json"
+    model_names = {}
+    if names_path.exists():
+        model_names = json.loads(names_path.read_text())
     ok = fail = 0
     for fdid in sorted(needed):
         dest_glb = dd_dir / f"{fdid}.glb"
         if dest_glb.exists():
             ok += 1
+            if str(fdid) not in model_names:
+                try:
+                    model_names[str(fdid)] = M2Model(s.read_fdid(fdid)).name
+                except Exception:
+                    model_names[str(fdid)] = ""
             continue
         try:
             m = M2Model(s.read_fdid(fdid))
+            model_names[str(fdid)] = m.name
             if not m.sfid or not m.vertices:
+                fail += 1
+                continue
+            import re as _re2
+            if _re2.search(r"emitter|embers", m.name or "", _re2.I):
+                # particle emitters: their placeholder mesh is opaque black
+                # garbage (the visuals are unexported particles) — skip
                 fail += 1
                 continue
             skin = Skin(s.read_fdid(m.sfid[0]))
@@ -187,6 +277,17 @@ def build(s, did, cfg):
             print(f"  doodad {fdid}: {e}")
             fail += 1
     print(f"doodad models: {ok} ok, {fail} failed")
+    names_path.write_text(json.dumps(model_names, indent=0))
+
+    # destructibles: barrel/crate-family doodads become breakable in-game
+    import re
+    brk_pat = re.compile(r"barrel|crate|urn|jug|basket|vase", re.I)
+    n_brk = 0
+    for d in out["doodads"] + out["props"]:
+        if brk_pat.search(model_names.get(str(d["fdid"]), "") or ""):
+            d["brk"] = 1
+            n_brk += 1
+    print(f"breakables flagged: {n_brk}")
 
     with open(out_dir / "placements.json", "w") as f:
         json.dump(out, f, indent=1)

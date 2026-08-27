@@ -17,6 +17,10 @@ DUNGEONS = {
         # VanCleef keeps his hand-tuned cutlasses (attach_id, model, tex)
         hand_tuned={"Edwin VanCleef":
                     [(1, 148115, 148117), (2, 148120, 148124)]},
+        # door behavior: boss death, lever interact, or the cannon event
+        doors={"Factory Door": {"boss": "Rhahk'Zor"},
+               "Iron Clad Door": {"cannon": "Defias Cannon"},
+               "Heavy Door": {"lever": True}},
     ),
     "ragefire-chasm": dict(
         map_name="orgrimmarinstance", ac_map=389, target_level=18,

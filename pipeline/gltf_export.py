@@ -28,6 +28,33 @@ ANIM_NAMES = {
 }
 
 
+def _png_lum_alpha(png):
+    """Rewrite a write_png-produced RGBA PNG so alpha = max(R,G,B).
+    Additive-blend art encodes transparency as black; under glTF alpha
+    blending that black renders as solid sheets (the RFC fire silhouettes,
+    the frozen waterfall cones). Luminance-as-alpha approximates additive."""
+    import zlib
+    from blp import write_png
+    w, h = struct.unpack(">II", png[16:24])
+    p = 8
+    idat = b""
+    while p < len(png):
+        ln = struct.unpack(">I", png[p:p + 4])[0]
+        if png[p + 4:p + 8] == b"IDAT":
+            idat += png[p + 8:p + 8 + ln]
+        p += 12 + ln
+    raw = bytearray(zlib.decompress(idat))
+    stride = w * 4 + 1
+    for y in range(h):
+        base = y * stride + 1
+        for x in range(w):
+            o = base + x * 4
+            raw[o + 3] = max(raw[o], raw[o + 1], raw[o + 2])
+    rgba = b"".join(bytes(raw[y * stride + 1:(y + 1) * stride])
+                    for y in range(h))
+    return write_png(w, h, rgba)
+
+
 def _cv(v):  # convert vector
     return (-v[1], v[2], -v[0])
 
@@ -100,20 +127,24 @@ def export_static_glb(model, skin, textures, out_path):
         mat = {"pbrMetallicRoughness": {"metallicFactor": 0.0,
                                         "roughnessFactor": 1.0},
                "extensions": {"KHR_materials_unlit": {}}}
+        additive = blend >= 3
         if m2tex in textures:
-            if m2tex not in tex_out:
-                images.append({"bufferView": view(textures[m2tex]),
+            tkey = (m2tex, additive)
+            if tkey not in tex_out:
+                png = _png_lum_alpha(textures[m2tex]) if additive \
+                    else textures[m2tex]
+                images.append({"bufferView": view(png),
                                "mimeType": "image/png"})
                 gl_texs.append({"source": len(images) - 1, "sampler": 0})
-                tex_out[m2tex] = len(gl_texs) - 1
+                tex_out[tkey] = len(gl_texs) - 1
             mat["pbrMetallicRoughness"]["baseColorTexture"] = \
-                {"index": tex_out[m2tex]}
+                {"index": tex_out[tkey]}
         if blend == 1:
             mat["alphaMode"] = "MASK"
             mat["alphaCutoff"] = 0.5
         elif blend >= 2:
             mat["alphaMode"] = "BLEND"
-        if mflags & 0x04:
+        if mflags & 0x04 or additive:
             mat["doubleSided"] = True
         mats.append(mat)
         prims.append({"attributes": {"POSITION": a_pos, "NORMAL": a_nrm,
@@ -220,21 +251,25 @@ def export_glb(model, skin, textures, out_path, seq_filter=None,
             mat = {"pbrMetallicRoughness": {"metallicFactor": 0.0,
                                             "roughnessFactor": 1.0},
                    "name": f"{mdl.name}_mat{b['material']}_tex{m2tex}"}
+            additive = blend >= 3
             if m2tex in texs:
-                if m2tex not in tex_out:
-                    images.append({"bufferView": view(texs[m2tex]),
+                tkey = (m2tex, additive)
+                if tkey not in tex_out:
+                    png = _png_lum_alpha(texs[m2tex]) if additive \
+                        else texs[m2tex]
+                    images.append({"bufferView": view(png),
                                    "mimeType": "image/png"})
                     gl_textures.append({"source": len(images) - 1,
                                         "sampler": 0})
-                    tex_out[m2tex] = len(gl_textures) - 1
+                    tex_out[tkey] = len(gl_textures) - 1
                 mat["pbrMetallicRoughness"]["baseColorTexture"] = \
-                    {"index": tex_out[m2tex]}
+                    {"index": tex_out[tkey]}
             if blend == 1:
                 mat["alphaMode"] = "MASK"
                 mat["alphaCutoff"] = 0.5
             elif blend >= 2:
                 mat["alphaMode"] = "BLEND"
-            if mflags & 0x04:
+            if mflags & 0x04 or additive:
                 mat["doubleSided"] = True
             materials_out.append(mat)
             prims.append({"attributes": dict(attrs), "indices": a_idx,

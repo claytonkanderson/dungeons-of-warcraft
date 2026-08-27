@@ -72,6 +72,12 @@ IMPACTS = {
               "sound/item/weapons/mace2h/2hmacehitflesh1a.ogg",
               "sound/item/weapons/mace2h/2hmacehitflesh1b.ogg",
               "sound/item/weapons/mace2h/2hmacehitflesh1c.ogg"],
+    "wood": ["sound/item/weapons/mace2h/2hmacehitwood1a.ogg",
+             "sound/item/weapons/mace2h/2hmacehitwood1b.ogg",
+             "sound/item/weapons/mace2h/2hmacehitwood1c.ogg",
+             "sound/item/weapons/sword1h/m1hswordhitwood1a.ogg",
+             "sound/item/weapons/sword1h/m1hswordhitwood1b.ogg",
+             "sound/item/weapons/sword2h/m2hswordhitwood1a.ogg"],
 }
 
 MUSIC = [
@@ -88,6 +94,26 @@ MUSIC = [
     "sound/music/zonemusic/evilforest/nightevilforest02.mp3",
     "sound/music/zonemusic/evilforest/nightevilforest03.mp3",
 ]
+
+MENU_MUSIC = "sound/music/gluescreenmusic/wow_main_theme.mp3"
+
+# per-dungeon music moods (vanilla sets that fit each place)
+DUNGEON_MUSIC = {
+    "deadmines": ["sound/music/zonemusic/cursedland/cursedland%02d.mp3" % i
+                  for i in range(1, 7)],
+    "ragefire-chasm": ["sound/music/zonemusic/volcanic/dayvolcanic01.mp3",
+                       "sound/music/zonemusic/volcanic/dayvolcanic02.mp3",
+                       "sound/music/zonemusic/volcanic/nightvolcanic01.mp3",
+                       "sound/music/zonemusic/volcanic/nightvolcanic02.mp3"],
+    "wailing-caverns": ["sound/music/zonemusic/barrendry/daybarrendry%02d.mp3"
+                        % i for i in range(1, 4)]
+                       + ["sound/music/zonemusic/barrendry/nightbarrendry%02d.mp3"
+                          % i for i in range(1, 4)],
+    "shadowfang-keep": ["sound/music/zonemusic/evilforest/dayevilforest%02d.mp3"
+                        % i for i in range(1, 4)]
+                       + ["sound/music/zonemusic/evilforest/nightevilforest%02d.mp3"
+                          % i for i in range(1, 4)],
+}
 
 
 def main():
@@ -107,6 +133,29 @@ def main():
             (out_dir / name).write_bytes(data)
             manifest[group].append(name)
             print(f"{group}: {name} ({len(data)//1024} KB)")
+    # per-dungeon music pools + the menu theme
+    manifest["dungeon_music"] = manifest.get("dungeon_music", {})
+    for did, paths in DUNGEON_MUSIC.items():
+        pool = []
+        for p in paths:
+            name = p.rsplit("/", 1)[-1]
+            try:
+                if not (out_dir / name).exists():
+                    (out_dir / name).write_bytes(s.read_path(p))
+                pool.append(name)
+            except (CascError, KeyError) as e:
+                print(f"miss: {p} ({e})")
+        manifest["dungeon_music"][did] = pool
+        print(f"music {did}: {len(pool)} tracks")
+    try:
+        mname = MENU_MUSIC.rsplit("/", 1)[-1]
+        if not (out_dir / mname).exists():
+            (out_dir / mname).write_bytes(s.read_path(MENU_MUSIC))
+        manifest["menu_music"] = mname
+        print(f"menu music: {mname}")
+    except (CascError, KeyError) as e:
+        print(f"menu music miss: {e}")
+
     (out_dir / "audio.json").write_text(json.dumps(manifest, indent=1))
     print(f"wrote {out_dir / 'audio.json'}")
 

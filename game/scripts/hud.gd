@@ -80,6 +80,17 @@ class PanelControl:
 			var font := ThemeDB.fallback_font
 			draw_string(font, bpos + Vector2(18, 12) * s, cnt,
 					HORIZONTAL_ALIGNMENT_LEFT, -1, maxi(1, int(10 * s)), Color(1, 1, 1))
+		# experience bar riding the panel's top edge: progress to next level
+		var lvl_i: int = gs.level
+		var xfrac := 1.0
+		if lvl_i < gs.exp_table.size():
+			var e0 := float(str(gs.exp_table[lvl_i - 1]).to_int())
+			var e1 := float(str(gs.exp_table[lvl_i]).to_int())
+			xfrac = clampf((float(gs.xp) - e0) / maxf(1.0, e1 - e0), 0.0, 1.0)
+		draw_rect(Rect2(0, -5 * s, size.x, 4 * s), Color(0, 0, 0, 0.7))
+		draw_rect(Rect2(s, -4 * s, (size.x - 2 * s) * xfrac, 2 * s),
+				Color(0.83, 0.69, 0.22))
+
 		# assigned skill icons: always visible — normal Attack shows the
 		# classic swing glyph from the generic skill icon panel
 		for i in range(2):
@@ -260,8 +271,21 @@ func _process(dt: float) -> void:
 	_kick = maxf(0.0, _kick - dt * 5.0)
 	if bow != null:
 		_bob += dt * 2.0
-		bow.position = Vector2(vp.x * 0.62 + sin(_bob) * 6.0,
-				vp.y - 260.0 + cos(_bob * 2.0) * 4.0 + _kick * 40.0)
+		var pp: Player = get_tree().get_first_node_in_group("player")
+		var sw := -1.0
+		if pp != null and pp.melee and pp.attack_time > 0.0 \
+				and pp._attack_len > 0.0:
+			sw = 1.0 - pp.attack_time / pp._attack_len
+		if sw >= 0.0:
+			# first-person melee: wind up high right, sweep across the view
+			var e := sw * sw * (3.0 - 2.0 * sw)
+			bow.rotation = lerpf(0.8, -2.1, e)
+			bow.position = Vector2(vp.x * (0.74 - 0.42 * e),
+					vp.y - 250.0 - sin(e * PI) * 90.0)
+		else:
+			bow.rotation = -0.5
+			bow.position = Vector2(vp.x * 0.62 + sin(_bob) * 6.0,
+					vp.y - 260.0 + cos(_bob * 2.0) * 4.0 + _kick * 40.0)
 	# control panel: full width, anchored to the bottom
 	var s := vp.x / PANEL_W
 	panel_ui.size = Vector2(vp.x, PANEL_H * s)

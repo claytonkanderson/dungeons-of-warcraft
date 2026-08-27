@@ -133,6 +133,21 @@ class WMOGroup:
         movi = sub.get(b"MOVI", [b""])[0]
         self.indices = list(struct.unpack(f"<{len(movi)//2}H", movi))
 
+        # interior liquid (canals, pools): vertex-height grid + tile flags
+        mliq = sub.get(b"MLIQ", [None])[0]
+        self.liquid = None
+        if mliq and len(mliq) >= 30:
+            xv, yv, xt, yt = struct.unpack_from("<4I", mliq, 0)
+            corner = struct.unpack_from("<3f", mliq, 16)
+            need = 30 + xv * yv * 8 + xt * yt
+            if 0 < xv * yv < 65536 and len(mliq) >= need:
+                heights = [struct.unpack_from("<f", mliq, 30 + i * 8 + 4)[0]
+                           for i in range(xv * yv)]
+                tiles = mliq[30 + xv * yv * 8: need]
+                self.liquid = {"xv": xv, "yv": yv, "xt": xt, "yt": yt,
+                               "corner": corner, "heights": heights,
+                               "tiles": tiles}
+
         self.batches = []
         moba = sub.get(b"MOBA", [b""])[0]
         for i in range(len(moba) // 24):

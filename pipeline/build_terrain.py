@@ -29,7 +29,7 @@ MAIN_FDID = 108483
 TILE = 533.33333
 CHUNK = TILE / 16.0
 UNIT = CHUNK / 8.0
-BAKE = 64            # baked pixels per chunk edge (atlas 1024 per tile)
+BAKE = 128           # baked pixels per chunk edge (atlas 2048 per tile)
 REPEATS = 4.0        # ground texture repeats per chunk edge
 
 
@@ -236,6 +236,9 @@ def build_for(s, wdt_fdid, to_gl, out_dir):
                   if int.from_bytes(main_c[i * 8:i * 8 + 4], "little") & 1)
     if n_tiles == 0:
         print("terrain: no ADT tiles flagged, skipping")
+        return
+    if (out_dir / "terrain.json").exists():
+        print("terrain: cached (delete the terrain dir to rebake)")
         return
     out_dir.mkdir(parents=True, exist_ok=True)
 
