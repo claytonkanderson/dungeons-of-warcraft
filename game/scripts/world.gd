@@ -45,8 +45,8 @@ func _load_json(path: String) -> Dictionary:
 
 func _ready() -> void:
 	add_to_group("world")
-	wow_dir = _assets_dir().path_join("wow/deadmines")
 	var gs := get_node("/root/GameState")
+	wow_dir = _assets_dir().path_join("wow/%s" % gs.current_dungeon)
 	if not gs.session_loaded:
 		gs.session_loaded = true
 		var loaded := false
@@ -89,7 +89,7 @@ func _ready() -> void:
 	menu_ui.world = self
 	add_child(menu_ui)
 	player.action_skill = [str(gs._saved_action[0]), str(gs._saved_action[1])]
-	hud_node.show_area("The Deadmines")
+	hud_node.show_area(get_node("/root/Dungeons").display_name(gs.current_dungeon))
 	# WASAPI init fails intermittently on this machine (sleepy BT headset as
 	# the default device) and Godot falls back to a silent dummy driver —
 	# surface it instead of letting the session be quietly mute
@@ -812,6 +812,13 @@ func _on_monster_died(dead: WowCreature) -> void:
 		qi.global_position = dead.global_position \
 				+ Vector3(cos(qa) * qr, 0.02, sin(qa) * qr)
 		ground_items.append(qi)
+	# the final boss marks the dungeon complete and advances the ladder
+	if dead.is_final_boss:
+		var gsd := get_node("/root/GameState")
+		if gsd.complete_dungeon():
+			gsd.save_game(player)
+			hud_node.show_area("%s conquered!" % get_node("/root/Dungeons")
+					.display_name(gsd.current_dungeon), Color(0.3, 0.95, 0.3), 7.0)
 
 
 func _pickup_nearest() -> void:

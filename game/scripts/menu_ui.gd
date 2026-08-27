@@ -87,6 +87,10 @@ func _build() -> void:
 	_slider("Music + Ambience", "music")
 	_slider("Sound Effects", "effects")
 	_box.add_child(_label(" ", 8))
+	_box.add_child(_button("Exit to Main Menu", func():
+		var gs := get_node("/root/GameState")
+		gs.save_game(world.player if world != null else null)
+		get_tree().change_scene_to_file("res://scenes/menu.tscn")))
 	_box.add_child(_button("Save and Quit", func():
 		var gs := get_node("/root/GameState")
 		gs.save_game(world.player if world != null else null)

@@ -5,6 +5,10 @@ signal leveled_up(level: int)
 signal hp_changed
 signal xp_changed
 
+var character := ""           # active character slug ("" = legacy/test save)
+var char_name := "Amazon"     # display name
+var dungeons_done: Array = [] # completed dungeon ids (per character)
+var current_dungeon := "deadmines"
 var level := 14               # a seasoned start: points arrive unallocated
 var xp := 0                   # seeded from the exp table in _ready
 var skill_points := 14
@@ -570,19 +574,168 @@ func allocate(n: String) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Save / load
+# Characters / save / load
 # ---------------------------------------------------------------------------
-const SAVE_PATH := "user://amazon_deadmines_save.json"
+const SAVE_PATH := "user://amazon_deadmines_save.json"   # legacy/test slot
+const CHAR_DIR := "user://characters"
+
+
+func _save_path() -> String:
+	if character == "":
+		return SAVE_PATH
+	return CHAR_DIR + "/%s.json" % character
+
+
+static func slugify(disp: String) -> String:
+	var out := ""
+	for ch in disp.to_lower():
+		if (ch >= "a" and ch <= "z") or (ch >= "0" and ch <= "9"):
+			out += ch
+		elif ch == " " or ch == "-" or ch == "_":
+			out += "-"
+	return out.substr(0, 24)
+
+
+func reset_state() -> void:
+	## Fresh-character defaults (the level-14 seasoned start).
+	level = 14
+	skill_points = 14
+	stat_points = 70
+	stat = {"str": 20, "dex": 25, "vit": 20, "ene": 15}
+	skills = {}
+	hotkeys = {}
+	equipped = {}
+	inv_items = []
+	gold = 0
+	belt = [{}, {}, {}, {}]
+	stash_items = []
+	dungeons_done = []
+	current_dungeon = "deadmines"
+	saved_pos = Vector3.ZERO
+	saved_yaw = 0.0
+	_saved_action = ["Attack", "Attack"]
+	xp = int(str(exp_table[level - 1])) if level <= exp_table.size() else 0
+	poison_dps = 0.0
+	poison_t = 0.0
+	_recalc()
+	hp = hp_max
+	mana = mana_max
+
+
+func list_characters() -> Array:
+	## [{slug, name, level, dungeon}] for the roster UI.
+	var out := []
+	var dir := DirAccess.open(CHAR_DIR)
+	if dir == null:
+		return out
+	for f in dir.get_files():
+		if not f.ends_with(".json"):
+			continue
+		var fh := FileAccess.open(CHAR_DIR + "/" + f, FileAccess.READ)
+		if fh == null:
+			continue
+		var d: Variant = JSON.parse_string(fh.get_as_text())
+		if d is Dictionary:
+			out.append({"slug": f.trim_suffix(".json"),
+					"name": str(d.get("name", f.trim_suffix(".json"))),
+					"level": int(d.get("level", 1)),
+					"dungeon": str(d.get("current_dungeon", "deadmines"))})
+	return out
+
+
+func create_character(disp: String) -> String:
+	## Returns the new slug, or "" when the name is taken/invalid.
+	var slug := slugify(disp)
+	if slug == "":
+		return ""
+	DirAccess.make_dir_recursive_absolute(CHAR_DIR)
+	if FileAccess.file_exists(CHAR_DIR + "/%s.json" % slug):
+		return ""
+	character = slug
+	char_name = disp.strip_edges()
+	reset_state()
+	grant_starter_kit()
+	save_game(null)
+	session_loaded = true
+	return slug
+
+
+func select_character(slug: String) -> bool:
+	character = slug
+	if load_game(null):
+		session_loaded = true
+		return true
+	return false
+
+
+func delete_character(slug: String) -> void:
+	DirAccess.remove_absolute(CHAR_DIR + "/%s.json" % slug)
+	if character == slug:
+		character = ""
+		session_loaded = false
+
+
+func migrate_legacy_save() -> void:
+	## The pre-roster single save becomes the first character slot. The
+	## project rename also moved user://, so the old "Amazon Deadmines"
+	## app-data directory is checked as a fallback (copied, not moved).
+	if not list_characters().is_empty():
+		return
+	var old_dir := OS.get_user_data_dir().get_base_dir() \
+			.path_join("Amazon Deadmines")
+	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
+	if f == null:
+		f = FileAccess.open(old_dir.path_join("amazon_deadmines_save.json"),
+				FileAccess.READ)
+	if f == null:
+		return
+	var d: Variant = JSON.parse_string(f.get_as_text())
+	if not (d is Dictionary):
+		return
+	d["name"] = "Amazon"
+	DirAccess.make_dir_recursive_absolute(CHAR_DIR)
+	var out := FileAccess.open(CHAR_DIR + "/amazon.json", FileAccess.WRITE)
+	if out != null:
+		out.store_string(JSON.stringify(d))
+		out.close()
+		if FileAccess.file_exists(SAVE_PATH):
+			DirAccess.remove_absolute(SAVE_PATH)
+	# volume settings ride along once too
+	if not FileAccess.file_exists("user://settings.json"):
+		var sf := FileAccess.open(old_dir.path_join("settings.json"),
+				FileAccess.READ)
+		if sf != null:
+			var so := FileAccess.open("user://settings.json", FileAccess.WRITE)
+			if so != null:
+				so.store_string(sf.get_as_text())
+
+
+func enter_dungeon(id: String) -> void:
+	## Selecting a different dungeon drops the saved position.
+	if current_dungeon != id:
+		current_dungeon = id
+		saved_pos = Vector3.ZERO
+	save_game(null)
+
+
+func complete_dungeon() -> bool:
+	## Final boss down: record it. Returns true the first time.
+	if dungeons_done.has(current_dungeon):
+		return false
+	dungeons_done.append(current_dungeon)
+	return true
 
 
 func save_game(player) -> void:
 	var d := {
+		"name": char_name,
 		"level": level, "xp": xp, "skill_points": skill_points,
 		"stat": stat, "skills": skills, "gold": gold,
 		"inv": inv_items, "hp": hp, "mana": mana,
 		"stat_points": stat_points, "equipped": equipped,
 		"current_level": current_level, "waypoints": waypoints,
 		"belt": belt, "stash": stash_items, "hotkeys": hotkeys,
+		"dungeons_done": dungeons_done, "current_dungeon": current_dungeon,
 	}
 	if player != null:
 		d["pos"] = [player.global_position.x, player.global_position.y,
@@ -592,14 +745,16 @@ func save_game(player) -> void:
 		_saved_action = player.action_skill
 	else:
 		d["action"] = _saved_action
-	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	if character != "":
+		DirAccess.make_dir_recursive_absolute(CHAR_DIR)
+	var f := FileAccess.open(_save_path(), FileAccess.WRITE)
 	if f != null:
 		f.store_string(JSON.stringify(d))
 		f.close()
 
 
 func load_game(player) -> bool:
-	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
+	var f := FileAccess.open(_save_path(), FileAccess.READ)
 	if f == null:
 		return false
 	var d: Dictionary = JSON.parse_string(f.get_as_text())
@@ -621,6 +776,9 @@ func load_game(player) -> bool:
 	belt = d.get("belt", [{}, {}, {}, {}])
 	stash_items = d.get("stash", [])
 	hotkeys = d.get("hotkeys", {})
+	char_name = str(d.get("name", char_name))
+	dungeons_done = d.get("dungeons_done", [])
+	current_dungeon = str(d.get("current_dungeon", "deadmines"))
 	current_level = int(d.get("current_level", 1))
 	waypoints = d.get("waypoints", [1])
 	if not waypoints.has(1):
