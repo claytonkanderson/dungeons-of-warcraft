@@ -17,8 +17,7 @@ func _ready() -> void:
 	root.visible = false
 	add_child(root)
 	panel = TextureRect.new()
-	var img := Image.load_from_file(ProjectSettings.globalize_path(
-		"res://../assets/ui/invchar_0.png"))
+	var img := Image.load_from_file(Paths.asset("ui/invchar_0.png"))
 	if img != null:
 		panel.texture = ImageTexture.create_from_image(img)
 	panel.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST

@@ -2,7 +2,7 @@ extends Node
 ## Autoloaded as ItemGen: rolls unique / set / rare item instances.
 ## An instance: {code, quality, name, base_name, props: Array, color: Color}
 
-const ASSETS := "res://../assets"
+var ASSETS: String = Paths.root()
 # Drops are gated by REQUIRED level vs the player's CURRENT level: nothing
 # rolls that the amazon cannot wear right now. The pool widens as she levels.
 

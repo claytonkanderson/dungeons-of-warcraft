@@ -122,16 +122,14 @@ var _setmap := {}              # set item name -> set name (setitems.json)
 func _load_setdata() -> void:
 	if not _setbonus.is_empty():
 		return
-	var f := FileAccess.open(ProjectSettings.globalize_path(
-		"res://../assets/items/setbonus.json"), FileAccess.READ)
+	var f := FileAccess.open(Paths.asset("items/setbonus.json"), FileAccess.READ)
 	if f != null:
 		var d: Variant = JSON.parse_string(f.get_as_text())
 		if d is Dictionary:
 			_setbonus = d
 	if _setbonus.is_empty():
 		_setbonus = {"items": {}, "sets": {}}
-	var f2 := FileAccess.open(ProjectSettings.globalize_path(
-		"res://../assets/items/setitems.json"), FileAccess.READ)
+	var f2 := FileAccess.open(Paths.asset("items/setitems.json"), FileAccess.READ)
 	if f2 != null:
 		var arr: Variant = JSON.parse_string(f2.get_as_text())
 		if arr is Array:

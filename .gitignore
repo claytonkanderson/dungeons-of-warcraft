@@ -4,3 +4,5 @@ shots/
 video/
 __pycache__/
 *.pyc
+dist/
+dist-test*/

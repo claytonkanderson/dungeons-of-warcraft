@@ -12,12 +12,15 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, r"D:\tree\D2_Billboard\pipeline")
+sys.path.insert(0, str(Path(__file__).resolve().parent / "d2"))
 import tbl                        # noqa: E402
 from sprites import mpqs          # noqa: E402
 from export_affixes import read_table, g, Resolver  # noqa: E402
 
-OUT = Path(__file__).resolve().parent.parent / "assets" / "items"
+import os
+OUT = Path(os.environ.get(
+    "DOW_ASSETS",
+    Path(__file__).resolve().parent.parent / "assets")) / "items"
 
 
 def pair_props(r, prefix_fmt, thresholds):

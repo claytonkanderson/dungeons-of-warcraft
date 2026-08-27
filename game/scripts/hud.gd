@@ -30,8 +30,7 @@ var _tex := {}
 func _tex_load(rel: String) -> Texture2D:
 	if _tex.has(rel):
 		return _tex[rel]
-	var img := Image.load_from_file(ProjectSettings.globalize_path(
-		"res://../assets/" + rel))
+	var img := Image.load_from_file(Paths.asset(rel))
 	var t: Texture2D = ImageTexture.create_from_image(img) if img != null else null
 	_tex[rel] = t
 	return t

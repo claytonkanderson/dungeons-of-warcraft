@@ -2,7 +2,7 @@ extends Node
 ## Loads pipeline spritesheets (PNG + sidecar JSON) from the assets directory
 ## and caches them. Autoloaded as SpriteDB.
 
-const ASSETS := "res://../assets"
+var ASSETS: String = Paths.root()
 
 var _cache := {}
 

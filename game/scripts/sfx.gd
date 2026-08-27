@@ -3,7 +3,7 @@ extends Node
 ## Manifest (sounds.json) maps game events and MonSounds ids to wav variant
 ## lists; a random variant plays each time, like the Group Size rolls in D2.
 
-const DIR := "res://../assets/sounds"
+var DIR: String = Paths.asset("sounds")
 
 var meta: Dictionary = {}
 var _cache: Dictionary = {}        # sound key -> AudioStreamWAV (or null)

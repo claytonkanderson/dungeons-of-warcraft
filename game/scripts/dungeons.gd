@@ -28,10 +28,7 @@ const LIST := [
 
 
 func _assets_dir() -> String:
-	var proj := ProjectSettings.globalize_path("res://")
-	if proj.ends_with("/"):
-		proj = proj.substr(0, proj.length() - 1)
-	return proj.get_base_dir().path_join("assets")
+	return Paths.root()
 
 
 func built(id: String) -> bool:

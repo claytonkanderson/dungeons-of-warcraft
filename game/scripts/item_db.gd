@@ -2,7 +2,7 @@ extends Node
 ## Autoloaded as ItemDB: item definitions, treasure-class drop rolls,
 ## cached flippy/inventory textures.
 
-const ASSETS := "res://../assets"
+var ASSETS: String = Paths.root()
 
 var items := {}
 var treasure := {}

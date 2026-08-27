@@ -37,8 +37,7 @@ var tooltip_card: ItemTooltip
 func _ready() -> void:
 	layer = 5
 	panel = TextureRect.new()
-	var img := Image.load_from_file(ProjectSettings.globalize_path(
-		"res://../assets/ui/invchar_1.png"))
+	var img := Image.load_from_file(Paths.asset("ui/invchar_1.png"))
 	if img != null:
 		panel.texture = ImageTexture.create_from_image(img)
 	panel.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST

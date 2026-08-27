@@ -4,7 +4,6 @@ extends Node3D
 ## Verification: -- --shots=<dir> screenshots the spawn; --combat-test runs
 ## a scripted bow fight; --at=x,y,z overrides the spawn point.
 
-const ASSETS := "res://../assets"          # D2 data (items, ui, amazon, sounds)
 const ARROW_SPEED := 24.0
 
 var wow_dir := ""                          # assets/wow/deadmines (absolute)
@@ -28,10 +27,7 @@ var _at_override := Vector3.INF
 
 
 func _assets_dir() -> String:
-	var proj := ProjectSettings.globalize_path("res://")
-	if proj.ends_with("/"):
-		proj = proj.substr(0, proj.length() - 1)
-	return proj.get_base_dir().path_join("assets")
+	return Paths.root()
 
 
 func _load_json(path: String) -> Dictionary:

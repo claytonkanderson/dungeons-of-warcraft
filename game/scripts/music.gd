@@ -4,7 +4,7 @@ extends Node
 ## the Sfx autoload; this node only handles the Warcraft soundscape.
 ## Silently does nothing when the audio pass hasn't been run yet.
 
-const DIR := "res://../assets/wow/audio"
+var DIR: String = Paths.asset("wow/audio")
 
 var manifest: Dictionary = {}
 var _music: AudioStreamPlayer

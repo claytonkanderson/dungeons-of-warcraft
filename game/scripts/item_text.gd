@@ -2,7 +2,7 @@ extends Node
 ## Autoloaded as ItemText: exact D2 property display strings, built from
 ## Properties.txt stat mappings + ItemStatCost descfuncs (pre-resolved).
 
-const ASSETS := "res://../assets"
+var ASSETS: String = Paths.root()
 
 var props := {}       # property code -> [{stat, func}]
 var statdesc := {}    # stat -> {pri, func, val, pos, neg, str2}

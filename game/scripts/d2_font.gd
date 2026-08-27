@@ -7,10 +7,9 @@ var size := 16
 
 
 func _ready() -> void:
-	var img := Image.load_from_file(ProjectSettings.globalize_path(
-		"res://../assets/ui/font16_atlas.png"))
-	var f := FileAccess.open(ProjectSettings.globalize_path(
-		"res://../assets/ui/font16_atlas.json"), FileAccess.READ)
+	var img := Image.load_from_file(Paths.asset("ui/font16_atlas.png"))
+	var f := FileAccess.open(Paths.asset("ui/font16_atlas.json"),
+			FileAccess.READ)
 	if img == null or f == null:
 		push_warning("D2 font assets missing; falling back to default font")
 		return

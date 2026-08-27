@@ -4,7 +4,7 @@ extends Node
 ## effects stay with the Sfx autoload — this is the Warcraft layer.
 ## Silently does nothing when the audio pass hasn't been run.
 
-const DIR := "res://../assets/wow/audio"
+var DIR: String = Paths.asset("wow/audio")
 
 var manifest: Dictionary = {}
 var _cache: Dictionary = {}
