@@ -85,3 +85,21 @@ Paths (WoW install, AzerothCore SQL dump) live in `pipeline/config.py`.
 - Live audio is silent on this machine (WASAPI init fails → dummy
   driver); Movie Maker recordings carry the full mix.
 - WoW creature voices/impacts not extracted; combat feedback is D2 sfx.
+
+## License
+
+[PolyForm Noncommercial 1.0.0](LICENSE). Read it, run it, change it, fork
+it, share it — for any noncommercial purpose. Commercial use of any kind is
+not permitted, which for a Blizzard fan project is the only honest terms to
+offer anyway.
+
+No Diablo II or World of Warcraft content is in this repository or in the
+binary distribution. `pipeline/` reads the player's own installs and writes
+the derived assets to the player's own machine; `assets/` is git-ignored and
+never shipped. Creature data comes from AzerothCore (AGPL-3.0), downloaded
+from their repository at build time rather than vendored here.
+
+Third-party components and their terms — Godot Engine (MIT), StormLib (MIT),
+AzerothCore (AGPL-3.0) — are listed in [THIRD-PARTY.md](THIRD-PARTY.md).
+Blizzard trademarks belong to Blizzard Entertainment; this is an unofficial,
+noncommercial fan project with no affiliation or endorsement.

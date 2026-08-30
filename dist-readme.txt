@@ -49,3 +49,22 @@ NOTES
   - This is a non-commercial fan project. Diablo II and World of
     Warcraft are trademarks of Blizzard Entertainment; this mod is
     unplayable without owning both.
+
+LICENSE
+
+  Dungeons of Warcraft is released under the PolyForm Noncommercial
+  License 1.0.0 — see LICENSE.txt. You may use, modify, fork and share
+  it for any noncommercial purpose; commercial use is not permitted.
+
+  Required Notice: Copyright 2026 Clayton Anderson
+
+  THIRD-PARTY.txt lists the components that keep their own terms: the
+  Godot Engine (MIT), compiled into DungeonsOfWarcraft.exe; StormLib's
+  MPQ Huffman tables (MIT); and AzerothCore's world database
+  (AGPL-3.0), which builder.exe downloads to your machine at build time
+  rather than bundling.
+
+  No Blizzard content ships in this download. Everything the game draws
+  and plays is generated on your machine from your own two installs.
+  This project is unofficial and is not affiliated with, endorsed by, or
+  sponsored by Blizzard Entertainment.
