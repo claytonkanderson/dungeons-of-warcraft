@@ -30,7 +30,6 @@ var _delete_btn: Button
 var _doll: Control
 var _doll_name: Label
 var _doll_level: Label
-var _doll_gear: Label
 var _bg: TextureRect
 var _bg_fade: TextureRect
 var _bg_shown := ""
@@ -173,22 +172,17 @@ func _build() -> void:
 	# ---- the character, in their own gear (left) ----
 	_panel(DOLL_PANEL)
 	_doll = preload("res://scripts/paperdoll.gd").new()
-	_doll.position = Vector2(DOLL_PANEL.position.x + 8, 168)
+	_doll.position = Vector2(DOLL_PANEL.position.x + 8, 200)
 	_doll.size = Vector2(DOLL_PANEL.size.x - 16, 348)
 	add_child(_doll)
 	_doll_name = _label("", 18, GOLD)
-	_doll_name.position = Vector2(DOLL_PANEL.position.x, 524)
+	_doll_name.position = Vector2(DOLL_PANEL.position.x, 556)
 	_doll_name.size.x = DOLL_PANEL.size.x
 	add_child(_doll_name)
 	_doll_level = _label("", 14, WHITE)
-	_doll_level.position = Vector2(DOLL_PANEL.position.x, 550)
+	_doll_level.position = Vector2(DOLL_PANEL.position.x, 582)
 	_doll_level.size.x = DOLL_PANEL.size.x
 	add_child(_doll_level)
-	_doll_gear = _label("", 13, Color(0.59, 0.55, 0.46))
-	_doll_gear.position = Vector2(DOLL_PANEL.position.x, 568)
-	_doll_gear.size.x = DOLL_PANEL.size.x
-	_doll_gear.autowrap_mode = TextServer.AUTOWRAP_OFF
-	add_child(_doll_gear)
 
 	# ---- characters (middle) ----
 	_panel(CHAR_PANEL)
@@ -294,24 +288,10 @@ func _show_doll(slug: String, data: Dictionary) -> void:
 		_doll.clear()
 		_doll_name.text = ""
 		_doll_level.text = ""
-		_doll_gear.text = ""
 		return
-	var equipped: Dictionary = data.get("equipped", {})
-	_doll.show_character(equipped)
+	_doll.show_character(data.get("equipped", {}))
 	_doll_name.text = str(data.get("name", slug))
 	_doll_level.text = "Level %d Amazon" % int(data.get("level", 1))
-	var db := get_node("/root/ItemDB")
-	var lines: Array[String] = []
-	for slot in ["weap", "tors", "head", "shie"]:
-		var code := str(equipped.get(slot, {}).get("code", ""))
-		# only what the paperdoll actually draws: a quiver in the off hand
-		# is not a shield and does not appear on her
-		if code == "" or (slot == "shie" and not _doll.is_shield(code)):
-			continue
-		var nm := str(db.item(code).get("name", code))
-		if nm != "":
-			lines.append(nm)
-	_doll_gear.text = "\n".join(lines)
 
 
 func _refresh() -> void:
