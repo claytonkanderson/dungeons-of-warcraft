@@ -1,4 +1,4 @@
-"""Paths and product selection for the amazon-deadmines pipeline.
+"""Paths and product selection for the dungeons-of-warcraft pipeline.
 
 WoW-side extraction settings match D:\\tree\\warcraft-art (the repo this
 pipeline was forked from); output lands in this repo's assets/wow tree.

@@ -193,7 +193,7 @@ class GlbWriter:
                                         "roughnessFactor": 1.0},
                "doubleSided": True,
                "extensions": {"KHR_materials_unlit": {}}}
-        gltf = {"asset": {"version": "2.0", "generator": "amazon-deadmines"},
+        gltf = {"asset": {"version": "2.0", "generator": "dungeons-of-warcraft"},
                 "extensionsUsed": ["KHR_materials_unlit"],
                 "scene": 0, "scenes": [{"nodes": [0]}],
                 "nodes": [{"name": path.stem, "mesh": 0}],
