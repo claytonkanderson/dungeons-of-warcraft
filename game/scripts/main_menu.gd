@@ -1,7 +1,8 @@
 extends Control
-## "Dungeons of Warcraft" — the launch menu: character roster on the left,
-## the vanilla dungeon ladder on the right, continue/enter at the bottom.
-## Test/automation flags fall straight through into the world scene.
+## "Dungeons of Warcraft" — the launch menu: the selected character standing
+## in their own gear on the left, the roster in the middle, the vanilla
+## dungeon ladder on the right, over the artwork of whichever dungeon is
+## highlighted. Test/automation flags fall straight through into the world.
 
 const GOLD := Color(0.85, 0.72, 0.35)
 const GOLD_DIM := Color(0.55, 0.48, 0.3)
@@ -9,6 +10,13 @@ const GREY := Color(0.45, 0.45, 0.45)
 const DARK := Color(0.3, 0.28, 0.28)
 const GREEN := Color(0.25, 0.8, 0.25)
 const WHITE := Color(0.9, 0.88, 0.82)
+
+# column geometry (the viewport is a fixed 1280x720)
+const DOLL_PANEL := Rect2(34, 140, 240, 500)
+const CHAR_PANEL := Rect2(288, 140, 280, 500)
+const DUNG_PANEL := Rect2(588, 140, 660, 500)
+const ROW_SIZE := Vector2(256, 93)
+const BUTTON_Y := 662
 
 var sel_char := ""
 var sel_dungeon := ""
@@ -19,6 +27,15 @@ var _enter_btn: Button
 var _continue_btn: Button
 var _delete_armed := false
 var _delete_btn: Button
+var _doll: Control
+var _doll_name: Label
+var _doll_level: Label
+var _doll_gear: Label
+var _bg: TextureRect
+var _bg_fade: TextureRect
+var _bg_shown := ""
+var _bg_cache := {}
+var _ui_tex := {}
 
 @onready var gs := get_node("/root/GameState")
 @onready var dg := get_node("/root/Dungeons")
@@ -40,7 +57,7 @@ func _ready() -> void:
 	_refresh()
 	for a in OS.get_cmdline_user_args():
 		if str(a).begins_with("--menu-shot="):
-			for i in range(8):
+			for i in range(12):
 				await RenderingServer.frame_post_draw
 			get_viewport().get_texture().get_image().save_png(
 				str(a).substr(12))
@@ -56,14 +73,73 @@ func _label(text: String, px: int, color := GOLD) -> Label:
 	return l
 
 
+func _tex(name: String) -> Texture2D:
+	## A D2 UI sheet from assets/ui, loaded once.
+	if not _ui_tex.has(name):
+		var img := Image.load_from_file(ProjectSettings.globalize_path(
+				Paths.asset("ui/%s.png" % name)))
+		_ui_tex[name] = ImageTexture.create_from_image(img) if img != null else null
+	return _ui_tex[name]
+
+
+func _frame_tex(name: String, frame: int, frames: int) -> Texture2D:
+	## One frame out of a horizontal D2 sheet (idle / pressed).
+	var t := _tex(name)
+	if t == null:
+		return null
+	var w := int(t.get_width() / float(frames))
+	var at := AtlasTexture.new()
+	at.atlas = t
+	at.region = Rect2(frame * w, 0, w, t.get_height())
+	return at
+
+
+func _skin(button: Button, name: String, frames: int, pressed_frame: int) -> bool:
+	## Dress a Button in D2 art; false when the art is missing. These sheets
+	## interleave the full plate with narrow edge pieces, so the pressed state
+	## is not simply frame 1.
+	var idle := _frame_tex(name, 0, frames)
+	if idle == null:
+		return false
+	var box := StyleBoxTexture.new()
+	box.texture = idle
+	button.add_theme_stylebox_override("normal", box)
+	button.add_theme_stylebox_override("hover", box)
+	button.add_theme_stylebox_override("disabled", box)
+	button.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	var down := StyleBoxTexture.new()
+	down.texture = _frame_tex(name, pressed_frame, frames)
+	button.add_theme_stylebox_override("pressed", down)
+	return true
+
+
 func _button(text: String, px: int, cb: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
 	get_node("/root/D2Font").style(b, px)
 	b.add_theme_color_override("font_color", Color(0.85, 0.78, 0.55))
 	b.add_theme_color_override("font_hover_color", Color(1, 1, 0.7))
+	b.add_theme_color_override("font_disabled_color", Color(0.4, 0.37, 0.3))
 	b.pressed.connect(cb)
 	return b
+
+
+func _panel(rect: Rect2) -> void:
+	## The dark plate the text sits on, so the backdrop can be busy.
+	var p := ColorRect.new()
+	p.color = Color(0.024, 0.02, 0.016, 0.62)
+	p.position = rect.position
+	p.size = rect.size
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(p)
+	var edge := ReferenceRect.new()
+	edge.border_color = Color(0.33, 0.27, 0.14, 0.8)
+	edge.border_width = 1.0
+	edge.editor_only = false
+	edge.position = rect.position
+	edge.size = rect.size
+	edge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(edge)
 
 
 func _build() -> void:
@@ -71,6 +147,19 @@ func _build() -> void:
 	bg.color = Color(0.04, 0.03, 0.025)
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
+	_bg = TextureRect.new()
+	_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_bg)
+	_bg_fade = TextureRect.new()
+	_bg_fade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_bg_fade.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_bg_fade.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	_bg_fade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_bg_fade.modulate.a = 0.0
+	add_child(_bg_fade)
 
 	var title := _label("DUNGEONS  OF  WARCRAFT", 42)
 	title.set_anchors_preset(Control.PRESET_TOP_WIDE)
@@ -81,70 +170,148 @@ func _build() -> void:
 	sub.position.y = 92
 	add_child(sub)
 
-	# ---- characters (left) ----
+	# ---- the character, in their own gear (left) ----
+	_panel(DOLL_PANEL)
+	_doll = preload("res://scripts/paperdoll.gd").new()
+	_doll.position = Vector2(DOLL_PANEL.position.x + 8, 168)
+	_doll.size = Vector2(DOLL_PANEL.size.x - 16, 348)
+	add_child(_doll)
+	_doll_name = _label("", 18, GOLD)
+	_doll_name.position = Vector2(DOLL_PANEL.position.x, 524)
+	_doll_name.size.x = DOLL_PANEL.size.x
+	add_child(_doll_name)
+	_doll_level = _label("", 14, WHITE)
+	_doll_level.position = Vector2(DOLL_PANEL.position.x, 550)
+	_doll_level.size.x = DOLL_PANEL.size.x
+	add_child(_doll_level)
+	_doll_gear = _label("", 13, Color(0.59, 0.55, 0.46))
+	_doll_gear.position = Vector2(DOLL_PANEL.position.x, 568)
+	_doll_gear.size.x = DOLL_PANEL.size.x
+	_doll_gear.autowrap_mode = TextServer.AUTOWRAP_OFF
+	add_child(_doll_gear)
+
+	# ---- characters (middle) ----
+	_panel(CHAR_PANEL)
 	var chead := _label("CHARACTERS", 20, WHITE)
-	chead.position = Vector2(80, 150)
-	chead.size.x = 320
+	chead.position = Vector2(CHAR_PANEL.position.x, 150)
+	chead.size.x = CHAR_PANEL.size.x
 	add_child(chead)
+	var cscroll := ScrollContainer.new()
+	cscroll.position = Vector2(296, 180)
+	cscroll.size = Vector2(266, 360)
+	cscroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	add_child(cscroll)
 	_char_box = VBoxContainer.new()
-	_char_box.position = Vector2(80, 190)
-	_char_box.size = Vector2(320, 300)
-	_char_box.add_theme_constant_override("separation", 6)
-	add_child(_char_box)
+	_char_box.custom_minimum_size.x = ROW_SIZE.x
+	_char_box.add_theme_constant_override("separation", 4)
+	cscroll.add_child(_char_box)
 	_name_edit = LineEdit.new()
-	_name_edit.placeholder_text = "new character name"
+	_name_edit.placeholder_text = "new character"
 	_name_edit.max_length = 20
-	_name_edit.position = Vector2(80, 520)
-	_name_edit.size = Vector2(200, 34)
+	_name_edit.position = Vector2(296, 552)
+	_name_edit.size = Vector2(176, 32)
 	add_child(_name_edit)
-	var create := _button("Create", 16, _on_create)
-	create.position = Vector2(290, 520)
-	create.size = Vector2(110, 34)
+	var create := _button("Create", 15, _on_create)
+	create.position = Vector2(478, 552)
+	create.size = Vector2(84, 32)
 	add_child(create)
 	_delete_btn = _button("Delete", 14, _on_delete)
-	_delete_btn.position = Vector2(80, 562)
+	_delete_btn.position = Vector2(296, 594)
 	_delete_btn.size = Vector2(110, 30)
 	add_child(_delete_btn)
 
 	# ---- dungeons (right) ----
+	_panel(DUNG_PANEL)
 	var dhead := _label("DUNGEONS", 20, WHITE)
-	dhead.position = Vector2(500, 150)
-	dhead.size.x = 700
+	dhead.position = Vector2(DUNG_PANEL.position.x, 150)
+	dhead.size.x = DUNG_PANEL.size.x
 	add_child(dhead)
 	var scroll := ScrollContainer.new()
-	scroll.position = Vector2(500, 190)
-	scroll.size = Vector2(700, 420)
+	scroll.position = Vector2(600, 180)
+	scroll.size = Vector2(636, 444)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	add_child(scroll)
 	_dung_box = VBoxContainer.new()
-	_dung_box.custom_minimum_size.x = 680
+	_dung_box.custom_minimum_size.x = 616
 	_dung_box.add_theme_constant_override("separation", 2)
 	scroll.add_child(_dung_box)
 
 	# ---- bottom bar ----
-	_continue_btn = _button("CONTINUE", 22, _on_continue)
-	_continue_btn.position = Vector2(500, 632)
-	_continue_btn.size = Vector2(200, 44)
+	_continue_btn = _button("CONTINUE", 18, _on_continue)
+	_continue_btn.position = Vector2(300, BUTTON_Y)
+	_continue_btn.size = Vector2(256, 35)
+	_skin(_continue_btn, "menubutton", 4, 2)
 	add_child(_continue_btn)
-	_enter_btn = _button("ENTER  DUNGEON", 22, _on_enter)
-	_enter_btn.position = Vector2(720, 632)
-	_enter_btn.size = Vector2(260, 44)
+	_enter_btn = _button("ENTER  DUNGEON", 18, _on_enter)
+	_enter_btn.position = Vector2(620, BUTTON_Y)
+	_enter_btn.size = Vector2(256, 35)
+	_skin(_enter_btn, "menubutton", 4, 2)
 	add_child(_enter_btn)
-	var quit := _button("QUIT", 22, func(): get_tree().quit())
-	quit.position = Vector2(1000, 632)
-	quit.size = Vector2(120, 44)
+	var quit := _button("QUIT", 18, func(): get_tree().quit())
+	quit.position = Vector2(940, BUTTON_Y)
+	quit.size = Vector2(256, 35)
+	_skin(quit, "menubutton", 4, 2)
 	add_child(quit)
 
 
-func _selected_done() -> Array:
-	for c in gs.list_characters():
-		if str(c.slug) == sel_char:
-			var f := FileAccess.open(gs.CHAR_DIR + "/%s.json" % sel_char,
-					FileAccess.READ)
-			if f != null:
-				var d: Variant = JSON.parse_string(f.get_as_text())
-				if d is Dictionary:
-					return d.get("dungeons_done", [])
-	return []
+func _char_data(slug: String) -> Dictionary:
+	if slug == "":
+		return {}
+	var f := FileAccess.open(gs.CHAR_DIR + "/%s.json" % slug, FileAccess.READ)
+	if f == null:
+		return {}
+	var d: Variant = JSON.parse_string(f.get_as_text())
+	f.close()
+	return d if d is Dictionary else {}
+
+
+func _backdrop(id: String) -> void:
+	## Cross-fade to this dungeon's artwork.
+	if id == _bg_shown:
+		return
+	if not _bg_cache.has(id):
+		var img := Image.load_from_file(ProjectSettings.globalize_path(
+				Paths.asset("wow/backdrops/%s.png" % id)))
+		_bg_cache[id] = ImageTexture.create_from_image(img) if img != null else null
+	var tex: Texture2D = _bg_cache[id]
+	if tex == null:
+		return
+	_bg_shown = id
+	if _bg.texture == null:
+		_bg.texture = tex
+		return
+	_bg_fade.texture = tex
+	_bg_fade.modulate.a = 0.0
+	var tw := create_tween()
+	tw.tween_property(_bg_fade, "modulate:a", 1.0, 0.35)
+	tw.tween_callback(func():
+		_bg.texture = tex
+		_bg_fade.modulate.a = 0.0)
+
+
+func _show_doll(slug: String, data: Dictionary) -> void:
+	if slug == "" or data.is_empty():
+		_doll.clear()
+		_doll_name.text = ""
+		_doll_level.text = ""
+		_doll_gear.text = ""
+		return
+	var equipped: Dictionary = data.get("equipped", {})
+	_doll.show_character(equipped)
+	_doll_name.text = str(data.get("name", slug))
+	_doll_level.text = "Level %d Amazon" % int(data.get("level", 1))
+	var db := get_node("/root/ItemDB")
+	var lines: Array[String] = []
+	for slot in ["weap", "tors", "head", "shie"]:
+		var code := str(equipped.get(slot, {}).get("code", ""))
+		# only what the paperdoll actually draws: a quiver in the off hand
+		# is not a shield and does not appear on her
+		if code == "" or (slot == "shie" and not _doll.is_shield(code)):
+			continue
+		var nm := str(db.item(code).get("name", code))
+		if nm != "":
+			lines.append(nm)
+	_doll_gear.text = "\n".join(lines)
 
 
 func _refresh() -> void:
@@ -157,22 +324,35 @@ func _refresh() -> void:
 		sel_char = str(chars[0].slug)
 	for c in chars:
 		var slug := str(c.slug)
-		var b := _button("%s   -   level %d" % [str(c.name), int(c.level)], 18,
-				func():
-					sel_char = slug
-					_delete_armed = false
-					_delete_btn.text = "Delete"
-					_refresh())
-		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		b.add_theme_color_override("font_color",
-				GOLD if slug == sel_char else DARK)
+		var picked := slug == sel_char
+		var b := Button.new()
+		b.custom_minimum_size = ROW_SIZE
+		b.pressed.connect(func():
+			sel_char = slug
+			_delete_armed = false
+			_delete_btn.text = "Delete"
+			_refresh())
+		if not _skin(b, "charbox" if picked else "charbox_off", 2, 0):
+			b.flat = true
+		var nm := _label(str(c.name), 18, GOLD if picked else DARK)
+		nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		nm.position = Vector2(22, 24)
+		nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		b.add_child(nm)
+		var lv := _label("Level %d" % int(c.level), 15, WHITE if picked else DARK)
+		lv.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		lv.position = Vector2(22, 52)
+		lv.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		b.add_child(lv)
 		_char_box.add_child(b)
 	if chars.is_empty():
 		var hint := _label("create a character below", 14, GREY)
 		hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 		_char_box.add_child(hint)
 
-	var done := _selected_done()
+	var data := _char_data(sel_char)
+	var done: Array = data.get("dungeons_done", [])
+	_show_doll(sel_char, data)
 	if sel_dungeon == "" \
 			or not (str(dg.status(sel_dungeon, done)) in ["available", "complete"]):
 		sel_dungeon = dg.next_playable(done)
@@ -181,20 +361,27 @@ func _refresh() -> void:
 		var st := str(dg.status(did, done))
 		var row := Button.new()
 		row.flat = true
-		row.custom_minimum_size = Vector2(680, 26)
+		row.custom_minimum_size = Vector2(616, 26)
 		row.pressed.connect(func():
 			if st in ["available", "complete"]:
 				sel_dungeon = did
 				_refresh())
 		_dung_box.add_child(row)
+		if did == sel_dungeon:
+			var lit := ColorRect.new()
+			lit.color = Color(0.24, 0.19, 0.08, 0.55)
+			lit.size = Vector2(616, 24)
+			lit.position = Vector2(0, 1)
+			lit.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			row.add_child(lit)
 		var name_l := _label(str(d.name), 16, WHITE)
 		name_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-		name_l.position = Vector2(8, 2)
-		name_l.size = Vector2(360, 22)
+		name_l.position = Vector2(30, 2)
+		name_l.size = Vector2(330, 22)
 		name_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		row.add_child(name_l)
 		var lvl_l := _label(str(d.levels), 16, GREY)
-		lvl_l.position = Vector2(380, 2)
+		lvl_l.position = Vector2(378, 2)
 		lvl_l.size = Vector2(80, 22)
 		lvl_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		row.add_child(lvl_l)
@@ -203,17 +390,18 @@ func _refresh() -> void:
 		var st_col: Color = {"complete": GREEN, "available": GOLD,
 				"unbuilt": Color(0.3, 0.3, 0.35), "locked": GREY}[st]
 		var st_l := _label(str(st_text), 14, st_col)
-		st_l.position = Vector2(480, 3)
-		st_l.size = Vector2(120, 22)
+		st_l.position = Vector2(474, 3)
+		st_l.size = Vector2(130, 22)
 		st_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		row.add_child(st_l)
 		if did == sel_dungeon and st in ["available", "complete"]:
 			var mark := _label(">", 16, GOLD)
-			mark.position = Vector2(612, 2)
+			mark.position = Vector2(10, 2)
 			mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			row.add_child(mark)
 			name_l.add_theme_color_override("font_color", GOLD)
 
+	_backdrop(sel_dungeon)
 	var can_play: bool = sel_char != "" \
 			and dg.status(sel_dungeon, done) in ["available", "complete"]
 	_enter_btn.disabled = not can_play
@@ -257,6 +445,6 @@ func _on_enter() -> void:
 
 
 func _on_continue() -> void:
-	var nxt: String = dg.next_playable(_selected_done())
+	var nxt: String = dg.next_playable(_char_data(sel_char).get("dungeons_done", []))
 	if nxt != "":
 		_enter(nxt)

@@ -30,6 +30,13 @@ def read_table(name):
 BASE_COLS = ['type', 'invwidth', 'invheight', 'invfile', 'flippyfile',
              'level', 'levelreq', 'rarity', 'cost', 'reqstr', 'reqdex']
 
+# What the character composite draws when this item is worn. Body armour
+# picks a light/medium/heavy variant per body part; helms, shields and
+# weapons name their own art instead (armor.txt spells it 'alternategfx',
+# weapons.txt 'alternateGfx'). The menu paperdoll is the only consumer.
+GFX_COLS = ['rArm', 'lArm', 'Torso', 'Legs', 'rSPad', 'lSPad',
+            'wclass', '2handedwclass', '2handed']
+
 
 def build_items(strings):
     """weapons/armor/misc -> dict code -> item, with TBL-resolved names."""
@@ -49,6 +56,11 @@ def build_items(strings):
             item = {'code': code, 'name': strings.get(namestr, namestr)}
             for c in BASE_COLS + list(extra):
                 item[c] = r.get(c, '')
+            for c in GFX_COLS:
+                if c in r:
+                    item[c] = r.get(c, '')
+            item['gfx'] = (r.get('alternategfx')
+                           or r.get('alternateGfx') or '').strip()
             items[code] = item
 
     # 'gold' pseudo item (drops as a pile, never occupies inventory cells)

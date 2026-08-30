@@ -70,6 +70,7 @@ def run_d2_stages():
     import export_ui
     import export_missiles
     import export_amazon
+    import export_paperdoll
     import export_monsters
     import export_items
     import export_affixes
@@ -80,6 +81,7 @@ def run_d2_stages():
         ("D2 interface art", export_ui.build),
         ("missile sprites", export_missiles.build),
         ("Amazon animation sheets", export_amazon.build),
+        ("menu paperdoll layers", export_paperdoll.build),
         ("summon sprites", lambda: (
             setattr(export_monsters, "ROSTER", {"VK": "valkyrie"}),
             export_monsters.build())),
@@ -107,6 +109,7 @@ def run_wow_stages(only=""):
     sys.modules.pop("config", None)
     import build_dungeon
     import build_audio
+    import build_backdrops
     from casc import Storage
     from dungeon_config import DUNGEONS
     print("\n--- WoW: opening local game storage ---")
@@ -118,6 +121,8 @@ def run_wow_stages(only=""):
         print(f"\n--- WoW: {did} ---")
         build_dungeon.build(s, did, cfg)
         print(f"    ({time.time() - t0:.0f}s)")
+    print("\n--- WoW: menu backdrops ---")
+    build_backdrops.build(s)
     print("\n--- WoW: soundscape ---")
     build_audio.main()
 

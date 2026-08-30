@@ -90,6 +90,11 @@ def build():
         ('amskillicon', 'data\\global\\ui\\SPELLS\\AmSkillicon.DC6'),
         ('skilliconpanel', 'data\\global\\ui\\SPELLS\\Skillicon.DC6'),
         ('viewmodel_bow', 'data\\global\\items\\invhbw.DC6'),
+        # main-menu furniture: the character-select slot frame and the
+        # stone button plate, both 2 frames (idle, pressed)
+        ('charbox', 'data\\global\\ui\\CharSelect\\charselectbox.DC6'),
+        ('charbox_off', 'data\\global\\ui\\CharSelect\\charselectboxgrey.dc6'),
+        ('menubutton', 'data\\global\\ui\\FrontEnd\\WideButtonBlank.dc6'),
     ]:
         try:
             sheet, meta = simple_sheet(path)

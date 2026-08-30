@@ -2,6 +2,7 @@
 import os
 import config
 import sprites
+from cof import COF
 from sprites import mpqs, composite_sheet, save
 
 TOKEN = 'AM'
@@ -25,21 +26,32 @@ def list_cofs():
     return out
 
 
-def variants_for(mode, wclass):
+def layer_wclasses(cof, wclass):
+    """comp -> the weapon class its art is actually filed under.
+
+    Each COF layer carries its own class: in the bow animation the head,
+    torso, legs and shoulders are authored as '1ht' while only the arms and
+    the bow itself are 'bow'. Probing every layer at the animation's own
+    class finds nothing for most of them, which is how this exporter used to
+    drop everything but the arms.
+    """
+    return {lay['comp']: (lay['wclass'] or wclass).upper() for lay in cof.layers}
+
+
+def variants_for(mode, wclass, cof):
     """Resolve GEAR against what actually exists for this mode+wclass."""
     m = mpqs()
+    by_comp = layer_wclasses(cof, wclass)
     resolved = {}
     for comp, primary in GEAR.items():
+        wc = by_comp.get(comp)
+        if wc is None:
+            continue                    # this animation has no such layer
         for armor in [primary] + FALLBACK.get(comp, []):
-            found = False
-            for wc in (wclass,):
-                base = 'data\\global\\CHARS\\%s\\%s\\%s%s%s%s%s' % (
-                    TOKEN, comp, TOKEN, comp, armor, mode, wc)
-                if m.has(base + '.dcc') or m.has(base + '.DC6'):
-                    resolved[comp] = armor
-                    found = True
-                    break
-            if found:
+            base = 'data\\global\\CHARS\\%s\\%s\\%s%s%s%s%s' % (
+                TOKEN, comp, TOKEN, comp, armor, mode, wc)
+            if m.has(base + '.dcc') or m.has(base + '.DC6'):
+                resolved[comp] = armor
                 break
     return resolved
 
@@ -49,7 +61,7 @@ def build():
     done = err = 0
     for mode, wclass, cofpath in list_cofs():
         try:
-            gear = variants_for(mode, wclass)
+            gear = variants_for(mode, wclass, COF(mpqs().read(cofpath)))
             sheet, meta = composite_sheet('CHARS', TOKEN, mode, wclass, gear)
             out = os.path.join(outdir, 'am_%s_%s.png' % (mode.lower(), wclass.lower()))
             save(sheet, meta, out)
