@@ -13,7 +13,7 @@ generated on your machine from your own installs. You need:
   2. World of Warcraft Classic Anniversary installed (with its game
      data downloaded)
 
-FIRST RUN — build the assets (5-15 minutes, ~400 MB):
+FIRST RUN — build the assets (10-20 minutes, ~600 MB):
 
   builder.exe --d2 "C:\Path\To\Diablo II" --wow "C:\Path\To\World of Warcraft"
 

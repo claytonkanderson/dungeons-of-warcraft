@@ -1,90 +1,153 @@
-# Amazon Deadmines
+# Dungeons of Warcraft
 
-World of Warcraft's Deadmines dungeon crossed with Diablo 2's Amazon, in
-Godot 4.7:
+*a Diablo / Warcraft hybrid mod*
 
-- **Environment**: the real Deadmines instance — WMOs, 850+ doodads/props,
-  the cove terrain/ocean/waterfalls — extracted from a local WoW
-  anniversary (2.5.5) install via the pure-Python CASC pipeline forked from
-  `D:\tree\warcraft-art`.
-- **UI**: Diablo 2's control panel, orbs, inventory, character sheet,
-  skill tree, tooltips, and font16, from the `D:\tree\D2_Billboard`
-  prototype (art decoded from a local modded D2 install).
-- **Class & abilities**: the D2 Amazon — bow/melee weapon classes, the
-  full skill roster, passives, D2 combat math, stats and leveling.
-- **Enemies**: all 213 AzerothCore creature spawns as 3D animated WoW
-  models (23 uniques, Rhahk'Zor through VanCleef) with a chase/attack AI;
-  stats derived from `creature_template` + `creature_classlevelstats`.
-- **Loot**: D2 drop generation — treasure classes, uniques/sets/rares/
-  magic with authentic tooltip text; every kill drops quality, bosses
-  shower it.
+Vanilla World of Warcraft dungeons, played first-person as a Diablo II
+Amazon. Godot 4.7, with every asset generated on your own machine from your
+own two game installs — nothing from either game ships here.
 
-## Run
+- **Environment** — real WoW instances: WMOs, hundreds of doodads and props,
+  terrain, water and waterfalls, extracted through a pure-Python CASC
+  pipeline (no listfile; filenames are recovered by jenkins96 hashing).
+- **Interface** — Diablo II's control panel, orbs, inventory, character
+  sheet, skill tree, item tooltips and bitmap font, decoded from the MPQs.
+- **Class and abilities** — the D2 Amazon: three skill trees, weapon
+  classes, D2 combat math, stats and leveling. Characters start at 14 with
+  14 skill points and 70 stat points unspent.
+- **Enemies** — every AzerothCore creature spawn as an animated WoW model
+  with chase/attack AI, LOS-gated aggro and its own voice set; stats derived
+  from `creature_template` and `creature_classlevelstats`.
+- **Loot** — D2 drop generation: treasure classes, uniques, sets with set
+  bonuses, rares and magic rolls with authentic tooltip text, gated by your
+  level so drops stay usable.
 
+Progress runs along the vanilla 1–60 dungeon ladder. Each character has
+their own save and their own unlocks; killing a dungeon's final boss opens
+the next.
+
+**Built so far:** Ragefire Chasm (13–18), Wailing Caverns (15–25), The
+Deadmines (17–26), Shadowfang Keep (22–30). The remaining sixteen are listed
+in the menu and arrive as they get built.
+
+## Play
+
+You need Diablo II (1.14, or any install with the classic `.mpq` files) and
+World of Warcraft Classic Anniversary with its game data downloaded.
+
+From the portable build — how other people install it:
+
+```bash
+builder.exe --d2 "C:\Path\To\Diablo II" --wow "C:\Path\To\World of Warcraft"
 ```
-run_game.bat                      # normal play
-run_game.bat -- --fresh           # ignore the save
-run_game.bat -- --combat-test     # scripted bow-fight verification
-run_game.bat -- --shots=DIR --at=x,y,z    # screenshot probe
+
+That writes `assets/` next to the executable (about 600 MB, 10–20 minutes),
+after which `DungeonsOfWarcraft.exe` runs. From a source checkout,
+`run_game.bat` launches the Godot build directly.
+
+| | |
+|---|---|
+| WASD + mouse | move, look |
+| Shift | run (stamina) |
+| Space | jump |
+| LMB / RMB | the two D2 action slots |
+| 1–4 | belt potions |
+| F1–F5 | swap the RMB skill |
+| T | skill tree — click to spend, ctrl-click binds LMB, right-click binds RMB, hover and press F1–F5 to bind a hotkey |
+| I / C | inventory, character sheet |
+| E | interact, or pick up the nearest item |
+| Alt | show loot labels |
+| F9 | manual save |
+| Esc | close panels, then the menu |
+
+Characters live in `%APPDATA%\Godot\app_userdata\Dungeons of Warcraft\
+characters\`, one JSON file each, safe to copy.
+
+## Building the assets
+
+`assets/` is git-ignored and never committed — it is derived entirely from
+your installs. One command rebuilds all of it:
+
+```bash
+python pipeline/builder.py --d2 "C:\Path\To\Diablo II" --wow "C:\Path\To\World of Warcraft"
 ```
 
-Controls: WASD + mouse (warp-look — never MOUSE_MODE_CAPTURED on this
-machine), Shift run, LMB/RMB = D2 action slots, T skill tree (ctrl/right
-click assigns slots), I inventory, C char sheet, E pickup, Alt loot
-labels, 1-4 belt potions, F1-F5 skill hotkeys (bind by hovering a learned skill in
-the tree and pressing the key), F9 save, Esc frees the mouse.
+The D2 stages decode MPQ archives (tables, interface art, Amazon animation
+sheets, paperdoll layers, item catalog and sprites, uniques/sets/affixes,
+sound effects). The WoW stages open the CASC storage and build each
+configured dungeon, then the soundscape and the menu backdrops. Creature
+spawns and stats come from seven AzerothCore `.sql` files, downloaded from
+their repository at build time unless you point `--ac` at a local copy.
+`--skip-d2` and `--skip-wow` run one half.
 
-## Rebuild assets (git-ignored, ~150 MB)
+Individual stages, for iterating on one thing:
 
-Everything under `assets/` regenerates from the user's own game installs;
-nothing is committed.
+```bash
+python pipeline/build_dungeon.py --dungeon shadowfang-keep   # or --all
+python pipeline/build_creatures.py --dungeon deadmines --stats-only
+python pipeline/build_backdrops.py                            # all 20 menu backdrops
+python pipeline/build_audio.py
+python pipeline/d2/build_assets.py                            # every D2 stage
+```
 
-1. D2 side: copy `amazon/ ui/ items/ missiles/ sounds/ monsters/valkyrie/
-   gamedata.json` from `D:\tree\D2_Billboard\assets` (or re-run that
-   repo's pipeline).
-2. WoW world: copy `assets/out/deadmines` from `D:\tree\warcraft-art`
-   into `assets/wow/deadmines`, or re-run `pipeline/extract_deadmines.py`
-   + `build_placements.py` here.
-3. `python pipeline/build_dungeon.py --dungeon <id>` builds any configured
-   dungeon end to end (WMOs, placements, creatures, terrain, ambience);
-   `--all` batches every entry in pipeline/dungeon_config.py.
-4. `python pipeline/build_creatures.py --dungeon <id>` — 23 creature GLBs with the
-   gameplay animation set + `creatures.json` stats (`--stats-only` to
-   retune without re-exporting).
-5. `python pipeline/build_terrain.py` — 36 ADT tiles baked to GLBs
-   (splat textures, MCNR shading, MH2O ocean mesh). Needs numpy.
-6. `python pipeline/build_audio.py` — WoW ambience/music via name-hash
-   lookup (soundkit db2s are absent locally; paths are the trick).
-
-Paths (WoW install, AzerothCore SQL dump) live in `pipeline/config.py`.
+Adding a dungeon means one entry in `pipeline/dungeon_config.py` — map name,
+AzerothCore map id, target level, boss names, and any door or lever rules —
+and then `build_dungeon.py --dungeon <id>`. Install paths come from
+environment variables (`DOW_D2_DIR`, `DOW_WOW_ROOT`, `DOW_ASSETS`) with
+dev-machine defaults in `pipeline/config.py` and `pipeline/d2/config.py`.
 
 ## Architecture
 
-- `game/scripts/world.gd` — main scene: loads placements/terrain, spawns
-  player + creatures, owns combat resolution (arrows, melee, skill AoE,
-  enemy missiles), loot drops, pickups, UI wiring, save timer.
-- `game/scripts/wow_creature.gd` — WoW creature: GLB visual +
-  AnimationPlayer, D2-stat state machine (IDLE/CHASE/ATTACK/HURT/DEAD),
-  LOS-gated aggro, caster archetype fires D2 billboard bolts.
-- `game/scripts/player.gd`, `game_state.gd`, `item_*.gd`, `hud.gd`,
-  `inventory_ui.gd`, `char_sheet.gd`, `skill_tree_ui.gd`, `sfx.gd` —
-  ported from D2_Billboard (see its HANDOFF.md for the gotchas; they all
-  apply here).
-- `game/scripts/music.gd` — WoW ambience loop + shuffled music with
-  silence gaps; D2 sfx stay in `sfx.gd`.
-- Assets load at runtime from `res://../assets` by filesystem path — the
-  project has no imported resources, so an exported PCK would not find
-  them (same trade-off as both parent repos).
+The Godot project builds its scenes in code; the `.tscn` files are stubs and
+there are no imported resources. Assets load from the filesystem at runtime
+through `Paths.root()`, which resolves to `../assets` in the editor and
+`assets/` beside the executable in an exported build.
+
+- `world.gd` — the main scene: placements, terrain, creatures, gameobjects;
+  combat resolution (collision-based arrows, melee cleave scaled to weapon
+  size, skill AoE, enemy missiles), loot, destructibles, doors and levers.
+- `wow_creature.gd` — a WoW creature: GLB visual plus AnimationPlayer, a
+  state machine over D2 stats, LOS-gated aggro, and a dormancy LOD that
+  disables distant idle creatures to hold 60 fps.
+- `player.gd` — movement and warp-based mouse look (pointer capture is
+  unreliable on this machine, so look is accumulated from relative motion
+  with warp compensation).
+- `main_menu.gd`, `paperdoll.gd` — the roster and ladder, the selected
+  character composited from D2 equipment layers, per-dungeon backdrops.
+- `game_state.gd` — characters, equipment, set bonuses, stats, saves.
+- `item_db.gd`, `item_gen.gd`, `item_text.gd`, `inventory_ui.gd`,
+  `char_sheet.gd`, `skill_tree_ui.gd`, `hud.gd` — the D2 item and UI layer.
+- `sfx.gd` (D2 effects), `wow_sfx.gd` (creature voices, impacts),
+  `music.gd` (per-dungeon ambience and music, menu theme).
+
+On the pipeline side, `casc.py` and `blp.py`/`m2.py`/`wmo.py`/`db2.py` read
+the WoW client; `gltf_export.py` writes the GLBs; `pipeline/d2/` holds the
+MPQ, DCC, DC6 and COF decoders and every D2 export stage.
+
+## Verification
+
+The game takes test flags after `--`, which is how changes get checked
+without playing through:
+
+```bash
+run_game.bat -- --combat-test              # scripted bow fight: kills, drops, xp
+run_game.bat -- --shots=DIR --at=x,y,z     # screenshot probe at a position
+run_game.bat -- --dungeon=shadowfang-keep  # jump straight into one dungeon
+run_game.bat -- --menu-shot=out.png        # capture the main menu and quit
+run_game.bat -- --ui-test                  # panel captures
+run_game.bat -- --fps-probe                # frame timing
+run_game.bat -- --walk-test                # footing over known-bad terrain
+run_game.bat -- --fresh                    # ignore the save
+```
 
 ## Known gaps
 
-- Waterfall doodads render as static translucent cones (texture
-  animation isn't exported) — reads as icicles.
-- No WMO interior water (MLIQ), no gameobjects (doors, cannon), no
-  boss signature abilities (standard archetype AI by design, v1).
-- Live audio is silent on this machine (WASAPI init fails → dummy
-  driver); Movie Maker recordings carry the full mix.
-- WoW creature voices/impacts not extracted; combat feedback is D2 sfx.
+- Waterfall doodads are static: M2 texture animation is not exported, so
+  scrolling water reads as frozen.
+- Bosses use the standard creature AI — no signature abilities yet.
+- A few skills are spendable but inert: Inner Sight, Slow Missiles, and the
+  lightning javelin line (Lightning Bolt, Lightning Strike, Lightning Fury)
+  and Impale have no effect yet.
+- Sixteen of the twenty dungeons are unbuilt.
 
 ## License
 
