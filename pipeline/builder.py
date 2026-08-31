@@ -189,6 +189,9 @@ def main():
     check_wow(args.wow)
     out = Path(args.out) if args.out else BESIDE_EXE / "assets"
     out.mkdir(parents=True, exist_ok=True)
+    if args.skip_d2 and not (out / "gamedata.json").exists():
+        fail(f"--skip-d2 expects the Diablo II assets to be in {out} already, "
+             "but gamedata.json is not there. Run once without --skip-d2.")
     ac = ensure_ac(args.ac, out / "_accache")
 
     os.environ["DOW_D2_DIR"] = str(Path(args.d2))
