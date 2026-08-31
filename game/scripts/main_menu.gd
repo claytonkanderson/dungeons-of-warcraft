@@ -302,7 +302,15 @@ func _refresh() -> void:
 		n.queue_free()
 	var chars: Array = gs.list_characters()
 	if sel_char == "" and not chars.is_empty():
+		# whoever was being played comes back selected. Falling straight to
+		# chars[0] meant leaving a dungeon quietly switched you to whichever
+		# character sorted first, and Continue then loaded them.
+		var playing := str(gs.character)
 		sel_char = str(chars[0].slug)
+		for c in chars:
+			if str(c.slug) == playing:
+				sel_char = playing
+				break
 	for c in chars:
 		var slug := str(c.slug)
 		var picked := slug == sel_char

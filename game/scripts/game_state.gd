@@ -16,8 +16,6 @@ var current_level := 1        # world level id
 var pending_from := 0         # warp transition source (transient)
 var waypoints: Array = [1]    # activated waypoint level ids
 var session_loaded := false
-var saved_pos := Vector3.ZERO
-var saved_yaw := 0.0
 var saved_level := 1
 var _saved_action := ["Attack", "Attack"]
 var stat := {"str": 20, "dex": 25, "vit": 20, "ene": 15}   # Amazon base
@@ -241,6 +239,36 @@ func avoid_chance() -> float:      # vs missiles
 func player_defense() -> float:
 	return float(total_stat("dex")) * 0.25 \
 			+ float(mods.get("ac", 0)) * (1.0 + float(mods.get("ac%", 0)) / 100.0)
+
+
+func weapon_class(code: String) -> String:
+	## The D2 animation class an equipped weapon puts the Amazon in: one of
+	## hth / bow / xbw / 1hs / 1ht / 2hs / 2ht / stf.
+	##
+	## weapons.txt names it outright, which is the only way a two-hander gets
+	## its own stance instead of the one-handed one; the type walk is the
+	## fallback for anything the table does not answer. Both the first-person
+	## attack and the menu paperdoll read this, and they used to disagree.
+	if code == "":
+		return "hth"
+	var it: Dictionary = get_node("/root/ItemDB").item(code)
+	var named := str(it.get("2handedwclass" if str(it.get("2handed", "")) == "1"
+			else "wclass", "")).to_lower()
+	if named in ["hth", "bow", "xbw", "1hs", "1ht", "2hs", "2ht", "stf"]:
+		return named
+	var chain: Dictionary = get_node("/root/ItemGen").type_chain(
+			str(it.get("type", "")))
+	if chain.has("bow"):
+		return "bow"
+	if chain.has("xbow"):
+		return "xbw"
+	if chain.has("jave") or chain.has("spea"):
+		return "1ht"
+	if chain.has("staf") or chain.has("pole"):
+		return "stf"
+	if chain.has("weap"):
+		return "1hs"
+	return "hth"
 
 
 func slot_for(code: String) -> String:
@@ -609,8 +637,6 @@ func reset_state() -> void:
 	stash_items = []
 	dungeons_done = []
 	current_dungeon = "deadmines"
-	saved_pos = Vector3.ZERO
-	saved_yaw = 0.0
 	_saved_action = ["Attack", "Attack"]
 	xp = int(str(exp_table[level - 1])) if level <= exp_table.size() else 0
 	poison_dps = 0.0
@@ -712,7 +738,6 @@ func enter_dungeon(id: String) -> void:
 	## Selecting a different dungeon drops the saved position.
 	if current_dungeon != id:
 		current_dungeon = id
-		saved_pos = Vector3.ZERO
 	save_game(null)
 
 
@@ -735,10 +760,9 @@ func save_game(player) -> void:
 		"belt": belt, "stash": stash_items, "hotkeys": hotkeys,
 		"dungeons_done": dungeons_done, "current_dungeon": current_dungeon,
 	}
+	# progression only, never position: a dungeon is always entered at
+	# its start, so a save carries the character and not where they stood
 	if player != null:
-		d["pos"] = [player.global_position.x, player.global_position.y,
-				player.global_position.z]
-		d["yaw"] = player.yaw
 		d["action"] = player.action_skill
 		_saved_action = player.action_skill
 	else:
@@ -782,16 +806,11 @@ func load_game(player) -> bool:
 	if not waypoints.has(1):
 		waypoints.append(1)
 	saved_level = current_level
-	if d.has("pos"):
-		var sp: Array = d["pos"]
-		saved_pos = Vector3(float(sp[0]), float(sp[1]), float(sp[2]))
-		saved_yaw = float(d.get("yaw", 0.0))
+	# a damage-over-time effect must not survive a load or a switch
+	poison_dps = 0.0
+	poison_t = 0.0
 	_saved_action = d.get("action", ["Attack", "Attack"])
 	if player != null:
-		if d.has("pos"):
-			var p: Array = d["pos"]
-			player.global_position = Vector3(float(p[0]), float(p[1]), float(p[2]))
-		player.yaw = float(d.get("yaw", 0.0))
 		var act: Array = d.get("action", ["Attack", "Attack"])
 		player.action_skill = [str(act[0]), str(act[1])]
 	inventory_changed.emit()

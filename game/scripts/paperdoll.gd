@@ -44,30 +44,12 @@ func _ready() -> void:
 
 
 func weapon_class(code: String) -> String:
-	## Which animation the equipped weapon puts the Amazon in. weapons.txt
-	## names it outright, which is the only way a two-hander gets its own
-	## stance instead of the one-handed one.
-	if code == "":
-		return "hth"
-	var it: Dictionary = get_node("/root/ItemDB").item(code)
+	## GameState decides the stance; here we only fall back when this pose set
+	## was never exported for it, so a missing sheet shows the character
+	## unarmed instead of showing nothing at all.
+	var wc: String = get_node("/root/GameState").weapon_class(code)
 	var classes: Dictionary = manifest.get("classes", {})
-	var named := str(it.get("2handedwclass" if str(it.get("2handed", "")) == "1"
-			else "wclass", "")).to_lower()
-	if classes.has(named):
-		return named
-	var chain: Dictionary = get_node("/root/ItemGen").type_chain(
-			str(it.get("type", "")))
-	if chain.has("bow"):
-		return "bow"
-	if chain.has("xbow"):
-		return "xbw"
-	if chain.has("jave") or chain.has("spea"):
-		return "1ht"
-	if chain.has("staf") or chain.has("pole"):
-		return "stf"
-	if chain.has("weap"):
-		return "1hs"
-	return "hth"
+	return wc if classes.has(wc) else "hth"
 
 
 func is_shield(code: String) -> bool:

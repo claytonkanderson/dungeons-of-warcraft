@@ -200,9 +200,8 @@ func _ready() -> void:
 		elif not dg.built(did):
 			printerr("dungeon '%s' is not built yet — staying in %s."
 					% [did, gs.current_dungeon])
-		elif did != gs.current_dungeon:
+		else:
 			gs.current_dungeon = did
-			gs.saved_pos = Vector3.ZERO   # belongs to the other dungeon
 	_shot_dir = Cli.value("--shots=")
 	_at_override = Cli.vec3("--at=", Vector3.INF)
 	wow_dir = _assets_dir().path_join("wow/%s" % gs.current_dungeon)
@@ -532,12 +531,10 @@ func _spawn_player(gs) -> void:
 	cam.far = 600.0
 	cam.position.y = Player.EYE
 	player.add_child(cam)
+	# always the dungeon's own entrance: saves carry the character, not a
+	# position, so entering a dungeon always starts it from the beginning
 	player.position = spawn
 	player.yaw = spawn_yaw
-	if gs.saved_pos != Vector3.ZERO:
-		player.position = gs.saved_pos
-		player.yaw = gs.saved_yaw
-		gs.saved_pos = Vector3.ZERO
 	player.fire_action.connect(_on_fire)
 	add_child(player)
 

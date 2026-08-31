@@ -108,27 +108,10 @@ var weapon_class := "bow"
 func refresh_attack_style() -> void:
 	## Attack timing + style follow the equipped weapon's class.
 	var gs := get_node("/root/GameState")
-	var gen := get_node("/root/ItemGen")
 	var db := get_node("/root/SpriteDB")
 	var w: Dictionary = gs.equipped.get("weap", {})
-	var wc := "bow"
-	melee = false
-	if not w.is_empty():
-		var chain: Dictionary = gen.type_chain(str(
-			get_node("/root/ItemDB").item(str(w.get("code", ""))).get("type", "")))
-		if chain.has("bow"):
-			wc = "bow"
-		elif chain.has("xbow"):
-			wc = "xbw"
-		elif chain.has("jave") or chain.has("spea"):
-			wc = "1ht"
-			melee = true
-		elif chain.has("staf") or chain.has("pole"):
-			wc = "stf"
-			melee = true
-		else:
-			wc = "1hs"
-			melee = true
+	var wc: String = gs.weapon_class(str(w.get("code", "")))
+	melee = not (wc in ["bow", "xbw"])
 	weapon_class = wc
 	var sheet = db.load_sheet("amazon/am_a1_" + wc)
 	if sheet == null:
