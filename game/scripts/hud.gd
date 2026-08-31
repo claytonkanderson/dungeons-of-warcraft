@@ -16,6 +16,12 @@ const BELT_X := 374.5                 # four 29x30 sockets, 31px pitch
 const BELT_Y := 65.0
 const BELT_PITCH := 31.0
 const BELT_SIZE := Vector2(28.0, 30.0)
+# experience bar: its own strip along the very bottom of the screen, with
+# the D2 panel riding directly on top of it. Purple, like WoW's.
+const XP_H := 6.0                     # panel units; scales with the panel
+const XP_TRACK := Color(0.04, 0.02, 0.05, 0.95)
+const XP_FILL := Color(0.50, 0.0, 0.48)
+const XP_GLINT := Color(0.72, 0.25, 0.70)
 
 var bow: TextureRect
 var info: Label
@@ -80,16 +86,22 @@ class PanelControl:
 			var font := ThemeDB.fallback_font
 			draw_string(font, bpos + Vector2(18, 12) * s, cnt,
 					HORIZONTAL_ALIGNMENT_LEFT, -1, maxi(1, int(10 * s)), Color(1, 1, 1))
-		# experience bar riding the panel's top edge: progress to next level
+		# experience bar inlaid in the panel itself: progress to next level
 		var lvl_i: int = gs.level
 		var xfrac := 1.0
 		if lvl_i < gs.exp_table.size():
 			var e0 := float(str(gs.exp_table[lvl_i - 1]).to_int())
 			var e1 := float(str(gs.exp_table[lvl_i]).to_int())
 			xfrac = clampf((float(gs.xp) - e0) / maxf(1.0, e1 - e0), 0.0, 1.0)
-		draw_rect(Rect2(0, -5 * s, size.x, 4 * s), Color(0, 0, 0, 0.7))
-		draw_rect(Rect2(s, -4 * s, (size.x - 2 * s) * xfrac, 2 * s),
-				Color(0.83, 0.69, 0.22))
+		# drawn past the bottom of the panel rect, in the strip the
+		# layout reserves for it
+		var xh := HUD.XP_H * s
+		draw_rect(Rect2(0.0, size.y, size.x, xh), HUD.XP_TRACK)
+		var xw := (size.x - 2.0 * s) * xfrac
+		if xw > 0.0:
+			var o := Vector2(s, size.y + s)
+			draw_rect(Rect2(o, Vector2(xw, xh - 2.0 * s)), HUD.XP_FILL)
+			draw_rect(Rect2(o, Vector2(xw, s)), HUD.XP_GLINT)
 
 		# assigned skill icons: always visible — normal Attack shows the
 		# classic swing glyph from the generic skill icon panel
@@ -286,10 +298,10 @@ func _process(dt: float) -> void:
 			bow.rotation = -0.5
 			bow.position = Vector2(vp.x * 0.62 + sin(_bob) * 6.0,
 					vp.y - 260.0 + cos(_bob * 2.0) * 4.0 + _kick * 40.0)
-	# control panel: full width, anchored to the bottom
+	# control panel: full width, riding on top of the xp strip
 	var s := vp.x / PANEL_W
 	panel_ui.size = Vector2(vp.x, PANEL_H * s)
-	panel_ui.position = Vector2(0, vp.y - panel_ui.size.y)
+	panel_ui.position = Vector2(0, vp.y - panel_ui.size.y - XP_H * s)
 	panel_ui.queue_redraw()
 	info.position = Vector2(30, 24)
 	info.text = "lvl %d   xp %d   skill pts %d   gold %d" % [
