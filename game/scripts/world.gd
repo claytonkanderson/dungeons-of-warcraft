@@ -181,10 +181,6 @@ func _load_json(path: String) -> Dictionary:
 func _ready() -> void:
 	add_to_group("world")
 	var gs := get_node("/root/GameState")
-	for a in OS.get_cmdline_user_args():
-		if str(a).begins_with("--dungeon="):
-			gs.current_dungeon = str(a).substr(10)
-	wow_dir = _assets_dir().path_join("wow/%s" % gs.current_dungeon)
 	if not gs.session_loaded:
 		gs.session_loaded = true
 		var loaded := false
@@ -192,12 +188,21 @@ func _ready() -> void:
 			loaded = gs.load_game(null)
 		if not loaded:
 			gs.grant_starter_kit()
+	# CLI flags are read after the load, not before: load_game restores
+	# its own current_dungeon, which used to win over a requested one and
+	# leave the geometry and the game state naming different dungeons.
 	for a in OS.get_cmdline_user_args():
-		if str(a).begins_with("--shots="):
+		if str(a).begins_with("--dungeon="):
+			var did := str(a).substr(10)
+			if did != gs.current_dungeon:
+				gs.current_dungeon = did
+				gs.saved_pos = Vector3.ZERO   # belongs to the other dungeon
+		elif str(a).begins_with("--shots="):
 			_shot_dir = str(a).substr(8)
 		elif str(a).begins_with("--at="):
 			var p := str(a).substr(5).split(",")
 			_at_override = Vector3(float(p[0]), float(p[1]), float(p[2]))
+	wow_dir = _assets_dir().path_join("wow/%s" % gs.current_dungeon)
 
 	_lighting()
 	var placements := _load_json(wow_dir.path_join("placements.json"))

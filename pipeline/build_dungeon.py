@@ -30,7 +30,13 @@ from dungeon_config import DUNGEONS
 # WoW scatters barrels and crates by the hundred as filler. Dropped in from
 # a Diablo camera they read as clutter rather than set dressing, so they are
 # neither exported nor placed.
-CLUTTER = re.compile(r"barrel|crate|urn|jug|basket|vase", re.I)
+#
+# Model names are CamelCase with no separators, so a bare substring search is
+# wrong: "urn" hides inside "BurnedGypsywagon" and "ButterChurner", both of
+# which are set pieces. A clutter word therefore has to start a CamelCase
+# token, or sit at the start of the name or after a separator.
+CLUTTER = re.compile(r"(?:^|[^A-Za-z])(?:barrel|crate|urn|jug|basket|vase)"
+                     r"|Barrel|Crate|Urn|Jug|Basket|Vase")
 
 
 def build(s, did, cfg):
