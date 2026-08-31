@@ -11,6 +11,7 @@ placements.json exists.
 import argparse
 import json
 import math
+import re
 import struct
 
 from config import OUT
@@ -25,6 +26,11 @@ import build_terrain
 from dungeon_common import (find_wdt, load_spawns, entrance, wmo_placements,
                             pick_main, calibrate, Transform, world_from_file)
 from dungeon_config import DUNGEONS
+
+# WoW scatters barrels and crates by the hundred as filler. Dropped in from
+# a Diablo camera they read as clutter rather than set dressing, so they are
+# neither exported nor placed.
+CLUTTER = re.compile(r"barrel|crate|urn|jug|basket|vase", re.I)
 
 
 def build(s, did, cfg):
@@ -234,7 +240,7 @@ def build(s, did, cfg):
     model_names = {}
     if names_path.exists():
         model_names = json.loads(names_path.read_text())
-    ok = fail = 0
+    ok = fail = clutter = 0
     for fdid in sorted(needed):
         dest_glb = dd_dir / f"{fdid}.glb"
         if dest_glb.exists():
@@ -257,6 +263,9 @@ def build(s, did, cfg):
                 # garbage (the visuals are unexported particles) — skip
                 fail += 1
                 continue
+            if CLUTTER.search(m.name or ""):
+                clutter += 1
+                continue
             skin = Skin(s.read_fdid(m.sfid[0]))
             texs = {}
             for ti, tex in enumerate(m.textures):
@@ -276,8 +285,15 @@ def build(s, did, cfg):
         except (CascError, KeyError, ValueError, struct.error) as e:
             print(f"  doodad {fdid}: {e}")
             fail += 1
-    print(f"doodad models: {ok} ok, {fail} failed")
+    print(f"doodad models: {ok} ok, {fail} failed, {clutter} clutter skipped")
     names_path.write_text(json.dumps(model_names, indent=0))
+
+    before = len(out["doodads"]) + len(out["props"])
+    for key in ("doodads", "props"):
+        out[key] = [d for d in out[key]
+                    if not CLUTTER.search(model_names.get(str(d["fdid"]), "") or "")]
+    print(f"clutter props dropped: "
+          f"{before - len(out['doodads']) - len(out['props'])}")
 
     with open(out_dir / "placements.json", "w") as f:
         json.dump(out, f, indent=1)
