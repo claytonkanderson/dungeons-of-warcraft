@@ -42,6 +42,7 @@ var _ui_tex := {}
 
 func _ready() -> void:
 	# automation flags bypass the menu entirely (legacy/test save slot)
+	Cli.warn_unknown()
 	for a in OS.get_cmdline_user_args():
 		if str(a) in ["--combat-test", "--ui-test", "--fps-probe",
 				"--walk-test", "--fresh"] or str(a).begins_with("--shots=") \

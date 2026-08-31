@@ -86,7 +86,7 @@ class PanelControl:
 			var font := ThemeDB.fallback_font
 			draw_string(font, bpos + Vector2(18, 12) * s, cnt,
 					HORIZONTAL_ALIGNMENT_LEFT, -1, maxi(1, int(10 * s)), Color(1, 1, 1))
-		# experience bar inlaid in the panel itself: progress to next level
+		# experience bar in the strip below the panel: progress to next level
 		var lvl_i: int = gs.level
 		var xfrac := 1.0
 		if lvl_i < gs.exp_table.size():

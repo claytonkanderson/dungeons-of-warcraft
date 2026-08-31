@@ -65,7 +65,13 @@ characters\`, one JSON file each, safe to copy.
 ## Building the assets
 
 `assets/` is git-ignored and never committed — it is derived entirely from
-your installs. One command rebuilds all of it:
+your installs. The pipeline needs Pillow and numpy:
+
+```bash
+pip install pillow numpy
+```
+
+One command then rebuilds all of it:
 
 ```bash
 python pipeline/builder.py --d2 "C:\Path\To\Diablo II" --wow "C:\Path\To\World of Warcraft"
@@ -75,7 +81,7 @@ The D2 stages decode MPQ archives (tables, interface art, Amazon animation
 sheets, paperdoll layers, item catalog and sprites, uniques/sets/affixes,
 sound effects). The WoW stages open the CASC storage and build each
 configured dungeon, then the soundscape and the menu backdrops. Creature
-spawns and stats come from seven AzerothCore `.sql` files, downloaded from
+spawns and stats come from nine AzerothCore `.sql` files, downloaded from
 their repository at build time unless you point `--ac` at a local copy.
 `--skip-d2` and `--skip-wow` run one half.
 
@@ -92,7 +98,8 @@ python pipeline/d2/build_assets.py                            # every D2 stage
 Adding a dungeon means one entry in `pipeline/dungeon_config.py` — map name,
 AzerothCore map id, target level, boss names, and any door or lever rules —
 and then `build_dungeon.py --dungeon <id>`. Install paths come from
-environment variables (`DOW_D2_DIR`, `DOW_WOW_ROOT`, `DOW_ASSETS`) with
+environment variables (`DOW_D2_DIR`, `DOW_WOW_ROOT`, `DOW_ASSETS`,
+`DOW_AC_DIR`) with
 dev-machine defaults in `pipeline/config.py` and `pipeline/d2/config.py`.
 
 ## Architecture
@@ -104,7 +111,7 @@ through `Paths.root()`, which resolves to `../assets` in the editor and
 
 - `world.gd` — the main scene: placements, terrain, creatures, gameobjects;
   combat resolution (collision-based arrows, melee cleave scaled to weapon
-  size, skill AoE, enemy missiles), loot, destructibles, doors and levers.
+  size, skill AoE, enemy missiles), loot, doors and levers.
 - `wow_creature.gd` — a WoW creature: GLB visual plus AnimationPlayer, a
   state machine over D2 stats, LOS-gated aggro, and a dormancy LOD that
   disables distant idle creatures to hold 60 fps.

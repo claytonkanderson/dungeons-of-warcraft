@@ -97,12 +97,8 @@ func _process(_dt: float) -> void:
 		var pos := vp.get_mouse_position()
 		if absf(pos.x - c.x) > c.x * 0.5 or absf(pos.y - c.y) > c.y * 0.5:
 			_center_mouse()
-	# attack timing from the real A1/BOW animation: length and release frame
-	var sheet = get_node("/root/SpriteDB").load_sheet("amazon/am_a1_bow")
-	if sheet != null and sheet.fps > 0.0:
-		_attack_len = sheet.frames / sheet.fps
-		var trig: int = sheet.triggers[0] if sheet.triggers.size() > 0 else int(sheet.frames * 0.6)
-		attack_release = trig / sheet.fps
+	# attack timing is set per weapon by refresh_attack_style() on equip;
+	# recomputing it from the bow sheet here overwrote that every frame
 
 
 var melee := false

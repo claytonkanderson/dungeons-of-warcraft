@@ -24,10 +24,21 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 
+# Frozen by PyInstaller in onefile mode, __file__ lives in the temporary
+# extraction directory, so anything derived from it lands in %TEMP%. Assets
+# have to sit beside the executable, which is where paths.gd looks for them.
+BESIDE_EXE = (Path(sys.executable).resolve().parent if getattr(sys, "frozen", False)
+              else HERE.parent)
+
+# Every AzerothCore table the build reads. Keep this in step with the
+# `AC / "<name>.sql"` reads in build_dungeon.py, build_creatures.py and
+# dungeon_common.py — a missing entry only shows up on a machine without a
+# local AzerothCore checkout, which is every machine but the author's.
 AC_FILES = [
     "creature.sql", "creature_template.sql", "creature_template_model.sql",
     "creature_equip_template.sql", "item_template.sql",
     "creature_classlevelstats.sql", "areatrigger_teleport.sql",
+    "gameobject.sql", "gameobject_template.sql",
 ]
 AC_URL = ("https://raw.githubusercontent.com/azerothcore/azerothcore-wotlk/"
           "master/data/sql/base/db_world/")
@@ -52,15 +63,34 @@ def check_wow(wow):
 
 
 def ensure_ac(ac_dir, cache):
-    if ac_dir and Path(ac_dir, "creature.sql").exists():
-        return Path(ac_dir)
+    if ac_dir:
+        missing = [f for f in AC_FILES if not Path(ac_dir, f).exists()]
+        if not missing:
+            return Path(ac_dir)
+        # say so rather than silently downloading instead: a half-applied
+        # flag is worse than a rejected one
+        fail(f"--ac {ac_dir} is missing {len(missing)} of the {len(AC_FILES)} "
+             f"files this build needs ({', '.join(missing[:3])}"
+             f"{', ...' if len(missing) > 3 else ''}). Point it at an "
+             "AzerothCore data/sql/base/db_world directory, or drop the flag "
+             "to download them.")
     cache.mkdir(parents=True, exist_ok=True)
     for f in AC_FILES:
         dest = cache / f
         if dest.exists() and dest.stat().st_size > 0:
             continue
         print(f"downloading AzerothCore data: {f} ...")
-        urllib.request.urlretrieve(AC_URL + f, dest)
+        # download to a temp name and rename, so an interrupted transfer
+        # cannot leave a truncated file that later runs treat as complete
+        part = dest.with_suffix(dest.suffix + ".part")
+        try:
+            urllib.request.urlretrieve(AC_URL + f, part)
+            part.replace(dest)
+        except OSError as e:
+            part.unlink(missing_ok=True)
+            fail(f"could not download {f} from AzerothCore ({e}). Check your "
+                 "internet connection, or pass --ac pointing at a local "
+                 "AzerothCore data/sql/base/db_world directory.")
     return cache
 
 
@@ -137,14 +167,27 @@ def main():
                     help="assets output dir (default: ./assets beside the game)")
     ap.add_argument("--ac", default="",
                     help="local AzerothCore db_world dir (else downloaded)")
-    ap.add_argument("--skip-d2", action="store_true")
-    ap.add_argument("--skip-wow", action="store_true")
+    ap.add_argument("--skip-d2", action="store_true",
+                    help="skip the Diablo II stages (art, items, sounds)")
+    ap.add_argument("--skip-wow", action="store_true",
+                    help="skip the WoW stages (dungeons, backdrops, audio)")
     ap.add_argument("--only-dungeon", default="", help=argparse.SUPPRESS)
     args = ap.parse_args()
 
+    if args.skip_d2 and args.skip_wow:
+        fail("--skip-d2 and --skip-wow together leave nothing to build.")
+    if args.only_dungeon:
+        # dungeon_config imports nothing, so loading it here cannot poison the
+        # `config` module name the D2 and WoW halves each resolve differently
+        sys.path.insert(0, str(HERE))
+        from dungeon_config import DUNGEONS as _D
+        if args.only_dungeon not in _D:
+            fail(f"unknown dungeon '{args.only_dungeon}'. Configured: "
+                 f"{', '.join(sorted(_D))}")
+
     check_d2(args.d2)
     check_wow(args.wow)
-    out = Path(args.out) if args.out else HERE.parent / "assets"
+    out = Path(args.out) if args.out else BESIDE_EXE / "assets"
     out.mkdir(parents=True, exist_ok=True)
     ac = ensure_ac(args.ac, out / "_accache")
 

@@ -191,17 +191,20 @@ func _ready() -> void:
 	# CLI flags are read after the load, not before: load_game restores
 	# its own current_dungeon, which used to win over a requested one and
 	# leave the geometry and the game state naming different dungeons.
-	for a in OS.get_cmdline_user_args():
-		if str(a).begins_with("--dungeon="):
-			var did := str(a).substr(10)
-			if did != gs.current_dungeon:
-				gs.current_dungeon = did
-				gs.saved_pos = Vector3.ZERO   # belongs to the other dungeon
-		elif str(a).begins_with("--shots="):
-			_shot_dir = str(a).substr(8)
-		elif str(a).begins_with("--at="):
-			var p := str(a).substr(5).split(",")
-			_at_override = Vector3(float(p[0]), float(p[1]), float(p[2]))
+	Cli.warn_unknown()
+	var did := Cli.value("--dungeon=")
+	if did != "":
+		var dg := get_node("/root/Dungeons")
+		if dg.entry(did).is_empty():
+			printerr("unknown dungeon '%s' — staying in %s." % [did, gs.current_dungeon])
+		elif not dg.built(did):
+			printerr("dungeon '%s' is not built yet — staying in %s."
+					% [did, gs.current_dungeon])
+		elif did != gs.current_dungeon:
+			gs.current_dungeon = did
+			gs.saved_pos = Vector3.ZERO   # belongs to the other dungeon
+	_shot_dir = Cli.value("--shots=")
+	_at_override = Cli.vec3("--at=", Vector3.INF)
 	wow_dir = _assets_dir().path_join("wow/%s" % gs.current_dungeon)
 
 	_lighting()
@@ -456,13 +459,23 @@ func _build_world(placements: Dictionary) -> void:
 		print("terrain: %d tiles in %d ms" % [terr.tiles.size(),
 				Time.get_ticks_msec() - t0])
 
-	# fall-through guard from the main WMO's lowest group
-	var meta := _load_json(wow_dir.path_join("deadmines_meta.json"))
-	if meta.has("groups"):
-		var lo := 1e9
-		for g in meta.groups:
-			lo = minf(lo, g["min"][1])
+	# fall-through guard, 60m under the lowest WMO group in the dungeon. The
+	# pipeline writes one w<fdid>_meta.json per WMO, so scan them all rather
+	# than a single fixed name — this used to read "deadmines_meta.json",
+	# which no dungeon has shipped since the multi-dungeon build, leaving the
+	# guard stuck at its -200 default everywhere.
+	var lo := 1e9
+	var dir := DirAccess.open(wow_dir)
+	if dir != null:
+		for f in dir.get_files():
+			if not (f.begins_with("w") and f.ends_with("_meta.json")):
+				continue
+			var meta := _load_json(wow_dir.path_join(f))
+			for g in meta.get("groups", []):
+				lo = minf(lo, float(g["min"][1]))
+	if lo < 1e8:
 		floor_y = lo - 60.0
+	print("fall guard at y=%.0f" % floor_y)
 
 
 func _place_set(entries: Array, wmo_nodes: Dictionary) -> int:

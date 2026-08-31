@@ -438,8 +438,11 @@ def build(s, dungeon_id, cfg, stats_only=False):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dungeon", default="deadmines")
-    ap.add_argument("--stats-only", action="store_true")
+    # required, not defaulted: a bare run used to quietly rebuild the Deadmines
+    ap.add_argument("--dungeon", required=True, choices=sorted(DUNGEONS),
+                    help="dungeon id to build creatures for")
+    ap.add_argument("--stats-only", action="store_true",
+                    help="retune creatures.json without re-exporting models")
     args = ap.parse_args()
     cfg = DUNGEONS[args.dungeon]
     s = None if args.stats_only else Storage()

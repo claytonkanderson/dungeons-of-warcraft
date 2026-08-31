@@ -78,8 +78,8 @@ implementation.
 ## AzerothCore — AGPL-3.0
 
 **Not redistributed.** Creature spawns, creature templates, class/level
-stats and area triggers come from AzerothCore's world database. The builder
-downloads those seven `.sql` files from AzerothCore's own repository onto the
+stats, gameobjects and area triggers come from AzerothCore's world database.
+The builder downloads those nine `.sql` files from AzerothCore's own repository onto the
 player's machine at build time (`ensure_ac()` in `pipeline/builder.py`); they
 are neither committed here nor bundled into any executable, and the parsers
 that read them are original code.

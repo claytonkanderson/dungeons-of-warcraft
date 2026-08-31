@@ -63,7 +63,7 @@ func _slider(text: String, key: String) -> void:
 
 
 func _build() -> void:
-	_box.add_child(_label("AMAZON  DEADMINES", 26))
+	_box.add_child(_label("DUNGEONS  OF  WARCRAFT", 22))
 	_box.add_child(_label(" ", 8))
 	_box.add_child(_button("Resume", func():
 		if world != null:

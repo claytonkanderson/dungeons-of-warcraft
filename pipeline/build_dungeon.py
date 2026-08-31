@@ -354,6 +354,12 @@ def main():
     targets = list(DUNGEONS) if args.all else (args.dungeon or [])
     if not targets:
         ap.error("pass --dungeon <id> (repeatable) or --all")
+    # check every id before opening CASC: a typo in the third --dungeon used
+    # to surface as a bare KeyError after the first two had already built
+    unknown = [d for d in targets if d not in DUNGEONS]
+    if unknown:
+        ap.error("unknown dungeon %s. Configured: %s"
+                 % (", ".join(repr(d) for d in unknown), ", ".join(sorted(DUNGEONS))))
     s = Storage()
     done = []
     for did in targets:

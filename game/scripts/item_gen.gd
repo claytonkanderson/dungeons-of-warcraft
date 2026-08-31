@@ -108,6 +108,10 @@ func _ensure_loaded() -> void:
 
 func type_chain(code: String) -> Dictionary:
 	## All type codes an item belongs to, walking the Equiv hierarchy.
+	## Loads on demand: equipping and the paperdoll reach this without ever
+	## having rolled an item, and an empty itemtypes silently collapses every
+	## chain to its own code — which makes weapons unequippable.
+	_ensure_loaded()
 	var out := {}
 	var stack := [code]
 	while not stack.is_empty():
