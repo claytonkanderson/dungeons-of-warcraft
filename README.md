@@ -99,8 +99,8 @@ Adding a dungeon means one entry in `pipeline/dungeon_config.py` — map name,
 AzerothCore map id, target level, boss names, and any door or lever rules —
 and then `build_dungeon.py --dungeon <id>`. Install paths come from
 environment variables (`DOW_D2_DIR`, `DOW_WOW_ROOT`, `DOW_ASSETS`,
-`DOW_AC_DIR`) with
-dev-machine defaults in `pipeline/config.py` and `pipeline/d2/config.py`.
+`DOW_AC_DIR`) with dev-machine defaults in `pipeline/config.py` and
+`pipeline/d2/config.py`.
 
 ## Architecture
 
@@ -142,7 +142,7 @@ run_game.bat -- --dungeon=shadowfang-keep  # jump straight into one dungeon
 run_game.bat -- --menu-shot=out.png        # capture the main menu and quit
 run_game.bat -- --ui-test                  # panel captures
 run_game.bat -- --fps-probe                # frame timing
-run_game.bat -- --walk-test                # footing over known-bad terrain
+run_game.bat -- --walk-test                # Deadmines cove footing
 run_game.bat -- --fresh                    # ignore the save
 ```
 

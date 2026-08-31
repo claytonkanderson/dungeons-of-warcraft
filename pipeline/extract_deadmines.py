@@ -1,4 +1,7 @@
-"""Extract the Deadmines instance WMOs to assets/out/deadmines/.
+"""Extract a dungeon's WMOs (extract_wmo is the generic exporter every
+dungeon uses; the WMOS list and main() below are Deadmines-only).
+
+Originally: extract the Deadmines instance WMOs to assets/out/deadmines/.
 
 Milestone 1: main dungeon WMO (108483) + exit WMO (108538) as GLBs.
 """

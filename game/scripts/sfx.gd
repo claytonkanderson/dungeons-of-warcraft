@@ -1,5 +1,5 @@
 extends Node
-## Sfx: plays the D2 sounds exported by pipeline/export_sounds.py.
+## Sfx: plays the D2 sounds exported by pipeline/d2/export_sounds.py.
 ## Manifest (sounds.json) maps game events and MonSounds ids to wav variant
 ## lists; a random variant plays each time, like the Group Size rolls in D2.
 

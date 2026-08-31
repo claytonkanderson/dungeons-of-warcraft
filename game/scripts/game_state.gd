@@ -13,7 +13,6 @@ var level := 14               # a seasoned start: points arrive unallocated
 var xp := 0                   # seeded from the exp table in _ready
 var skill_points := 14
 var current_level := 1        # world level id
-var pending_from := 0         # warp transition source (transient)
 var waypoints: Array = [1]    # activated waypoint level ids
 var session_loaded := false
 var saved_level := 1

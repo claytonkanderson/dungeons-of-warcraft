@@ -82,10 +82,8 @@ func _physics_process(dt: float) -> void:
 			velocity.x = dir.x * speed
 			velocity.z = dir.z * speed
 			anim.facing = atan2(dir.x, dir.z)
-			var pairs = get_node("/root/SpriteDB").load_sheet(
-				"monsters/valkyrie/valkyrie_wl_hth")
-			if pairs != null and not str(anim.sheet).contains("wl"):
-				pass
+			# no walk/run sheet is exported for the Valkyrie (only a1, dd,
+			# dt, gh and nu), so she keeps the idle while closing distance
 		else:
 			velocity.x = 0
 			velocity.z = 0

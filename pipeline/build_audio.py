@@ -1,4 +1,4 @@
-"""Extract the WoW soundscape for the Deadmines into assets/wow/audio.
+"""Extract the WoW soundscape for every built dungeon into assets/wow/audio.
 
 soundkit/soundkitentry/areatable.db2 are not in the local install, so the
 usual id chain is dead — but every sound file's *name hash* is in the root,

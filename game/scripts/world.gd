@@ -1,12 +1,13 @@
 extends Node3D
-## The Deadmines: WoW instance geometry (WMOs + doodads from placements.json),
-## D2 Amazon gameplay on top — combat, skills, loot, UI, save/load.
+## One dungeon: WoW instance geometry (WMOs + doodads from placements.json)
+## for GameState.current_dungeon, with D2 Amazon gameplay on top — combat,
+## skills, loot, UI, save/load.
 ## Verification: -- --shots=<dir> screenshots the spawn; --combat-test runs
 ## a scripted bow fight; --at=x,y,z overrides the spawn point.
 
 const ARROW_SPEED := 24.0
 
-var wow_dir := ""                          # assets/wow/deadmines (absolute)
+var wow_dir := ""                          # assets/wow/<dungeon-id> (absolute)
 var player: Player
 var spawn := Vector3(0, 2, 0)
 var spawn_yaw := 0.0
@@ -1071,7 +1072,10 @@ func _unhandled_input(e: InputEvent) -> void:
 			if not _try_interact():
 				_pickup_nearest()
 		elif e.keycode >= KEY_1 and e.keycode <= KEY_4:
-			get_node("/root/GameState").drink(e.keycode - KEY_1)
+			# an open panel owns the number keys: the skill tree uses 1-3 for
+			# its tabs, and switching tabs used to drink the matching potion
+			if player != null and not player.ui_locked:
+				get_node("/root/GameState").drink(e.keycode - KEY_1)
 		elif e.keycode >= KEY_F1 and e.keycode <= KEY_F5:
 			# skill hotkeys: swap the RMB skill (binding happens in the tree)
 			if player != null and not player.ui_locked:

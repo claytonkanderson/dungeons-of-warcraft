@@ -5,7 +5,7 @@ MODF/MDDF, like Deadmines/Shadowfang) and global-WMO maps (MODF straight
 in the WDT, no tiles, like Ragefire Chasm / Wailing Caverns).
 
 The world -> scene transform is the same empirically self-verifying brute
-force as build_placements.py: the candidate 2D map that puts the most
+force the placements build uses: the candidate 2D map that puts the most
 AzerothCore creature spawns inside the main WMO's group boxes wins, and
 the hit rate is the health metric.
 """

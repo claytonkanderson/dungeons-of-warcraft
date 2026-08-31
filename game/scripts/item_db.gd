@@ -18,7 +18,7 @@ func _load_json(rel: String) -> Dictionary:
 	var f := FileAccess.open(ProjectSettings.globalize_path(
 		ASSETS.path_join(rel)), FileAccess.READ)
 	if f == null:
-		push_error("missing " + rel + " - run pipeline/export_items.py")
+		push_error("missing " + rel + " - run pipeline/d2/export_items.py")
 		return {}
 	var d: Dictionary = JSON.parse_string(f.get_as_text())
 	f.close()

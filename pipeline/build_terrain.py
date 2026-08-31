@@ -1,9 +1,9 @@
-"""Bake the deadminesinstance outdoor terrain (36 ADT tiles) into per-tile
-GLBs with splat-blended textures, plus a water mesh from MH2O — the cove
-stops being a black void.
+"""Bake a dungeon's outdoor ADT terrain into per-tile GLBs with
+splat-blended textures, plus a water mesh from MH2O. build_for() is the
+live entry point, called per dungeon; main() is a Deadmines-only probe.
 
 Coordinates ride the same empirically calibrated world -> main-WMO-local ->
-Godot transform as build_placements.py (calibration block reproduced).
+Godot transform as dungeon_common.py (calibration block reproduced).
 MCNK positions were probed to be server-space (x north, y west, z up), so
 they feed straight into that transform. Alpha maps are decided per layer
 (RLE-compressed flag, else 4096 = 8-bit, else 2048 = 4-bit). Shading is
@@ -52,7 +52,7 @@ def load_spawns():
 
 
 def calibrate(s):
-    """Identical brute-force calibration to build_placements.py."""
+    """Identical brute-force calibration to dungeon_common.calibrate."""
     spawns = load_spawns()
     wdt = s.read_fdid(780605)
     c = chunks_of(wdt)

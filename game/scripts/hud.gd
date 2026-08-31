@@ -5,7 +5,7 @@ extends CanvasLayer
 
 const PANEL_W := 704.0        # composited strip size
 const PANEL_H := 104.0
-# calibrated positions within the strip (see shots/ui_calibrate.png)
+# positions measured off the composited strip's gold borders
 var ORB_L := Vector2(33.0, 8.0)       # health orb top-left (80x80 fill)
 var ORB_R := Vector2(591.0, 8.0)      # mana orb top-left
 # gold-border-measured boxes in the composited 704x104 strip

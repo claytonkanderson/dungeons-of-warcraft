@@ -287,9 +287,9 @@ func _input(e: InputEvent) -> void:
 	if not open:
 		return
 	if e is InputEventKey and e.pressed:
-		if e.keycode == KEY_1: tab = 0; _rebuild()
-		elif e.keycode == KEY_2: tab = 1; _rebuild()
-		elif e.keycode == KEY_3: tab = 2; _rebuild()
+		if e.keycode == KEY_1: tab = 0; _rebuild(); get_viewport().set_input_as_handled()
+		elif e.keycode == KEY_2: tab = 1; _rebuild(); get_viewport().set_input_as_handled()
+		elif e.keycode == KEY_3: tab = 2; _rebuild(); get_viewport().set_input_as_handled()
 		elif e.keycode >= KEY_F1 and e.keycode <= KEY_F5:
 			# D2-style: bind the hovered, learned skill to this key
 			if _hover_skill != "" and (_hover_skill == "Attack"
