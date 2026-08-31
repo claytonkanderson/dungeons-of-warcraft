@@ -16,7 +16,6 @@ var arrows: Array = []
 var enemy_missiles: Array = []
 var ground_items: Array = []
 var friendlies: Array = []
-var breakables: Array = []
 var doors: Array = []           # {name, node, open, rule}
 var interactables: Array = []   # {kind, name, node, used}
 
@@ -491,15 +490,11 @@ func _place_set(entries: Array, wmo_nodes: Dictionary) -> int:
 		var sc: float = d.get("scale", 1.0)
 		node.scale = Vector3.ONE * sc
 		placed += 1
-		var brk: bool = int(d.get("brk", 0)) == 1
 		if fresh:  # duplicates inherit the collision children
 			for mi in _find_meshes(node):
-				if brk or mi.get_aabb().get_longest_axis_size() * sc > 4.0:
+				if mi.get_aabb().get_longest_axis_size() * sc > 4.0:
 					mi.create_trimesh_collision()
 					collisions += 1
-		if brk:
-			node.set_meta("brk", true)
-			breakables.append(node)
 	print("placed %d instances (%d with collision)" % [placed, collisions])
 	return collisions
 
@@ -723,7 +718,6 @@ func _melee_swing(origin: Vector3, dir: Vector3) -> void:
 		if not connected:
 			connected = true
 			sfx.event("blade_impact", mob.global_position)
-	_break_in_arc(flat_dir, p.x, p.y)
 
 
 func _on_fire(slot: int, origin: Vector3, dir: Vector3) -> void:
@@ -921,10 +915,6 @@ func _physics_process(dt: float) -> void:
 				_skill_impact(a, hit["position"])
 				if randf() < gs.pierce_chance():
 					continue    # arrow pierces through
-			else:
-				var brk := _brk_root_of(col)
-				if brk != null:
-					_break_prop(brk)
 			var explode := str(a.get("explode", ""))
 			if explode != "":
 				var boom := BillboardAnim.new()
@@ -940,66 +930,6 @@ func _physics_process(dt: float) -> void:
 		if a["life"] <= 0.0:
 			arrows.erase(a)
 			node.queue_free()
-
-
-# ---------------------------------------------------------------------------
-# Destructibles
-# ---------------------------------------------------------------------------
-func _brk_root_of(col: Object) -> Node3D:
-	## Walk up from a hit collider to a live breakable prop root, if any.
-	var n: Node = col as Node
-	for i in range(5):
-		if n == null:
-			return null
-		if n.has_meta("brk") and not n.has_meta("brk_dead"):
-			return n
-		n = n.get_parent()
-	return null
-
-
-func _break_prop(root: Node3D) -> void:
-	if root.has_meta("brk_dead"):
-		return
-	root.set_meta("brk_dead", true)
-	breakables.erase(root)
-	var pos := root.global_position
-	get_node("/root/WowSfx").impact("wood", pos)
-	get_node("/root/Sfx").event("arrow_impact", pos, 0.6)
-	for mi in _find_meshes(root):
-		for body in mi.get_children():
-			if body is StaticBody3D:
-				body.set_collision_layer_value(1, false)
-	var tw := create_tween()
-	tw.tween_property(root, "scale", root.scale * 0.05, 0.16)
-	tw.tween_callback(root.hide)
-	# a little something inside, sometimes
-	var r := randf()
-	var gi: GroundItem = null
-	if r < 0.30:
-		gi = GroundItem.new()
-		add_child(gi)
-		gi.drop("gold", randi_range(40, 160))
-	elif r < 0.42:
-		gi = GroundItem.new()
-		add_child(gi)
-		gi.drop(["hp2", "mp2", "hp3"][randi() % 3])
-	if gi != null:
-		gi.global_position = pos + Vector3(0, 0.05, 0)
-		ground_items.append(gi)
-
-
-func _break_in_arc(flat_dir: Vector3, reach: float, arc: float) -> void:
-	for b in breakables.duplicate():
-		if not is_instance_valid(b):
-			breakables.erase(b)
-			continue
-		var to: Vector3 = b.global_position - player.global_position
-		to.y = 0.0
-		if to.length() > reach + 0.6:
-			continue
-		if flat_dir.angle_to(to.normalized()) > arc:
-			continue
-		_break_prop(b)
 
 
 # ---------------------------------------------------------------------------

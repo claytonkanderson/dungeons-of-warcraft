@@ -279,16 +279,6 @@ def build(s, did, cfg):
     print(f"doodad models: {ok} ok, {fail} failed")
     names_path.write_text(json.dumps(model_names, indent=0))
 
-    # destructibles: barrel/crate-family doodads become breakable in-game
-    import re
-    brk_pat = re.compile(r"barrel|crate|urn|jug|basket|vase", re.I)
-    n_brk = 0
-    for d in out["doodads"] + out["props"]:
-        if brk_pat.search(model_names.get(str(d["fdid"]), "") or ""):
-            d["brk"] = 1
-            n_brk += 1
-    print(f"breakables flagged: {n_brk}")
-
     with open(out_dir / "placements.json", "w") as f:
         json.dump(out, f, indent=1)
     print(f"placements: {len(out['wmos'])} wmos, {len(out['doodads'])} "
