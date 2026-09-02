@@ -82,6 +82,10 @@ func _build() -> void:
 					world.hud_node.show_area("Loaded")
 		elif world != null and world.hud_node != null:
 			world.hud_node.show_area("No save found")))
+	_box.add_child(_button("Unstuck", func():
+		if world != null:
+			world.unstuck_player()
+			world.toggle_menu()))
 	_box.add_child(_label(" ", 8))
 	_slider("Master Volume", "master")
 	_slider("Music + Ambience", "music")

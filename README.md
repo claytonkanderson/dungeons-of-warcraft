@@ -31,18 +31,33 @@ in the menu and arrive as they get built.
 
 ## Play
 
-You need Diablo II (1.14, or any install with the classic `.mpq` files) and
-World of Warcraft Classic Anniversary with its game data downloaded.
+You need two of your own installs:
 
-From the portable build — how other people install it:
+- **Diablo II** — any install whose folder holds the classic `d2data.mpq`
+  and `patch_d2.mpq` (1.14, or the disc/installer build). Diablo II:
+  Resurrected does not ship these archives.
+- **World of Warcraft Classic Anniversary** — the `wow_anniversary` product
+  (2.5.x; built and tested against `2.5.6.69546`), with its data **fully
+  downloaded**. The client streams on demand, so let Battle.net finish the
+  download first — a partial install is missing files the build needs. Other
+  clients (retail, Classic Era, Season of Discovery, Wrath/Cata Classic)
+  won't work.
+
+From the portable build — how other people install it: double-click
+`setup.exe` for a window that picks the two install folders and runs the
+build, or drive it from the command line:
 
 ```bash
-builder.exe --d2 "C:\Path\To\Diablo II" --wow "C:\Path\To\World of Warcraft"
+setup.exe --d2 "C:\Path\To\Diablo II" --wow "C:\Path\To\World of Warcraft"
 ```
 
-That writes `assets/` next to the executable (about 600 MB, 10–20 minutes),
-after which `DungeonsOfWarcraft.exe` runs. From a source checkout,
-`run_game.bat` launches the Godot build directly.
+`--d2` points at the folder containing `d2data.mpq`; `--wow` at the folder
+containing `Data\` and `.build.info`. Either way it writes everything it
+generates into `_build\` next to the executables — `_build\assets` (about
+600 MB, 10–20 minutes; the first build fetches AzerothCore data over the
+internet), plus `setup.log` and the remembered paths — after which
+`DungeonsOfWarcraft.exe` runs. From a source checkout, `run_game.bat`
+launches the Godot build directly against the repo's `assets/`.
 
 | | |
 |---|---|
@@ -107,7 +122,7 @@ environment variables (`DOW_D2_DIR`, `DOW_WOW_ROOT`, `DOW_ASSETS`,
 The Godot project builds its scenes in code; the `.tscn` files are stubs and
 there are no imported resources. Assets load from the filesystem at runtime
 through `Paths.root()`, which resolves to `../assets` in the editor and
-`assets/` beside the executable in an exported build.
+`_build/assets` beside the executable in an exported build.
 
 - `world.gd` — the main scene: placements, terrain, creatures, gameobjects;
   combat resolution (collision-based arrows, melee cleave scaled to weapon

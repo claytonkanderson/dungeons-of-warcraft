@@ -129,6 +129,12 @@ class M2Model:
                          for i in range(n)]
         self.n_views = _u32(md, 0x44)
 
+        # Collision ("bounding") geometry, carried only by models the client
+        # treats as solid. It is the game's own answer to what blocks
+        # movement: crates, cages and furniture have it, while foliage,
+        # waterfalls and effects are meant to be walked straight through.
+        self.collision_verts = _arr(md, 0xE0)[0]
+
         n, o = _arr(md, 0x50)  # {type u32, flags u32, name M2Array}
         self.textures = []
         for i in range(n):

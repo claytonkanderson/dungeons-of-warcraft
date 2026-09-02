@@ -28,17 +28,85 @@ def find_wdt(s, map_name):
     return s.root.fdid_for_path(f"world/maps/{map_name}/{map_name}.wdt")
 
 
+def sql_columns(path):
+    """Column names of a mysqldump table, in order, from its CREATE TABLE.
+
+    AzerothCore reshapes these tables between releases — creature_template
+    went from 61 columns to 55 — so anything read by a hardcoded position
+    silently lands on the wrong field. Callers look indices up by name."""
+    txt = path.read_text(encoding="utf-8", errors="replace")
+    m = re.search(r"CREATE TABLE[^;]*?\((.*?)\)\s*ENGINE", txt, re.S)
+    if not m:
+        raise RuntimeError(f"{path.name}: no CREATE TABLE to read columns from")
+    return re.findall(r"^\s*`([A-Za-z0-9_]+)`", m.group(1), re.M)
+
+
+# Spawns on an instance map that are not part of the dungeon: seasonal event
+# NPCs (Love is in the Air runs its boss fight inside Shadowfang Keep),
+# [DND] script helpers, invisible trigger units, and a second copy of a boss
+# used by a scripted event. They rarely export a model, but they still count
+# toward the XP budget and the roster, so they are dropped at the source.
+JUNK_SPAWN = re.compile(r"\[DND\]|Invisible Stalker|Apothecary Hummel"
+                        r"|Crown Apothecary|Crazed Apothecary|Vial Bunny"
+                        r"|Fezzen Brasstacks|^Arugal$")
+
+
+def creature_names():
+    """entry -> name from creature_template (name is column 6 in every
+    AzerothCore layout seen so far; checked against the CREATE TABLE)."""
+    cols = sql_columns(AC / "creature_template.sql")
+    idx = cols.index("name")
+    names = {}
+    pat = re.compile(r"^\((\d+),")
+    for line in (AC / "creature_template.sql").read_text(
+            encoding="utf-8", errors="replace").splitlines():
+        m = pat.match(line)
+        if not m:
+            continue
+        # walk to the name column respecting quotes
+        f, buf, i, q = [], [], 1, False
+        while i < len(line) and len(f) <= idx:
+            c = line[i]
+            if q:
+                if c == "\\":
+                    buf.append(line[i + 1]); i += 2; continue
+                if c == "'":
+                    q = False
+                else:
+                    buf.append(c)
+            elif c == "'":
+                q = True
+            elif c in ",)":
+                f.append("".join(buf)); buf = []
+            else:
+                buf.append(c)
+            i += 1
+        if len(f) > idx:
+            names[int(m.group(1))] = f[idx]
+    return names
+
+
 def load_spawns(ac_map):
     rows = []
+    names = creature_names()
+    dropped = {}
     pat = re.compile(r"^\((\d+), ?(\d+), ?\d+, ?\d+, ?%d, ?" % ac_map)
     for line in (AC / "creature.sql").read_text(encoding="utf-8").splitlines():
         m = pat.match(line)
         if not m:
             continue
         f = line.strip("(),;").split(",")
-        rows.append({"guid": int(f[0]), "entry": int(f[1]),
+        entry = int(f[1])
+        nm = names.get(entry, "")
+        if JUNK_SPAWN.search(nm):
+            dropped[nm] = dropped.get(nm, 0) + 1
+            continue
+        rows.append({"guid": int(f[0]), "entry": entry,
                      "x": float(f[10]), "y": float(f[11]),
                      "z": float(f[12]), "o": float(f[13])})
+    if dropped:
+        print("non-dungeon spawns dropped: " + ", ".join(
+            f"{n} x{c}" for n, c in sorted(dropped.items())))
     return rows
 
 

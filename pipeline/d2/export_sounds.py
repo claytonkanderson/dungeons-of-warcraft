@@ -36,6 +36,20 @@ EVENTS = {
     'player_gethit': [('amazon_hit_1',)],
     'player_death': [('amazon_death_1',)],
     'gold_drop': [('item_gold_small', 'item_gold')],
+    # Player footsteps. The Amazon is a light-armour walker, so the "light"
+    # set is hers; each leader carries a Group Size of 4, so export_group
+    # pulls all four variants. One surface per dungeon (see dungeon_config's
+    # `footstep`) — interior stone for keeps and caverns, wood for the
+    # Deadmines planking, dirt where the floor is earth.
+    'step_stone_walk': [('light_walk_istone_1',)],
+    'step_stone_run': [('light_run_istone_1',)],
+    'step_wood_walk': [('light_walk_wood_1',)],
+    'step_wood_run': [('light_run_wood_1',)],
+    'step_dirt_walk': [('light_walk_dirt_1',)],
+    'step_dirt_run': [('light_run_dirt_1',)],
+    # landing thud after a jump — the barbarian's leap-land, the only
+    # player-scale impact D2 ships that reads as boots hitting ground
+    'jump_land': [('barbarian_leap_land',)],
 }
 
 # MonSounds fields worth carrying into the game

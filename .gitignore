@@ -6,3 +6,6 @@ __pycache__/
 *.pyc
 dist/
 dist-test*/
+setup_paths.json
+setup.log
+_build/

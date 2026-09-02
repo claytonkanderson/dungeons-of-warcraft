@@ -24,7 +24,6 @@ var _char_box: VBoxContainer
 var _dung_box: VBoxContainer
 var _name_edit: LineEdit
 var _enter_btn: Button
-var _continue_btn: Button
 var _delete_armed := false
 var _delete_btn: Button
 var _doll: Control
@@ -232,18 +231,13 @@ func _build() -> void:
 	scroll.add_child(_dung_box)
 
 	# ---- bottom bar ----
-	_continue_btn = _button("CONTINUE", 18, _on_continue)
-	_continue_btn.position = Vector2(300, BUTTON_Y)
-	_continue_btn.size = Vector2(256, 35)
-	_skin(_continue_btn, "menubutton", 4, 2)
-	add_child(_continue_btn)
 	_enter_btn = _button("ENTER  DUNGEON", 18, _on_enter)
-	_enter_btn.position = Vector2(620, BUTTON_Y)
+	_enter_btn.position = Vector2(460, BUTTON_Y)
 	_enter_btn.size = Vector2(256, 35)
 	_skin(_enter_btn, "menubutton", 4, 2)
 	add_child(_enter_btn)
 	var quit := _button("QUIT", 18, func(): get_tree().quit())
-	quit.position = Vector2(940, BUTTON_Y)
+	quit.position = Vector2(780, BUTTON_Y)
 	quit.size = Vector2(256, 35)
 	_skin(quit, "menubutton", 4, 2)
 	add_child(quit)
@@ -304,7 +298,7 @@ func _refresh() -> void:
 	if sel_char == "" and not chars.is_empty():
 		# whoever was being played comes back selected. Falling straight to
 		# chars[0] meant leaving a dungeon quietly switched you to whichever
-		# character sorted first, and Continue then loaded them.
+		# character sorted first.
 		var playing := str(gs.character)
 		sel_char = str(chars[0].slug)
 		for c in chars:
@@ -394,7 +388,6 @@ func _refresh() -> void:
 	var can_play: bool = sel_char != "" \
 			and dg.status(sel_dungeon, done) in ["available", "complete"]
 	_enter_btn.disabled = not can_play
-	_continue_btn.disabled = sel_char == "" or dg.next_playable(done) == ""
 
 
 func _on_create() -> void:
@@ -431,9 +424,3 @@ func _enter(did: String) -> void:
 
 func _on_enter() -> void:
 	_enter(sel_dungeon)
-
-
-func _on_continue() -> void:
-	var nxt: String = dg.next_playable(_char_data(sel_char).get("dungeons_done", []))
-	if nxt != "":
-		_enter(nxt)

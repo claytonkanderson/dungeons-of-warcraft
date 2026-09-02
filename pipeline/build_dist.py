@@ -2,12 +2,13 @@
 
   python pipeline/build_dist.py            # both halves
   python pipeline/build_dist.py --only exe # just the game
-  python pipeline/build_dist.py --only builder
+  python pipeline/build_dist.py --only setup   # just setup.exe
 
 Produces the game executable (Godot release export, PCK embedded), the
-frozen asset builder, and the licence/readme files that ship beside them.
-No game content of either franchise is included — builder.exe regenerates
-all of it on the player's machine from the player's own installs.
+frozen asset builder shipped as setup.exe, and the licence/readme files
+that ship beside them. No game content of either franchise is included —
+setup.exe regenerates all of it on the player's machine from their own
+installs (double-click for a folder picker, or run it with --d2/--wow).
 
 The builder is frozen in PyInstaller *onefile* mode, so the pipeline
 modules cannot be found by static analysis: builder.py adds them to
@@ -68,7 +69,10 @@ def build_builder():
     OUT.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as work:
         cmd = [sys.executable, "-m", "PyInstaller", "--onefile", "--noconfirm",
-               "--name", "builder",
+               # the player-facing name: double-click for the picker window.
+               # Kept a console build (not --windowed) so build progress and
+               # any early error stay visible even if the window can't open.
+               "--name", "setup",
                "--distpath", OUT, "--workpath", work,
                "--specpath", work,
                # the pipeline is loaded from sys.path at runtime, so it has to
@@ -80,7 +84,11 @@ def build_builder():
                "--hidden-import", "PIL.ImageDraw",
                "--hidden-import", "PIL.ImageFilter",
                "--hidden-import", "PIL.ImageEnhance",
-               "--hidden-import", "numpy"]
+               "--hidden-import", "numpy",
+               # the picker GUI; tkinter's own hook pulls in the Tcl/Tk runtime
+               "--hidden-import", "tkinter",
+               "--hidden-import", "tkinter.filedialog",
+               "--hidden-import", "tkinter.scrolledtext"]
         for py in sorted(HERE.glob("*.py")):
             if py.name in ("builder.py", "build_dist.py"):
                 continue
@@ -98,12 +106,12 @@ def copy_docs():
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--only", choices=["exe", "builder", "docs"], default="",
+    ap.add_argument("--only", choices=["exe", "setup", "docs"], default="",
                     help="build just one part (default: everything)")
     args = ap.parse_args()
     if args.only in ("", "exe"):
         build_exe()
-    if args.only in ("", "builder"):
+    if args.only in ("", "setup"):
         build_builder()
     if args.only in ("", "docs"):
         print("\ndocs:")

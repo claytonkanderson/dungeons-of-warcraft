@@ -74,7 +74,7 @@ func play_at(key: String, pos: Vector3, min_gap_frames := 3) -> void:
 		print("sfx play #%d: %s" % [_plays, key])
 
 
-func play_ui(key: String, min_gap_frames := 3) -> void:
+func play_ui(key: String, min_gap_frames := 3, trim_db := 0.0) -> void:
 	if key == "":
 		return
 	var frame := Engine.get_process_frames()
@@ -86,7 +86,7 @@ func play_ui(key: String, min_gap_frames := 3) -> void:
 		return
 	var p := AudioStreamPlayer.new()
 	p.stream = stream
-	p.volume_db = _volume_db(key)
+	p.volume_db = _volume_db(key) + trim_db
 	p.bus = "SFX"
 	add_child(p)
 	p.finished.connect(p.queue_free)
@@ -101,10 +101,13 @@ func event(name: String, pos: Vector3, chance := 1.0) -> void:
 	play_at(_pick(keys), pos)
 
 
-func event_ui(name: String) -> void:
+func event_ui(name: String, trim_db := 0.0) -> void:
+	## trim_db lets a caller soften a loud sample without touching the shared
+	## Sounds.txt volumes — footsteps ship at full D2 volume, jarring on every
+	## stride in first person.
 	var evs: Dictionary = meta.get("events", {})
 	var keys: Array = evs.get(name, [])
-	play_ui(_pick(keys))
+	play_ui(_pick(keys), 3, trim_db)
 
 
 func monster(mon_id: String, field: String, pos: Vector3, chance := 1.0) -> void:

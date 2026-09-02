@@ -38,6 +38,48 @@ from dungeon_config import DUNGEONS
 CLUTTER = re.compile(r"(?:^|[^A-Za-z])(?:barrel|crate|urn|jug|basket|vase)"
                      r"|Barrel|Crate|Urn|Jug|Basket|Vase")
 
+# WoW builds smoke, steam and fog out of particle emitters. The emitter's own
+# *mesh* is just a bounding cuboid — the visuals live in emitter data we do
+# not export — so drawn as ordinary geometry it becomes a house-sized black
+# and white box sitting in the middle of the room.
+#
+# Two patterns, because name alone cannot tell them apart. Nothing called an
+# emitter or embers is ever real geometry, so those go unconditionally. The
+# rest of the vocabulary is shared with solid props: the Deadmines steam
+# gauges and whistles are set dressing on the machinery. Those are separated
+# by the mesh itself — a placeholder is a bare 24-vertex cuboid metres across,
+# where the gauges carry 154 vertices inside a third of a metre.
+EFFECT_ALWAYS = re.compile(r"emitter|ember", re.I)
+EFFECT_BOXY = re.compile(r"steam|smoke|geyser|fog|dust|sparkle|glow", re.I)
+BARE_BOX_VERTS = 24
+
+
+def bare_box(verts):
+    """True for a cuboid of undetailed geometry at least a metre across."""
+    if len(verts) > BARE_BOX_VERTS:
+        return False
+    return max(max(v[i] for v in verts) - min(v[i] for v in verts)
+               for i in range(3)) * YARD > 1.0
+
+
+def glb_bare_box(path):
+    """bare_box() for an already-exported GLB, read from its JSON chunk.
+
+    The export loop skips models whose GLB is already on disk, so a model
+    that only later became recognisable as a placeholder would otherwise
+    survive in every assets directory built before the rule existed.
+    """
+    with open(path, "rb") as f:
+        head = f.read(20)
+        j = json.loads(f.read(struct.unpack_from("<I", head, 12)[0]))
+    n = span = 0
+    for mesh in j["meshes"]:
+        for prim in mesh["primitives"]:
+            a = j["accessors"][prim["attributes"]["POSITION"]]
+            n += a["count"]
+            span = max(span, max(a["max"][i] - a["min"][i] for i in range(3)))
+    return n <= BARE_BOX_VERTS and span > 1.0     # already in metres
+
 
 def build(s, did, cfg):
     print(f"=== {did} ({cfg['map_name']}, map {cfg['ac_map']}) ===")
@@ -243,30 +285,39 @@ def build(s, did, cfg):
     dd_dir = out_dir / "doodads"
     dd_dir.mkdir(parents=True, exist_ok=True)
     names_path = dd_dir / "names.json"
+    solid_path = dd_dir / "solid.json"
     model_names = {}
     if names_path.exists():
         model_names = json.loads(names_path.read_text())
+    # fdid -> does this model block movement (see M2Model.collision_verts)
+    model_solid = {}
+    if solid_path.exists():
+        model_solid = json.loads(solid_path.read_text())
     ok = fail = clutter = 0
     for fdid in sorted(needed):
         dest_glb = dd_dir / f"{fdid}.glb"
         if dest_glb.exists():
             ok += 1
-            if str(fdid) not in model_names:
+            if str(fdid) not in model_names or str(fdid) not in model_solid:
                 try:
-                    model_names[str(fdid)] = M2Model(s.read_fdid(fdid)).name
+                    m = M2Model(s.read_fdid(fdid))
+                    model_names[str(fdid)] = m.name
+                    model_solid[str(fdid)] = m.collision_verts > 0
                 except Exception:
-                    model_names[str(fdid)] = ""
+                    model_names.setdefault(str(fdid), "")
+                    model_solid[str(fdid)] = False
             continue
         try:
             m = M2Model(s.read_fdid(fdid))
             model_names[str(fdid)] = m.name
+            model_solid[str(fdid)] = m.collision_verts > 0
             if not m.sfid or not m.vertices:
                 fail += 1
                 continue
-            import re as _re2
-            if _re2.search(r"emitter|embers", m.name or "", _re2.I):
-                # particle emitters: their placeholder mesh is opaque black
-                # garbage (the visuals are unexported particles) — skip
+            name = m.name or ""
+            if EFFECT_ALWAYS.search(name) or (
+                    EFFECT_BOXY.search(name)
+                    and bare_box([v[0:3] for v in m.vertices])):
                 fail += 1
                 continue
             if CLUTTER.search(m.name or ""):
@@ -293,13 +344,62 @@ def build(s, did, cfg):
             fail += 1
     print(f"doodad models: {ok} ok, {fail} failed, {clutter} clutter skipped")
     names_path.write_text(json.dumps(model_names, indent=0))
+    solid_path.write_text(json.dumps(model_solid, indent=0))
+
+    # sweep out placeholder boxes exported before the rule above existed
+    effects = set()
+    for fdid, name in model_names.items():
+        glb = dd_dir / f"{fdid}.glb"
+        if not glb.exists() or not EFFECT_BOXY.search(name or ""):
+            continue
+        if glb_bare_box(glb):
+            effects.add(fdid)
+            glb.unlink()
+            print(f"  dropped particle placeholder: {name} ({fdid})")
 
     before = len(out["doodads"]) + len(out["props"])
     for key in ("doodads", "props"):
         out[key] = [d for d in out[key]
-                    if not CLUTTER.search(model_names.get(str(d["fdid"]), "") or "")]
+                    if str(d["fdid"]) not in effects
+                    and not CLUTTER.search(model_names.get(str(d["fdid"]), "") or "")]
     print(f"clutter props dropped: "
           f"{before - len(out['doodads']) - len(out['props'])}")
+
+    # Trees clipping through walls: a chunk of it is the same model stamped
+    # twice at one spot. Overlapping ADT tiles and WMO doodad sets re-emit the
+    # identical placement, so a tree renders doubled — two trunks in the same
+    # centimetre, z-fighting, reading as a mess against a wall. Drop exact
+    # (fdid, position, yaw) repeats; anything at a genuinely distinct spot
+    # stays. This is safe where a blanket interior cull is not: SFK plants
+    # coffins and furniture as tile-props inside its rooms, so culling props
+    # by "inside a room" would delete real set dressing.
+    for key in ("props", "doodads"):
+        seen = set()
+        kept = []
+        for d in out[key]:
+            sig = (d["fdid"],
+                   round(d["pos"][0], 2), round(d["pos"][1], 2),
+                   round(d["pos"][2], 2), round(float(d.get("yaw", 0.0)), 2))
+            if sig in seen:
+                continue
+            seen.add(sig)
+            kept.append(d)
+        if len(kept) != len(out[key]):
+            print(f"deduped {key}: {len(out[key]) - len(kept)} exact repeats")
+        out[key] = kept
+
+    # dungeon-level runtime hints (consumed by world.gd / player.gd)
+    out["footstep"] = cfg.get("footstep", "stone")
+    out["loot_generic"] = list(cfg.get("loot_generic", []))
+
+    # Which props block movement. Sizing a collider off the render mesh made
+    # the giant ferns solid, and their trimesh is a thicket of leaf blades a
+    # player wedges inside; the model's own collision mesh is the real answer.
+    placed_fdids = {str(d["fdid"]) for key in ("doodads", "props")
+                    for d in out[key]}
+    out["solid"] = sorted(int(f) for f in placed_fdids
+                          if model_solid.get(f, False))
+    print(f"solid props: {len(out['solid'])} of {len(placed_fdids)} models")
 
     with open(out_dir / "placements.json", "w") as f:
         json.dump(out, f, indent=1)

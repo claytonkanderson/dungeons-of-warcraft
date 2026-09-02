@@ -22,7 +22,7 @@ from db2 import WDC5
 from m2 import M2Model, Skin
 from blp import blp_to_png
 import gltf_export
-from dungeon_common import load_spawns
+from dungeon_common import load_spawns, sql_columns
 from dungeon_config import DUNGEONS
 
 DEFIAS_HELM_DISPLAY = 15308
@@ -91,11 +91,14 @@ def nearest_blp(s, fdid, span=10):
     return None
 
 
-# creature_template column indices (verified against the CREATE TABLE)
-CT_NAME, CT_MINLVL, CT_MAXLVL, CT_RANK = 6, 10, 11, 21
-CT_SPEED_RUN, CT_DMG_MOD, CT_ATK_TIME, CT_UNIT_CLASS = 16, 23, 24, 28
-CT_TYPE, CT_HP_MOD, CT_EXP_MOD = 37, 49, 52
-# creature_classlevelstats: (level, class) -> row
+# creature_template columns are looked up BY NAME from the dump's CREATE
+# TABLE (see load_stats). They used to be hardcoded positions verified
+# against one checkout; AzerothCore then dropped creature_template from 61
+# columns to 55, so a build using freshly downloaded data read HealthModifier
+# off the wrong field (always 0) and every creature — bosses included — came
+# out with 0 HP. Names survive the reshuffle; positions don't.
+# creature_classlevelstats: (level, class) -> row. Its leading columns are
+# stable across the layouts seen (checked), so positions are kept here.
 CLS_BASEHP0, CLS_ARMOR, CLS_AP, CLS_DMG_BASE = 2, 6, 7, 9
 
 
@@ -120,6 +123,22 @@ def load_stats(entries, spawns, cfg):
         entry = int(f[0])
         if entry in entries:
             tpl[entry] = f
+
+    # resolve the fields we read by name against this dump's actual layout
+    cols = sql_columns(AC / "creature_template.sql")
+    need = ["name", "minlevel", "maxlevel", "rank", "speed_run",
+            "DamageModifier", "BaseAttackTime", "unit_class", "type",
+            "HealthModifier", "ExperienceModifier"]
+    missing = [c for c in need if c not in cols]
+    if missing:
+        raise RuntimeError(f"creature_template.sql lacks columns {missing}; "
+                           "the AzerothCore schema changed again")
+    ci = {c: cols.index(c) for c in need}
+    CT_NAME, CT_MINLVL, CT_MAXLVL = ci["name"], ci["minlevel"], ci["maxlevel"]
+    CT_RANK, CT_SPEED_RUN = ci["rank"], ci["speed_run"]
+    CT_DMG_MOD, CT_ATK_TIME = ci["DamageModifier"], ci["BaseAttackTime"]
+    CT_UNIT_CLASS, CT_TYPE = ci["unit_class"], ci["type"]
+    CT_HP_MOD, CT_EXP_MOD = ci["HealthModifier"], ci["ExperienceModifier"]
 
     # bosses matched by name; report anything that didn't match
     boss_names = set(cfg.get("bosses", []))

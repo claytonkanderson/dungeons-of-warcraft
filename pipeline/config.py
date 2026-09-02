@@ -10,8 +10,10 @@ WOW_ROOT = Path(os.environ.get("DOW_WOW_ROOT",
                                r"D:\Games\World of Warcraft"))
 DATA_DIR = WOW_ROOT / "Data"
 
-# Which TACT product row of .build.info to read. The anniversary (2.5.5)
-# and classic_era products share the same local archives.
+# Which TACT product row of .build.info to read. The anniversary
+# (2.5.x; built against 2.5.6.69546) and classic_era products share the
+# same local archives. The build number is not pinned — Storage reads
+# whatever version .build.info reports for this product.
 PRODUCT = "wow_anniversary"
 
 REPO = Path(__file__).resolve().parent.parent

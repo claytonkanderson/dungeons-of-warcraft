@@ -18,6 +18,12 @@ const STAMINA_DRAIN := 8.0       # per second while running
 const STAMINA_REGEN := 12.0
 const JUMP_VEL := 7.5            # ~1.3 m hop against the 22 m/s^2 gravity
 
+# Breadcrumbs behind the player, for the Unstuck command. Only spots they
+# demonstrably walked away from are kept, so wedging into scenery stops the
+# trail instead of overwriting it with the spot they are wedged in.
+const SAFE_STEP := 0.75          # metres of travel between breadcrumbs
+const SAFE_TRAIL := 8            # roughly the last few seconds of walking
+
 var yaw := 0.0
 var pitch := 0.0
 var stamina := STAMINA_MAX
@@ -26,6 +32,15 @@ var attack_time := 0.0          # seconds remaining in the current attack
 var attack_release := 0.0       # time from attack start until the arrow leaves
 var _pending_slot := -1
 var _attack_len := 0.55
+var _safe: Array[Vector3] = []
+# footstep surface, set per-dungeon from placements.json (stone/wood/dirt)
+var surface := "stone"
+var _step_dist := 0.0            # ground covered since the last footstep
+var _was_floor := true
+const STRIDE_WALK := 2.0         # metres between footfalls at a walk
+const STRIDE_RUN := 2.6          # longer stride running — cadence still rises
+const STEP_TRIM := -12.0         # D2 footsteps ship at full volume; soften
+const LAND_TRIM := -7.0          # the leap-land thud, less so
 var hud: HUD
 
 @onready var cam: Camera3D = $Camera3D
@@ -217,10 +232,50 @@ func _physics_process(dt: float) -> void:
 	velocity.x = hv.x
 	velocity.z = hv.z
 
+	var sfx := get_node("/root/Sfx")
 	if is_on_floor():
 		velocity.y = 0.0
 		if Input.is_key_pressed(KEY_SPACE) and not ui_locked:
 			velocity.y = JUMP_VEL
+			sfx.event_ui("step_%s_%s" % [surface, "run" if want_run else "walk"],
+					STEP_TRIM)
 	else:
 		velocity.y -= GRAVITY * dt
 	move_and_slide()
+
+	# footsteps and landing. Distance-driven cadence, so it speeds up with the
+	# player rather than ticking on a fixed timer; the surface picks the D2
+	# footstep set (see EVENTS in export_sounds.py). event_ui keeps them
+	# non-positional — they are the player's own feet, always at the listener.
+	var on_floor := is_on_floor()
+	var ground_speed := Vector2(velocity.x, velocity.z).length()
+	if on_floor and ground_speed > 0.6:
+		_step_dist += ground_speed * dt
+		var stride := STRIDE_RUN if want_run else STRIDE_WALK
+		if _step_dist >= stride:
+			_step_dist = 0.0
+			sfx.event_ui("step_%s_%s" % [surface, "run" if want_run else "walk"],
+					STEP_TRIM)
+	else:
+		# arm the next footfall so it lands a beat after moving off, not instantly
+		_step_dist = STRIDE_WALK * 0.6
+	if on_floor and not _was_floor:
+		sfx.event_ui("jump_land", LAND_TRIM)
+	_was_floor = on_floor
+
+	if on_floor and (_safe.is_empty()
+			or global_position.distance_to(_safe[-1]) > SAFE_STEP):
+		_safe.append(global_position)
+		if _safe.size() > SAFE_TRAIL:
+			_safe.pop_front()
+
+
+func unstuck() -> bool:
+	## Step back to the oldest breadcrumb — where the player was before they
+	## walked into whatever is holding them. False when there is no trail yet.
+	if _safe.is_empty():
+		return false
+	global_position = _safe[0] + Vector3.UP * 0.5
+	velocity = Vector3.ZERO
+	_safe.clear()
+	return true

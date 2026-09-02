@@ -199,6 +199,28 @@ func show_area(name: String, color := Color(0.9, 0.82, 0.6), dur := 3.0) -> void
 	_area_t = dur
 
 
+var _use_label: Label
+
+
+func show_interact(what: String) -> void:
+	## Name what E would act on. Chests and ore veins are small enough to walk
+	## straight past, and a shut door gives no hint that it will open at all.
+	if _use_label == null:
+		_use_label = Label.new()
+		_use_label.add_theme_font_size_override("font_size", 18)
+		_use_label.add_theme_color_override("font_color", Color(0.85, 0.72, 0.35))
+		_use_label.add_theme_color_override("font_outline_color", Color(0, 0, 0))
+		_use_label.add_theme_constant_override("outline_size", 6)
+		add_child(_use_label)
+	_use_label.text = "[E]  %s" % what
+	_use_label.visible = true
+
+
+func hide_interact() -> void:
+	if _use_label != null:
+		_use_label.visible = false
+
+
 var _tgt_root: Control
 var _tgt_name: Label
 var _tgt_bg: ColorRect
@@ -280,6 +302,9 @@ func _process(dt: float) -> void:
 		_area_label.modulate.a = clampf(_area_t, 0.0, 1.0)
 		if _area_t <= 0.0:
 			_area_label.visible = false
+	if _use_label != null and _use_label.visible:
+		_use_label.position = Vector2(vp.x * 0.5 - _use_label.size.x * 0.5,
+				vp.y * 0.5 + 28.0)
 	_kick = maxf(0.0, _kick - dt * 5.0)
 	if bow != null:
 		_bob += dt * 2.0

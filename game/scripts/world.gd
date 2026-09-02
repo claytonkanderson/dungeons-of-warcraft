@@ -17,14 +17,31 @@ var arrows: Array = []
 var enemy_missiles: Array = []
 var ground_items: Array = []
 var friendlies: Array = []
+const INTERACT_RANGE := 3.2     # E reach; the HUD prompt uses it too, so what
+                                # the prompt offers is exactly what E does
 var doors: Array = []           # {name, node, open, rule}
 var interactables: Array = []   # {kind, name, node, used}
 
 
 func _spawn_gameobjects(placements: Dictionary) -> void:
 	var rules: Dictionary = placements.get("door_rules", {})
+	# Type-5 GENERIC gameobjects are decoration (tables, candelabra, cages) and
+	# are not lootable — they were being treated as chests, which surfaced their
+	# raw internal names ("Standing, Interior, Small - Val") and dropped free
+	# gold. The exceptions are genuine reward containers that WoW happens to
+	# model as GENERIC; the pipeline lists those per dungeon.
+	var loot_generic := {}
+	for n in placements.get("loot_generic", []):
+		loot_generic[str(n)] = true
 	var cache: Dictionary = {}
 	for g in placements.get("gameobjects", []):
+		# Levers are gone, so their models are never even loaded. Every one in
+		# the Deadmines stood on the far side of the door it opened and could
+		# only be reached by first getting through that door; doors open by
+		# hand now, and a wall fixture that invites a click and does nothing is
+		# worse than no fixture at all.
+		if int(g["type"]) == 1:
+			continue
 		var glb := wow_dir.path_join("gobj/%d.glb" % int(g["fdid"]))
 		var node: Node3D
 		var fresh := false
@@ -49,11 +66,12 @@ func _spawn_gameobjects(placements: Dictionary) -> void:
 					mi.create_trimesh_collision()
 			doors.append({"name": gname, "node": node, "open": false,
 					"rule": rules.get(gname, {})})
-			if rules.get(gname, {}).is_empty():
-				interactables.append({"kind": "door", "name": gname,
-						"node": node, "used": false})
-		elif gtype == 1:
-			interactables.append({"kind": "lever", "name": gname,
+			# Every door opens by hand. Its rule still fires as well, so a boss
+			# kill and the cannon still swing their doors open from across the
+			# room, but a rule is never the only way through: two Deadmines
+			# doors have no opener in AzerothCore at all, so trusting the rules
+			# sealed the dungeon.
+			interactables.append({"kind": "door", "name": gname,
 					"node": node, "used": false})
 		elif gtype == 10 and gname.containsn("cannon"):
 			interactables.append({"kind": "cannon", "name": gname,
@@ -61,9 +79,10 @@ func _spawn_gameobjects(placements: Dictionary) -> void:
 		elif gname.containsn("vein"):
 			interactables.append({"kind": "vein", "name": gname,
 					"node": node, "used": false})
-		elif gtype in [2, 3, 5, 25]:
+		elif gtype in [2, 3, 25] or (gtype == 5 and loot_generic.has(gname)):
 			interactables.append({"kind": "chest", "name": gname,
 					"node": node, "used": false})
+
 	print("gameobjects: %d doors, %d interactables" %
 			[doors.size(), interactables.size()])
 
@@ -93,7 +112,7 @@ func _try_interact() -> bool:
 		if it["used"]:
 			continue
 		var node: Node3D = it["node"]
-		if player.global_position.distance_to(node.global_position) > 3.2:
+		if player.global_position.distance_to(node.global_position) > INTERACT_RANGE:
 			continue
 		var pos := node.global_position
 		match str(it["kind"]):
@@ -102,20 +121,6 @@ func _try_interact() -> bool:
 					if d["node"] == node:
 						_open_door(d)
 				it["used"] = true
-			"lever":
-				it["used"] = true
-				get_node("/root/Sfx").event_ui("button")
-				var best = null
-				var bd := 1e9
-				for d in doors:
-					if d["open"]:
-						continue
-					var dd: float = pos.distance_to(d["node"].global_position)
-					if dd < bd:
-						bd = dd
-						best = d
-				if best != null:
-					_open_door(best)
 			"cannon":
 				it["used"] = true
 				get_node("/root/Sfx").event("fire_impact", pos)
@@ -220,6 +225,7 @@ func _ready() -> void:
 	if _at_override != Vector3.INF:
 		spawn = _at_override
 	_spawn_player(gs)
+	player.surface = str(placements.get("footstep", "stone"))
 	_spawn_creatures(placements.get("creatures", []))
 	_spawn_gameobjects(placements)
 
@@ -426,8 +432,20 @@ func _build_world(placements: Dictionary) -> void:
 				continue    # water surfaces are visual only
 			mi.create_trimesh_collision()
 			mesh_count += 1
-	mesh_count += _place_set(placements.get("doodads", []), wmo_nodes)
-	mesh_count += _place_set(placements.get("props", []), wmo_nodes)
+	# Whether a prop blocks movement is the model's own answer: the pipeline
+	# lists the fdids whose M2 carries collision geometry. Sizing a collider
+	# off the render mesh instead made the giant ferns solid, and their trimesh
+	# is a thicket of leaf blades a player wedges inside. Asset builds made
+	# before that list existed fall back to the size rule they were built
+	# against, rather than turning every crate and cage into fog.
+	var solid := {}
+	for fd in placements.get("solid", []):
+		solid[int(fd)] = true
+	var solid_known: bool = placements.has("solid")
+	mesh_count += _place_set(placements.get("doodads", []), wmo_nodes,
+			solid, solid_known)
+	mesh_count += _place_set(placements.get("props", []), wmo_nodes,
+			solid, solid_known)
 	print("collision built for %d meshes" % mesh_count)
 
 	# outdoor terrain + water from the ADT pass (optional; run build_terrain.py)
@@ -478,7 +496,8 @@ func _build_world(placements: Dictionary) -> void:
 	print("fall guard at y=%.0f" % floor_y)
 
 
-func _place_set(entries: Array, wmo_nodes: Dictionary) -> int:
+func _place_set(entries: Array, wmo_nodes: Dictionary, solid: Dictionary,
+		solid_known: bool) -> int:
 	var cache: Dictionary = {}
 	var collisions := 0
 	var placed := 0
@@ -510,11 +529,26 @@ func _place_set(entries: Array, wmo_nodes: Dictionary) -> int:
 		placed += 1
 		if fresh:  # duplicates inherit the collision children
 			for mi in _find_meshes(node):
-				if mi.get_aabb().get_longest_axis_size() * sc > 4.0:
+				var blocks := mi.get_aabb().get_longest_axis_size() * sc > 4.0
+				if solid_known:
+					blocks = solid.has(int(d["fdid"]))
+				if blocks:
 					mi.create_trimesh_collision()
 					collisions += 1
 	print("placed %d instances (%d with collision)" % [placed, collisions])
 	return collisions
+
+
+func unstuck_player() -> void:
+	## Free a player wedged in scenery: back to where they were walking a few
+	## seconds ago, or to the dungeon entrance if they never got going.
+	if player == null:
+		return
+	if not player.unstuck():
+		player.global_position = spawn + Vector3.UP * 0.5
+		player.velocity = Vector3.ZERO
+	if hud_node != null:
+		hud_node.show_area("Unstuck")
 
 
 func _spawn_player(gs) -> void:
@@ -1126,7 +1160,7 @@ func _process(_dt: float) -> void:
 		return
 	if (Input.is_key_pressed(KEY_ALT) or force_labels) and not ground_items.is_empty():
 		var cam: Camera3D = player.get_node("Camera3D")
-		hud_node.show_item_labels(ground_items, cam)
+		hud_node.show_item_labels(_visible_items(cam), cam)
 	else:
 		hud_node.hide_item_labels()
 	# creature under the crosshair -> D2-style name + health plate up top
@@ -1141,6 +1175,47 @@ func _process(_dt: float) -> void:
 		hud_node.show_target(hit["collider"])
 	else:
 		hud_node.hide_target()
+	# name whatever E would act on from here
+	var use_name := ""
+	var use_d := INTERACT_RANGE
+	for it in interactables:
+		if it["used"]:
+			continue
+		var ud: float = player.global_position.distance_to(
+				(it["node"] as Node3D).global_position)
+		if ud < use_d:
+			use_d = ud
+			use_name = str(it["name"])
+	if use_name == "":
+		hud_node.hide_interact()
+	else:
+		hud_node.show_interact(use_name)
+
+
+func _visible_items(cam: Camera3D) -> Array:
+	## Alt labels only for loot the player can actually see. A ray from the eye
+	## to each drop; a wall between them (StaticBody3D, same test wow_creature
+	## uses for sight) hides the label. Creatures don't occlude — a mob walking
+	## across the pile shouldn't blink the labels. GroundItems are Sprite3D with
+	## no body, so the ray never catches the item itself.
+	var out: Array = []
+	var ss := get_world_3d().direct_space_state
+	var from: Vector3 = cam.global_position
+	for gi in ground_items:
+		if not is_instance_valid(gi):
+			continue
+		var to: Vector3 = gi.global_position + Vector3.UP * 0.3
+		var span := from.distance_to(to)
+		if span > 45.0:
+			continue
+		var q := PhysicsRayQueryParameters3D.create(from, to)
+		q.exclude = [player.get_rid()]
+		var hit := ss.intersect_ray(q)
+		if hit and hit["collider"] is StaticBody3D \
+				and from.distance_to(hit["position"]) < span - 0.5:
+			continue
+		out.append(gi)
+	return out
 
 
 func _notification(what: int) -> void:

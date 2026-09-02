@@ -6,7 +6,10 @@ Blizzard ships with the game. Requires:
   - Diablo II (1.14 or an install with the classic MPQs in its folder)
   - World of Warcraft Classic Anniversary (the local game data)
 
-Usage:
+Two ways to run. Launched with no arguments (a double-click on setup.exe)
+it opens a small window to pick the two install folders and watch the
+build. Given paths, it builds headlessly from the command line:
+
   python builder.py --d2 "C:\\Program Files (x86)\\Diablo II" ^
                     --wow "C:\\Program Files (x86)\\World of Warcraft" ^
                     [--out <assets dir>] [--ac <azerothcore db_world dir>]
@@ -16,6 +19,7 @@ when no local checkout is given, the needed SQL files are downloaded from
 GitHub at build time.
 """
 import argparse
+import json
 import os
 import sys
 import time
@@ -29,6 +33,15 @@ HERE = Path(__file__).resolve().parent
 # have to sit beside the executable, which is where paths.gd looks for them.
 BESIDE_EXE = (Path(sys.executable).resolve().parent if getattr(sys, "frozen", False)
               else HERE.parent)
+
+# Everything setup generates — assets, setup.log, the remembered paths — lives
+# in one _build folder beside the executables, so the portable install is the
+# two exes, the docs, and _build. paths.gd looks for assets there in an
+# exported game. From a source checkout the repo root is the build root
+# instead (repo/assets, which the editor reads as ../assets), so developer
+# layout is unchanged. Created on demand; nothing assumes it exists.
+BUILD_DIR = (BESIDE_EXE / "_build" if getattr(sys, "frozen", False)
+             else BESIDE_EXE)
 
 # Every AzerothCore table the build reads. Keep this in step with the
 # `AC / "<name>.sql"` reads in build_dungeon.py, build_creatures.py and
@@ -49,17 +62,48 @@ def fail(msg):
     sys.exit(1)
 
 
-def check_d2(d2):
-    for probe in ["patch_d2.mpq", "d2data.mpq"]:
+def game_root(path):
+    """The install folder for what the picker holds. The setup window shows
+    the game's .exe (what a player recognises); the build wants the folder
+    it sits in. A folder pasted straight into the field passes through."""
+    path = (path or "").strip()
+    return os.path.dirname(path) if os.path.isfile(path) else path
+
+
+def validate_d2(d2):
+    """'' if the folder looks like a Diablo II install, else why not.
+    Shared by the CLI check and the picker so both judge a folder alike."""
+    if not d2:
+        return "no folder chosen"
+    for probe in ("patch_d2.mpq", "d2data.mpq"):
         if not (Path(d2) / probe).exists():
-            fail(f"{probe} not found in {d2} — point --d2 at the Diablo II "
-                 "install folder that contains the .mpq files")
+            return f"{probe} not found here"
+    return ""
+
+
+def validate_wow(wow):
+    """'' if the folder looks like a WoW Anniversary install, else why not."""
+    if not wow:
+        return "no folder chosen"
+    if not (Path(wow) / "Data").is_dir():
+        return "no Data folder here"
+    if not (Path(wow) / ".build.info").exists():
+        return "no .build.info here"
+    return ""
+
+
+def check_d2(d2):
+    msg = validate_d2(d2)
+    if msg:
+        fail(f"{msg} ({d2}) — point --d2 at the Diablo II install folder that "
+             "contains the .mpq files")
 
 
 def check_wow(wow):
-    if not (Path(wow) / "Data").is_dir():
-        fail(f"no Data/ directory in {wow} — point --wow at the WoW Classic "
-             "Anniversary install (the folder containing Data and .build.info)")
+    msg = validate_wow(wow)
+    if msg:
+        fail(f"{msg} ({wow}) — point --wow at the WoW Classic Anniversary "
+             "install (the folder containing Data and .build.info)")
 
 
 def ensure_ac(ac_dir, cache):
@@ -157,11 +201,240 @@ def run_wow_stages(only=""):
     build_audio.main()
 
 
+def run_build(d2, wow, out="", ac="", skip_d2=False, skip_wow=False,
+              only_dungeon=""):
+    """Run the asset build. Both the CLI and the picker call this; it assumes
+    d2/wow already passed check_d2/check_wow (the picker validates first, the
+    CLI calls the checks below). Progress goes to stdout, which the picker
+    mirrors into its log pane."""
+    if skip_d2 and skip_wow:
+        fail("--skip-d2 and --skip-wow together leave nothing to build.")
+    if only_dungeon:
+        # dungeon_config imports nothing, so loading it here cannot poison the
+        # `config` module name the D2 and WoW halves each resolve differently
+        sys.path.insert(0, str(HERE))
+        from dungeon_config import DUNGEONS as _D
+        if only_dungeon not in _D:
+            fail(f"unknown dungeon '{only_dungeon}'. Configured: "
+                 f"{', '.join(sorted(_D))}")
+
+    check_d2(d2)
+    check_wow(wow)
+    out_dir = Path(out) if out else BUILD_DIR / "assets"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if skip_d2 and not (out_dir / "gamedata.json").exists():
+        fail(f"--skip-d2 expects the Diablo II assets to be in {out_dir} "
+             "already, but gamedata.json is not there. Run once without it.")
+    ac_dir = ensure_ac(ac, out_dir / "_accache")
+
+    os.environ["DOW_D2_DIR"] = str(Path(d2))
+    os.environ["DOW_WOW_ROOT"] = str(Path(wow))
+    os.environ["DOW_ASSETS"] = str(out_dir)
+    os.environ["DOW_AC_DIR"] = str(ac_dir)
+
+    t0 = time.time()
+    if not skip_d2:
+        run_d2_stages()
+    if not skip_wow:
+        run_wow_stages(only_dungeon)
+    print(f"\nALL DONE in {(time.time() - t0) / 60:.1f} min -> {out_dir}")
+    print("Launch the game — the dungeon ladder is waiting.")
+
+
+def run_gui():
+    """The setup window: pick the two install folders, watch the build run.
+    Shown when the executable is launched with no arguments (a double-click).
+    Returns False if a desktop/Tk is unavailable, so the caller can fall back
+    to printing CLI usage. Everything here is stdlib (tkinter) so it survives
+    the onefile freeze without extra dependencies."""
+    try:
+        import queue
+        import threading
+        import tkinter as tk
+        from tkinter import filedialog, scrolledtext
+    except Exception:
+        return False
+
+    prefs_file = BUILD_DIR / "setup_paths.json"
+    prefs = {}
+    try:
+        prefs = json.loads(prefs_file.read_text())
+    except Exception:
+        prefs = {}
+
+    try:
+        root = tk.Tk()
+    except Exception:
+        return False       # no display (headless) — fall back to CLI usage
+    root.title("Dungeons of Warcraft — Setup")
+    root.minsize(700, 540)
+
+    state = {"d2": prefs.get("d2", ""), "wow": prefs.get("wow", ""),
+             "running": False}
+
+    header = tk.Label(root, justify="left", anchor="w", padx=12, pady=8,
+                      text="Point Setup at your own Diablo II and World of "
+                           "Warcraft installs.\nNothing from either game is "
+                           "included — the assets are built here on your PC.")
+    header.pack(fill="x")
+
+    rows = tk.Frame(root, padx=12)
+    rows.pack(fill="x")
+    rows.columnconfigure(1, weight=1)
+
+    d2_var = tk.StringVar(value=state["d2"])
+    wow_var = tk.StringVar(value=state["wow"])
+    d2_status = tk.Label(rows, anchor="w", width=34)
+    wow_status = tk.Label(rows, anchor="w", width=34)
+
+    def refresh():
+        msg = validate_d2(game_root(d2_var.get()))
+        d2_status.config(text=("OK — Diablo II found" if not msg else msg),
+                         fg=("#177245" if not msg else "#a11"))
+        msg2 = validate_wow(game_root(wow_var.get()))
+        wow_status.config(text=("OK — WoW Anniversary found" if not msg2
+                                else msg2),
+                          fg=("#177245" if not msg2 else "#a11"))
+        can = not msg and not msg2 and not state["running"]
+        build_btn.config(state=("normal" if can else "disabled"))
+
+    def browse(var, exe_name):
+        # The field shows the game's .exe; game_root() turns it into the
+        # install folder wherever the folder is actually needed.
+        start = game_root(var.get()) or os.path.expanduser("~")
+        picked = filedialog.askopenfilename(
+            title=f"Select {exe_name}",
+            initialdir=start if os.path.isdir(start) else os.path.expanduser("~"),
+            filetypes=[("Program", "*.exe"), ("All files", "*.*")])
+        if picked:
+            var.set(os.path.normpath(picked))
+            refresh()
+
+    hint = dict(fg="#666", anchor="w", justify="left")
+    tk.Label(rows, text="Diablo II", anchor="w").grid(
+        row=0, column=0, sticky="w", pady=(8, 0))
+    tk.Entry(rows, textvariable=d2_var).grid(
+        row=0, column=1, sticky="ew", padx=6, pady=(8, 0))
+    tk.Button(rows, text="Browse…",
+              command=lambda: browse(d2_var, "Diablo II.exe")
+              ).grid(row=0, column=2, pady=(8, 0))
+    tk.Label(rows, text="Browse to Diablo II.exe - the same folder should "
+             "contain d2data.mpq", **hint).grid(
+        row=1, column=1, columnspan=2, sticky="w", padx=6)
+    d2_status.grid(row=2, column=1, sticky="w", padx=6)
+
+    tk.Label(rows, text="World of Warcraft", anchor="w").grid(
+        row=3, column=0, sticky="w", pady=(10, 0))
+    tk.Entry(rows, textvariable=wow_var).grid(
+        row=3, column=1, sticky="ew", padx=6, pady=(10, 0))
+    tk.Button(rows, text="Browse…",
+              command=lambda: browse(wow_var, "World of Warcraft Launcher.exe")
+              ).grid(row=3, column=2, pady=(10, 0))
+    tk.Label(rows, text="Browse to World of Warcraft Launcher.exe - same folder "
+             "should contain Data and .build.info", **hint).grid(
+        row=4, column=1, columnspan=2, sticky="w", padx=6)
+    wow_status.grid(row=5, column=1, sticky="w", padx=6)
+
+    d2_var.trace_add("write", lambda *_: refresh())
+    wow_var.trace_add("write", lambda *_: refresh())
+
+    tk.Label(root, anchor="w", padx=12, fg="#444", pady=(6),
+             text="Assets will be built in:  %s" % (BUILD_DIR / "assets")).pack(
+        fill="x", pady=(8, 0))
+
+    log = scrolledtext.ScrolledText(root, height=14, state="disabled",
+                                    font=("Consolas", 9))
+    log.pack(fill="both", expand=True, padx=12, pady=(6, 4))
+
+    bar = tk.Frame(root, padx=12, pady=8)
+    bar.pack(fill="x")
+    status_lbl = tk.Label(bar, text="", anchor="w")
+    status_lbl.pack(side="left")
+    build_btn = tk.Button(bar, text="Build assets")
+    build_btn.pack(side="right")
+
+    q = queue.Queue()
+
+    class _Tee:
+        """Fan the build's stdout to the real console and the log pane."""
+        def __init__(self, orig):
+            self.orig = orig
+
+        def write(self, s):
+            if self.orig:
+                try:
+                    self.orig.write(s)
+                except Exception:
+                    pass
+            q.put(s)
+
+        def flush(self):
+            if self.orig:
+                try:
+                    self.orig.flush()
+                except Exception:
+                    pass
+
+    def worker(d2, wow):
+        old_out, old_err = sys.stdout, sys.stderr
+        sys.stdout = sys.stderr = _Tee(old_out)
+        ok = True
+        try:
+            run_build(d2, wow)
+        except SystemExit:          # fail() inside the build; message already logged
+            ok = False
+        except Exception as e:
+            print(f"\nERROR: {e}")
+            ok = False
+        finally:
+            sys.stdout, sys.stderr = old_out, old_err
+            q.put(("__done__", ok))
+
+    def start_build():
+        # remember what the player typed/picked (the .exe) so it displays the
+        # same way next time; hand the build the folders it actually needs
+        prefs_file.write_text(json.dumps({"d2": d2_var.get(),
+                                          "wow": wow_var.get()}))
+        d2, wow = game_root(d2_var.get()), game_root(wow_var.get())
+        state["running"] = True
+        build_btn.config(state="disabled")
+        status_lbl.config(text="Building… this takes 10–20 minutes.", fg="#333")
+        threading.Thread(target=worker, args=(d2, wow), daemon=True).start()
+
+    build_btn.config(command=start_build)
+
+    def drain():
+        try:
+            while True:
+                item = q.get_nowait()
+                if isinstance(item, tuple) and item and item[0] == "__done__":
+                    state["running"] = False
+                    ok = item[1]
+                    status_lbl.config(
+                        text=("Done — close this and run DungeonsOfWarcraft.exe"
+                              if ok else "Build failed — see the log above."),
+                        fg=("#177245" if ok else "#a11"))
+                    refresh()
+                    continue
+                log.config(state="normal")
+                log.insert("end", str(item))
+                log.see("end")
+                log.config(state="disabled")
+        except queue.Empty:
+            pass
+        root.after(80, drain)
+
+    refresh()
+    root.after(80, drain)
+    root.mainloop()
+    return True
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--d2", required=True, help="Diablo II install folder")
-    ap.add_argument("--wow", required=True,
+    ap.add_argument("--d2", default="", help="Diablo II install folder")
+    ap.add_argument("--wow", default="",
                     help="WoW Classic Anniversary install folder")
     ap.add_argument("--out", default="",
                     help="assets output dir (default: ./assets beside the game)")
@@ -174,38 +447,56 @@ def main():
     ap.add_argument("--only-dungeon", default="", help=argparse.SUPPRESS)
     args = ap.parse_args()
 
-    if args.skip_d2 and args.skip_wow:
-        fail("--skip-d2 and --skip-wow together leave nothing to build.")
-    if args.only_dungeon:
-        # dungeon_config imports nothing, so loading it here cannot poison the
-        # `config` module name the D2 and WoW halves each resolve differently
-        sys.path.insert(0, str(HERE))
-        from dungeon_config import DUNGEONS as _D
-        if args.only_dungeon not in _D:
-            fail(f"unknown dungeon '{args.only_dungeon}'. Configured: "
-                 f"{', '.join(sorted(_D))}")
+    # Everything printed from here on is also written to setup.log beside the
+    # executable, so a player can send the log of a failed build without
+    # having to capture a console window. Both the window and the CLI route
+    # their output through sys.stdout, so one tee covers both.
+    log_path = BUILD_DIR / "setup.log"
+    try:
+        BUILD_DIR.mkdir(parents=True, exist_ok=True)
+        log_f = open(log_path, "w", encoding="utf-8")
+    except OSError:
+        log_f = None
 
-    check_d2(args.d2)
-    check_wow(args.wow)
-    out = Path(args.out) if args.out else BESIDE_EXE / "assets"
-    out.mkdir(parents=True, exist_ok=True)
-    if args.skip_d2 and not (out / "gamedata.json").exists():
-        fail(f"--skip-d2 expects the Diablo II assets to be in {out} already, "
-             "but gamedata.json is not there. Run once without --skip-d2.")
-    ac = ensure_ac(args.ac, out / "_accache")
+    class _LogTee:
+        def __init__(self, orig):
+            self.orig = orig
 
-    os.environ["DOW_D2_DIR"] = str(Path(args.d2))
-    os.environ["DOW_WOW_ROOT"] = str(Path(args.wow))
-    os.environ["DOW_ASSETS"] = str(out)
-    os.environ["DOW_AC_DIR"] = str(ac)
+        def write(self, s):
+            if self.orig:
+                try:
+                    self.orig.write(s)
+                except Exception:
+                    pass
+            if log_f:
+                try:
+                    log_f.write(s)
+                    log_f.flush()
+                except Exception:
+                    pass
 
-    t0 = time.time()
-    if not args.skip_d2:
-        run_d2_stages()
-    if not args.skip_wow:
-        run_wow_stages(args.only_dungeon)
-    print(f"\nALL DONE in {(time.time() - t0) / 60:.1f} min -> {out}")
-    print("Launch the game — the dungeon ladder is waiting.")
+        def flush(self):
+            if self.orig:
+                try:
+                    self.orig.flush()
+                except Exception:
+                    pass
+
+    if log_f:
+        sys.stdout = _LogTee(sys.stdout)
+        sys.stderr = _LogTee(sys.stderr)
+        print(f"log: {log_path}")
+
+    # No install paths given (a double-click) — open the picker. If there is no
+    # desktop to draw it on, fall through to the usual CLI error.
+    if not args.d2 and not args.wow:
+        if run_gui():
+            return
+        fail("no folders given. Run with no arguments for the setup window, or "
+             'pass --d2 "…" --wow "…" to build from the command line.')
+
+    run_build(args.d2, args.wow, args.out, args.ac,
+              args.skip_d2, args.skip_wow, args.only_dungeon)
 
 
 if __name__ == "__main__":
