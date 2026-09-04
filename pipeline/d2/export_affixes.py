@@ -100,6 +100,7 @@ def build_uniques(res):
                     'code': code,
                     'lvl': g(r, 'lvl', 'level'),
                     'lvlreq': g(r, 'lvl req', 'levelreq'),
+                    'rarity': g(r, 'rarity') or '1',
                     'enabled': g(r, 'enabled') == '1',
                     'props': props(r, 12)})
     return out
@@ -124,6 +125,7 @@ def build_setitems(res):
                     'code': code,
                     'lvl': g(r, 'lvl', 'level'),
                     'lvlreq': g(r, 'lvl req', 'levelreq'),
+                    'rarity': g(r, 'rarity') or '1',
                     'props': props(r, 9)})
     return out
 
@@ -137,6 +139,11 @@ def build_affixes(res, src):
         out.append({'name': res(name),
                     'lvl': g(r, 'level'),
                     'maxlevel': g(r, 'maxlevel'),
+                    'levelreq': g(r, 'levelreq'),
+                    'frequency': g(r, 'frequency') or '0',
+                    'group': g(r, 'group'),
+                    'classspecific': g(r, 'classspecific'),
+                    'class': g(r, 'class'),
                     'rare': g(r, 'rare') == '1',
                     'spawnable': True,
                     'itypes': collect(r, 'itype', 7),

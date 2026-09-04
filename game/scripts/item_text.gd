@@ -23,10 +23,44 @@ func _ensure() -> void:
 
 
 ## One display line for a rolled property {code, val, param...}; "" = hidden.
-func prop_line(code: String, val: int, param := "") -> String:
+const TAB_NAMES := ["Bow and Crossbow", "Passive and Magic", "Javelin and Spear",
+	"Fire", "Lightning", "Cold", "Curses", "Poison and Bone", "Necromancer Summoning",
+	"Paladin Combat", "Offensive Aura", "Defensive Aura", "Barbarian Combat",
+	"Masteries", "Warcries", "Druid Summoning", "Shape Shifting", "Elemental",
+	"Traps", "Shadow Disciplines", "Martial Arts"]
+const CLASS_NAMES := {"ama": "Amazon", "sor": "Sorceress", "nec": "Necromancer",
+	"pal": "Paladin", "bar": "Barbarian", "dru": "Druid", "ass": "Assassin"}
+
+
+func prop_line(code: String, val: int, param := "", val_max := -1) -> String:
 	_ensure()
+	if val_max < 0:
+		val_max = val
+	# "+N (Based on Character Level)": the table's param is N*8 per level
+	if GameState.PER_LEVEL.has(code):
+		val = int(float(param.to_int()) / 8.0 * float(get_node("/root/GameState").level))
 	# property-level specials that bypass ItemStatCost
 	match code:
+		"dmg-fire": return "Adds %d-%d Fire Damage" % [val, val_max]
+		"dmg-cold": return "Adds %d-%d Cold Damage" % [val, val_max]
+		"dmg-ltng": return "Adds %d-%d Lightning Damage" % [val, val_max]
+		"dmg-mag": return "Adds %d-%d Magic Damage" % [val, val_max]
+		"dmg-elem": return "Adds %d-%d Fire, Lightning and Cold Damage" % [val, val_max]
+		"dmg-pois":
+			var frames := maxi(1, param.to_int())
+			return "+%d Poison Damage Over %d Seconds" % [
+					int(round(val_max * frames / 256.0)), int(round(frames / 25.0))]
+		"skill", "oskill":
+			return "+%d to %s" % [val, _skill_name(param)]
+		"skilltab":
+			var t := param.to_int()
+			var tn: String = TAB_NAMES[t] if t >= 0 and t < TAB_NAMES.size() else "Skill"
+			return "+%d to %s Skills" % [val, tn]
+		"ama", "sor", "nec", "pal", "bar", "dru", "ass":
+			return "+%d to %s Skill Levels" % [val, CLASS_NAMES[code]]
+		"ease": return "Requirements %d%%" % val
+		"magicarrow": return "Fires Magic Arrows [Level %d]" % val
+		"explosivearrow": return "Fires Explosive Arrows or Bolts [Level %d]" % val
 		"dmg-min": return "+%d to Minimum Damage" % val
 		"dmg-max": return "+%d to Maximum Damage" % val
 		"dmg%": return "+%d%% Enhanced Damage" % val
@@ -53,8 +87,12 @@ func prop_line(code: String, val: int, param := "") -> String:
 
 
 func _skill_name(param: String) -> String:
+	## skill properties name their skill by id or by name in the tables
 	var gd: Dictionary = get_node("/root/SpriteDB").gamedata()
-	return str(gd.get("skill_names", {}).get(str(param), "a spell"))
+	var names: Dictionary = gd.get("skill_names", {})
+	if names.has(str(param)):
+		return str(names[str(param)])
+	return param if param != "" else "a spell"
 
 
 func stat_priority(code: String) -> int:
@@ -113,6 +151,15 @@ func _format_stat(sd: Dictionary, val: int, _param: String) -> String:
 
 ## All display lines for an instance, D2-sorted (priority desc).
 func lines_for(inst: Dictionary) -> Array:
+	var out := []
+	for pair in lines_with_codes(inst):
+		out.append(pair[0])
+	return out
+
+
+## [line, property code] pairs, so a caller can tell which lines the game
+## actually applies (GameState.MOD_MAP) and which are display only so far.
+func lines_with_codes(inst: Dictionary) -> Array:
 	_ensure()
 	var flat := []
 	for p in inst.get("props", []):
@@ -130,8 +177,8 @@ func lines_for(inst: Dictionary) -> Array:
 		if code == "":
 			continue
 		var val := int(p.get("val", int(str(p.get("min", "0")).to_int())))
-		var line := prop_line(code, val, str(p.get("param", "")))
+		var line := prop_line(code, val, str(p.get("param", "")), int(p.get("val_max", -1)))
 		if line != "" and not seen.has(line):
 			seen[line] = true
-			out.append(line)
+			out.append([line, code])
 	return out

@@ -2,20 +2,40 @@ class_name SkillTreeUI
 extends CanvasLayer
 ## The Amazon talent tree on the original skltree_a_back art.
 ## T toggles. Click = spend a point. Ctrl+click = assign to LMB.
-## Right-click = assign to RMB. Keys 1/2/3 switch tabs.
+## Right-click = assign to RMB. Keys 1/2/3 switch tabs. F1-F5 bind the
+## hovered skill.
+##
+## Built on D2Panel: the page is the tab's lattice art with the chrome
+## column over it, and every icon, number and tab plate is placed in page
+## pixels at a spot measured off that art, so it lands in its socket.
 
-const SCALE := 1.5
-const PAGE := Vector2(320, 432)
-# icon slot grid within a page (calibrated against the arrow lattice)
-var GRID_ORIGIN := Vector2(12.0, 22.0)
-var GRID_STEP := Vector2(69.0, 68.0)
+# icon sockets measured on the lattice pages: 48 px squares whose bright
+# left/bottom edges sit at x = 13, 82, 151 and bottom y = 63 + 68.2 per row
+const SOCKET := 48.0
+const SOCKET_X := [13.0, 82.0, 151.0]
+const SOCKET_Y0 := 15.0
+const SOCKET_PITCH_Y := 68.2
+# the spare socket bottom-right (Normal Attack) and the chrome's top box,
+# where D2 shows the unspent skill points
+const ATTACK_RECT := Rect2(172, 386, 31, 31)
+const POINTS_BOX := Rect2(250, 61, 49, 25)
+# tab plates in the chrome column: 87x99 at x 228, y 111 / 219 / 327
+const TAB_X := 228.0
+const TAB_Y0 := 111.0
+const TAB_PITCH := 108.0
+const TAB_SIZE := Vector2(87, 99)
 const TAB_NAMES := ["Bow and Crossbow", "Passive and Magic", "Javelin and Spear"]
+const TAB_SHORT := ["Bow", "Passive", "Javelin"]
+const GOLD := Color(1.0, 0.9, 0.5)
+const DIM := Color(0.55, 0.55, 0.55)
 
 var open := false
 var tab := 0
-var root: Control
+var panel: D2Panel
 var tooltip: Label
-var _tex := {}
+var _lattice := {}
+var _chrome: TextureRect
+var _nodes := []
 var _hover_skill := ""   # skill under the cursor: F1-F5 binds it
 
 @onready var gs := get_node("/root/GameState")
@@ -24,9 +44,19 @@ var _hover_skill := ""   # skill under the cursor: F1-F5 binds it
 
 func _ready() -> void:
 	layer = 6
-	root = Control.new()
-	root.visible = false
-	add_child(root)
+	panel = D2Panel.new("ui/skltree_1.png")
+	panel.visible = false
+	add_child(panel)
+	# the chrome column (tabs, points box) is its own page, drawn over the
+	# lattice as the first thing in the content layer
+	_chrome = TextureRect.new()
+	var img := Image.load_from_file(Paths.asset("ui/skltree_0.png"))
+	if img != null:
+		_chrome.texture = ImageTexture.create_from_image(img)
+	_chrome.size = D2Panel.NATIVE
+	_chrome.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_chrome.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.content.add_child(_chrome)
 	tooltip = Label.new()
 	tooltip.add_theme_font_size_override("font_size", 15)
 	tooltip.add_theme_color_override("font_color", Color(1, 1, 1))
@@ -37,20 +67,21 @@ func _ready() -> void:
 	gs.skills_changed.connect(_rebuild)
 
 
-func _tex_load(rel: String) -> Texture2D:
-	if _tex.has(rel):
-		return _tex[rel]
-	var img := Image.load_from_file(Paths.asset(rel))
+func _lattice_tex(i: int) -> Texture2D:
+	if _lattice.has(i):
+		return _lattice[i]
+	var img := Image.load_from_file(Paths.asset("ui/skltree_%d.png" % (i + 1)))
 	var t: Texture2D = ImageTexture.create_from_image(img) if img != null else null
-	_tex[rel] = t
+	_lattice[i] = t
 	return t
 
 
 func toggle() -> void:
 	# mouse/look state is owned by the world's _sync_ui()
 	open = not open
-	root.visible = open
+	panel.visible = open
 	if open:
+		panel.fit(get_viewport().get_visible_rect().size, true)
 		_rebuild()
 	else:
 		tooltip.visible = false
@@ -72,121 +103,89 @@ func _amazon_skills_on_page(page: int) -> Array:
 	return out
 
 
+func _socket(col: int, row: int) -> Rect2:
+	var x: float = SOCKET_X[clampi(col - 1, 0, 2)]
+	return Rect2(x, SOCKET_Y0 + (row - 1) * SOCKET_PITCH_Y, SOCKET, SOCKET)
+
+
+func _icon(sheet, frame: int, rect: Rect2, tint := Color(1, 1, 1)) -> TextureRect:
+	var at := AtlasTexture.new()
+	at.atlas = sheet.texture
+	at.region = Rect2(frame * sheet.cell.x, 0, sheet.cell.x, sheet.cell.y)
+	var tr := TextureRect.new()
+	tr.texture = at
+	tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tr.position = rect.position
+	tr.size = rect.size
+	tr.modulate = tint
+	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_add(tr)
+	return tr
+
+
+func _text(rect: Rect2, s: String, color: Color, px := 16, fit := false) -> D2Field:
+	var f := D2Field.new(rect, px, color, HORIZONTAL_ALIGNMENT_CENTER, fit)
+	_add(f)
+	f.set_value(s)
+	return f
+
+
+func _button(rect: Rect2) -> Button:
+	var b := Button.new()
+	b.flat = true
+	b.position = rect.position
+	b.size = rect.size
+	b.focus_mode = Control.FOCUS_NONE
+	_add(b)
+	return b
+
+
+func _add(n: Control) -> void:
+	panel.content.add_child(n)
+	_nodes.append(n)
+
+
 func _rebuild() -> void:
 	if not open:
 		return
-	for c in root.get_children():
-		c.queue_free()
-	var vp := get_viewport().get_visible_rect().size
-	var psize := PAGE * SCALE
-	root.position = Vector2(vp.x - psize.x - 20, (vp.y - psize.y) * 0.5)
-	root.size = psize
+	for n in _nodes:
+		n.queue_free()
+	_nodes.clear()
+	panel.page.texture = _lattice_tex(tab)
 
-	# lattice background for this tab, then the chrome overlay page
-	var lattice := _tex_load("ui/skltree_%d.png" % (tab + 1))
-	var chrome := _tex_load("ui/skltree_0.png")
-	for t in [lattice, chrome]:
-		if t == null:
-			continue
-		var tr := TextureRect.new()
-		tr.texture = t
-		tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		tr.size = psize
-		tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		root.add_child(tr)
+	# unspent points in the chrome's top box
+	_text(POINTS_BOX, str(gs.skill_points), GOLD if gs.skill_points > 0 else DIM)
 
-	# tab plates in the chrome column (border-measured: 87x99 at x 228,
-	# y 111/219/327): signature skill icon + short name, active tab lit
-	var icon_sheet_tabs = db.load_sheet("ui/amskillicon")
-	var tab_short := ["Bow", "Passive", "Javelin"]
+	# tab plates: signature skill icon + short name, the active tab lit
+	var icon_sheet = db.load_sheet("ui/amskillicon")
 	for i in range(3):
-		var plate := Vector2(228.0, 111.0 + i * 108.0) * SCALE
-		var psize2 := Vector2(87.0, 99.0) * SCALE
+		var plate := Rect2(Vector2(TAB_X, TAB_Y0 + i * TAB_PITCH), TAB_SIZE)
 		var active := i == tab
 		var sig := _amazon_skills_on_page(i + 1)
 		sig.sort_custom(func(a, b): return a.row * 10 + a.col < b.row * 10 + b.col)
-		if icon_sheet_tabs != null and not sig.is_empty():
-			var at0 := AtlasTexture.new()
-			at0.atlas = icon_sheet_tabs.texture
-			at0.region = Rect2(int(sig[0].icon) * icon_sheet_tabs.cell.x, 0,
-					icon_sheet_tabs.cell.x, icon_sheet_tabs.cell.y)
-			var ti := TextureRect.new()
-			ti.texture = at0
-			ti.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			ti.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-			ti.size = Vector2(48, 48) * SCALE
-			ti.position = plate + Vector2((psize2.x - ti.size.x) * 0.5, 8 * SCALE)
-			ti.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			ti.modulate = Color(1, 1, 1) if active else Color(0.45, 0.45, 0.5)
-			root.add_child(ti)
-		var tl := Label.new()
-		tl.text = tab_short[i]
-		get_node("/root/D2Font").style(tl, 16)
-		tl.add_theme_color_override("font_color",
-				Color(1.0, 0.9, 0.5) if active else Color(0.55, 0.55, 0.55))
-		tl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		tl.position = plate + Vector2(0, 62 * SCALE)
-		tl.size = Vector2(psize2.x, 20 * SCALE)
-		tl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		root.add_child(tl)
-		var tb := Button.new()
-		tb.flat = true
-		tb.position = plate
-		tb.size = psize2
-		tb.pressed.connect(func():
+		if icon_sheet != null and not sig.is_empty():
+			_icon(icon_sheet, int(sig[0].icon),
+					Rect2(plate.position + Vector2((TAB_SIZE.x - SOCKET) * 0.5, 8), Vector2(SOCKET, SOCKET)),
+					Color(1, 1, 1) if active else Color(0.45, 0.45, 0.5))
+		_text(Rect2(plate.position + Vector2(0, 62), Vector2(TAB_SIZE.x, 20)),
+				TAB_SHORT[i], GOLD if active else DIM)
+		_button(plate).pressed.connect(func():
 			tab = i
 			_rebuild())
-		root.add_child(tb)
 
-	var title := Label.new()
-	title.text = TAB_NAMES[tab] + "   (points: %d)" % gs.skill_points
-	title.add_theme_font_size_override("font_size", 16)
-	title.add_theme_color_override("font_color", Color(0.9, 0.82, 0.6))
-	title.add_theme_color_override("font_outline_color", Color(0, 0, 0))
-	title.add_theme_constant_override("outline_size", 4)
-	title.position = Vector2(14, -26)
-	root.add_child(title)
-
-	# Normal Attack in the spare socket (page bottom-right): bind it back to
-	# either hand or a hotkey, same gestures as any learned skill
+	# Normal Attack in the spare socket: bind it back to either hand or a
+	# hotkey, same gestures as any learned skill
 	var atk_sheet = db.load_sheet("ui/skilliconpanel")
 	if atk_sheet != null:
-		var apos := Vector2(175.0, 386.0) * SCALE
-		var at_a := AtlasTexture.new()
-		at_a.atlas = atk_sheet.texture
-		at_a.region = Rect2(2 * atk_sheet.cell.x, 0,
-				atk_sheet.cell.x, atk_sheet.cell.y)
-		var ai := TextureRect.new()
-		ai.texture = at_a
-		ai.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		ai.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		ai.position = apos
-		ai.size = Vector2(30, 30) * SCALE
-		ai.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		root.add_child(ai)
-		for hk in gs.hotkeys:
-			if str(gs.hotkeys[hk]) == "Attack":
-				var ahl := Label.new()
-				ahl.text = str(hk)
-				ahl.add_theme_font_size_override("font_size", 13)
-				ahl.add_theme_color_override("font_color", Color(0.5, 1.0, 0.5))
-				ahl.add_theme_color_override("font_outline_color", Color(0, 0, 0))
-				ahl.add_theme_constant_override("outline_size", 4)
-				ahl.position = apos + Vector2(2, -2)
-				root.add_child(ahl)
-		var ab := Button.new()
-		ab.flat = true
-		ab.position = apos
-		ab.size = Vector2(30, 30) * SCALE
+		_icon(atk_sheet, 2, ATTACK_RECT)
+		_hotkey_badge("Attack", ATTACK_RECT)
+		var ab := _button(ATTACK_RECT)
 		ab.mouse_entered.connect(func():
 			_hover_skill = "Attack"
-			tooltip.text = "Normal Attack\nctrl+click: LMB   right-click: RMB\nF1-F5: bind hotkey"
-			tooltip.visible = true
-			tooltip.position = root.position + ab.position + Vector2(-160, 0))
-		ab.mouse_exited.connect(func():
-			tooltip.visible = false
-			_hover_skill = "")
+			_show_tip("Normal Attack\nctrl+click: LMB   right-click: RMB\nF1-F5: bind hotkey",
+					ATTACK_RECT))
+		ab.mouse_exited.connect(_hide_tip)
 		ab.gui_input.connect(func(ev):
 			if not (ev is InputEventMouseButton and ev.pressed):
 				return
@@ -197,60 +196,47 @@ func _rebuild() -> void:
 				p.action_skill[0] = "Attack"
 			elif ev.button_index == MOUSE_BUTTON_RIGHT:
 				p.action_skill[1] = "Attack")
-		root.add_child(ab)
 
-	var icon_sheet = db.load_sheet("ui/amskillicon")
 	for s in _amazon_skills_on_page(tab + 1):
-		var pos: Vector2 = (GRID_ORIGIN + Vector2(s.col - 1, s.row - 1) * GRID_STEP) * SCALE
+		var rect := _socket(s.col, s.row)
 		var lvl: int = gs.skill_level(s.name)
-		var btn := Button.new()
-		btn.flat = true
-		btn.position = pos
-		btn.size = Vector2(48, 48) * SCALE
-		btn.mouse_entered.connect(_on_hover.bind(s, btn))
-		btn.mouse_exited.connect(func():
-			tooltip.visible = false
-			_hover_skill = "")
-		btn.gui_input.connect(_on_icon_input.bind(s))
-		root.add_child(btn)
 		if icon_sheet != null:
-			var at := AtlasTexture.new()
-			at.atlas = icon_sheet.texture
-			at.region = Rect2(s.icon * icon_sheet.cell.x, 0,
-					icon_sheet.cell.x, icon_sheet.cell.y)
-			var tr2 := TextureRect.new()
-			tr2.texture = at
-			tr2.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			tr2.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-			tr2.position = pos
-			tr2.size = Vector2(48, 48) * SCALE
-			tr2.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			var tint := Color(1, 1, 1)
 			if lvl <= 0:
-				tr2.modulate = Color(0.35, 0.35, 0.4) if not gs.can_allocate(s.name) \
-						else Color(0.7, 0.7, 0.75)
-			root.add_child(tr2)
+				tint = Color(0.7, 0.7, 0.75) if gs.can_allocate(s.name) else Color(0.35, 0.35, 0.4)
+			_icon(icon_sheet, int(s.icon), rect, tint)
 		if lvl > 0:
-			var ll := Label.new()
-			ll.text = str(lvl)
-			ll.add_theme_font_size_override("font_size", 15)
-			ll.add_theme_color_override("font_color", Color(1, 1, 0.6))
-			ll.add_theme_color_override("font_outline_color", Color(0, 0, 0))
-			ll.add_theme_constant_override("outline_size", 4)
-			ll.position = pos + Vector2(48, 48) * SCALE - Vector2(16, 22)
-			root.add_child(ll)
-		for hk in gs.hotkeys:
-			if str(gs.hotkeys[hk]) == str(s.name):
-				var hl := Label.new()
-				hl.text = str(hk)
-				hl.add_theme_font_size_override("font_size", 13)
-				hl.add_theme_color_override("font_color", Color(0.5, 1.0, 0.5))
-				hl.add_theme_color_override("font_outline_color", Color(0, 0, 0))
-				hl.add_theme_constant_override("outline_size", 4)
-				hl.position = pos + Vector2(2, -2)
-				root.add_child(hl)
+			# D2 prints the level in the small notch the lattice frame leaves
+			# at the socket's bottom-right corner, half outside the icon
+			_text(Rect2(rect.position + Vector2(44, 46), Vector2(14, 14)), str(lvl),
+					Color(1, 1, 0.6), 11)
+		_hotkey_badge(str(s.name), rect)
+		var btn := _button(rect)
+		btn.mouse_entered.connect(_on_hover.bind(s, rect))
+		btn.mouse_exited.connect(_hide_tip)
+		btn.gui_input.connect(_on_icon_input.bind(s))
 
 
-func _on_hover(s: Dictionary, btn: Button) -> void:
+func _hotkey_badge(skill: String, rect: Rect2) -> void:
+	for hk in gs.hotkeys:
+		if str(gs.hotkeys[hk]) == skill:
+			_text(Rect2(rect.position + Vector2(1, 1), Vector2(20, 15)), str(hk),
+					Color(0.5, 1.0, 0.5), 11)
+
+
+func _show_tip(s: String, rect: Rect2) -> void:
+	tooltip.text = s
+	tooltip.visible = true
+	# to the left of the page, level with the socket
+	tooltip.position = panel.to_screen(rect.position) - Vector2(tooltip.size.x + 12, 0)
+
+
+func _hide_tip() -> void:
+	tooltip.visible = false
+	_hover_skill = ""
+
+
+func _on_hover(s: Dictionary, rect: Rect2) -> void:
 	_hover_skill = str(s.name)
 	var r: Dictionary = s.def
 	var lines := [s.name,
@@ -263,9 +249,7 @@ func _on_hover(s: Dictionary, btn: Button) -> void:
 			lines.append("Requires: " + req)
 	lines.append("click: +1   ctrl+click: LMB   right-click: RMB")
 	lines.append("F1-F5: bind hotkey")
-	tooltip.text = "\n".join(lines)
-	tooltip.visible = true
-	tooltip.position = root.position + btn.position + Vector2(-160, 0)
+	_show_tip("\n".join(lines), rect)
 
 
 func _on_icon_input(e: InputEvent, s: Dictionary) -> void:

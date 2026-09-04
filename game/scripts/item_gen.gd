@@ -1,17 +1,33 @@
 extends Node
-## Autoloaded as ItemGen: rolls unique / set / rare item instances.
-## An instance: {code, quality, name, base_name, props: Array, color: Color}
+## Autoloaded as ItemGen: turns a dropped base item into an instance the way
+## Diablo II does — quality by the ItemRatio formula, uniques and sets picked
+## from the base's own candidates by rarity, affixes by level, type, group
+## and frequency, every property rolled inside its table range.
+##
+## An instance: {code, quality, name, base_name, props, color, ilvl, reqlvl}
+##
+## The one deliberate departure from D2 is RARITY_BOOST: the chance values
+## for unique, set and rare are divided by it, so those qualities come up
+## more often than in D2 while item stats stay exactly D2's.
 
 var ASSETS: String = Paths.root()
-# Drops are gated by REQUIRED level vs the player's CURRENT level: nothing
-# rolls that the amazon cannot wear right now. The pool widens as she levels.
+
+const RARITY_BOOST := 3.0
+# magic find diminishes for the better qualities (D2's 250/500/600 rule)
+const MF_DIMINISH := {"unique": 250.0, "set": 500.0, "rare": 600.0}
+const QUALITY_RANK := {"": 0, "normal": 0, "magic": 1, "rare": 2, "set": 3, "unique": 4}
+# item types D2 treats as class-specific for the ItemRatio row choice
+const CLASS_TYPES := ["abow", "aspe", "ajav", "orb", "head", "phlm", "pelt",
+		"ashd", "h2h", "h2h2"]
 
 var uniques: Array = []
 var setitems: Array = []
 var affixes := {}
 var rarenames := {}
 var itemtypes := {}
+var itemratio: Array = []
 var _loaded := false
+var _equip_pool: Array = []
 
 @onready var db := get_node("/root/ItemDB")
 
@@ -19,63 +35,6 @@ const COLOR_UNIQUE := Color(0.78, 0.62, 0.29)
 const COLOR_SET := Color(0.10, 0.85, 0.10)
 const COLOR_RARE := Color(1.0, 1.0, 0.45)
 const COLOR_MAGIC := Color(0.41, 0.41, 1.0)
-
-
-## 45% chance to upgrade an equippable treasure-class drop to magic (blue).
-func maybe_magic(code: String, mlvl: int) -> Dictionary:
-	_ensure_loaded()
-	var it: Dictionary = db.item(code)
-	var chain := type_chain(str(it.get("type", "")))
-	if not (chain.has("weap") or chain.has("armo") or chain.has("ring")
-			or chain.has("amul")):
-		return {}
-	if randf() > 0.45:
-		return {}
-	var pre := {}
-	var suf := {}
-	if randf() < 0.6:
-		pre = _pick_one_affix(affixes.get("prefixes", []), chain, _plvl())
-	if pre.is_empty() or randf() < 0.6:
-		suf = _pick_one_affix(affixes.get("suffixes", []), chain, _plvl())
-	if pre.is_empty() and suf.is_empty():
-		return {}
-	var base_name := str(it.get("name", code))
-	var name := base_name
-	var props := []
-	var maxlvl := 1
-	if not pre.is_empty():
-		name = "%s %s" % [pre.get("name", ""), name]
-		props.append({"affix": pre.get("name", ""), "props": pre.get("props", []),
-				"lvl": int(str(pre.get("lvl", "1")).to_int())})
-		maxlvl = maxi(maxlvl, int(str(pre.get("lvl", "1")).to_int()))
-	if not suf.is_empty():
-		name = "%s %s" % [name, suf.get("name", "")]
-		props.append({"affix": suf.get("name", ""), "props": suf.get("props", []),
-				"lvl": int(str(suf.get("lvl", "1")).to_int())})
-		maxlvl = maxi(maxlvl, int(str(suf.get("lvl", "1")).to_int()))
-	return _finish({"code": code, "quality": "magic", "name": name,
-			"base_name": base_name, "props": _roll_vals(props),
-			"color": COLOR_MAGIC.to_html()}, maxlvl)
-
-
-func _pick_one_affix(pool: Array, chain: Dictionary, max_lvl := 99) -> Dictionary:
-	var eligible := pool.filter(func(a):
-		if int(str(a.get("lvl", "1")).to_int()) > max_lvl:
-			return false
-		var ity: Array = a.get("itypes", [])
-		var ety: Array = a.get("etypes", [])
-		for e in ety:
-			if chain.has(str(e)):
-				return false
-		if ity.is_empty():
-			return true
-		for i in ity:
-			if chain.has(str(i)):
-				return true
-		return false)
-	if eligible.is_empty():
-		return {}
-	return eligible[randi() % eligible.size()]
 
 
 func _load_json(rel: String, fallback):
@@ -97,13 +56,15 @@ func _ensure_loaded() -> void:
 	affixes = _load_json("items/affixes.json", {})
 	rarenames = _load_json("items/rarenames.json", {})
 	itemtypes = _load_json("items/itemtypes.json", {})
+	itemratio = _load_json("items/itemratio.json", [])
 	# keep only uniques/sets whose base item exists
 	uniques = uniques.filter(func(u): return u.get("enabled", true) \
 			and db.items.has(str(u.get("code", ""))))
 	setitems = setitems.filter(func(s): return db.items.has(str(s.get("code", ""))))
-	print("ItemGen: %d uniques, %d set items, %d/%d affixes" % [
+	print("ItemGen: %d uniques, %d set items, %d/%d affixes, %d ratio rows" % [
 		uniques.size(), setitems.size(),
-		affixes.get("prefixes", []).size(), affixes.get("suffixes", []).size()])
+		affixes.get("prefixes", []).size(), affixes.get("suffixes", []).size(),
+		itemratio.size()])
 
 
 func type_chain(code: String) -> Dictionary:
@@ -125,160 +86,305 @@ func type_chain(code: String) -> Dictionary:
 	return out
 
 
-func roll_drop(mlvl: int) -> Dictionary:
-	## Quality skewed generous: every roll is rare-or-better, with a heavy
-	## unique/set share. Item data itself stays true to the D2 tables.
+func _equippable(chain: Dictionary) -> bool:
+	return chain.has("weap") or chain.has("armo") or chain.has("ring") \
+			or chain.has("amul")
+
+
+# ---------------------------------------------------------------------------
+# Entry points
+# ---------------------------------------------------------------------------
+func roll_item(code: String, ilvl: int, bonus := {}, min_quality := "") -> Dictionary:
+	## A dropped base -> instance, or {} when it stays a plain (normal) item.
+	## ilvl: the monster level (D2's item level for drops). bonus: the
+	## treasure class's per-quality magic-find bonus. min_quality: the floor
+	## D2 gives champion and unique monsters' drops.
 	_ensure_loaded()
-	var r := randf()
-	if r < 0.25 and not uniques.is_empty():
-		return _roll_unique(mlvl)
-	elif r < 0.45 and not setitems.is_empty():
-		return _roll_set(mlvl)
-	return _roll_rare(mlvl)
+	var it: Dictionary = db.item(code)
+	if it.is_empty():
+		return {}
+	var chain := type_chain(str(it.get("type", "")))
+	if not _equippable(chain):
+		return {}
+	var qlvl := str(it.get("level", "1")).to_int()
+	var quality := _roll_quality(qlvl, ilvl, chain, bonus)
+	if int(QUALITY_RANK.get(min_quality, 0)) > int(QUALITY_RANK.get(quality, 0)):
+		quality = min_quality
+	match quality:
+		"unique":
+			var u := _make_unique(code, ilvl)
+			return u if not u.is_empty() else _make_rare(code, ilvl, chain)
+		"set":
+			var s := _make_set(code, ilvl)
+			return s if not s.is_empty() else _make_magic(code, ilvl, chain)
+		"rare":
+			return _make_rare(code, ilvl, chain)
+		"magic":
+			return _make_magic(code, ilvl, chain)
+	return {}
 
 
+func maybe_magic(code: String, ilvl: int) -> Dictionary:
+	## Starter kit and plain treasure-class bases: the same roll, no floor.
+	return roll_item(code, ilvl)
+
+
+func roll_drop(ilvl: int) -> Dictionary:
+	## A guaranteed magic-or-better piece of gear the level allows (test
+	## fixtures and the odd scripted reward).
+	_ensure_loaded()
+	if _equip_pool.is_empty():
+		for c in db.items:
+			var it: Dictionary = db.items[c]
+			if str(it.get("invfile", "")) == "" and str(it.get("flippyfile", "")) == "":
+				continue
+			if _equippable(type_chain(str(it.get("type", "")))):
+				_equip_pool.append(c)
+	var pool := _equip_pool.filter(func(c):
+		return str(db.item(str(c)).get("level", "1")).to_int() <= ilvl)
+	if pool.is_empty():
+		pool = _equip_pool
+	if pool.is_empty():
+		return {}
+	return roll_item(str(pool[randi() % pool.size()]), ilvl, {}, "magic")
+
+
+# ---------------------------------------------------------------------------
+# Quality: D2's ItemRatio.txt formula
+#   chance = (Ratio - (ilvl - qlvl) / Divisor) * 128, floored at Min,
+#   then * 100 / (100 + MF) with MF diminished per quality, floored again;
+#   the quality is rolled when rnd(chance) < 128.
+# ---------------------------------------------------------------------------
+func _ratio_row(chain: Dictionary) -> Dictionary:
+	var cls := false
+	for t in CLASS_TYPES:
+		if chain.has(t):
+			cls = true
+			break
+	var best := {}
+	for r in itemratio:
+		if str(r.get("Uber", "0")) != "0":
+			continue
+		if (str(r.get("Class Specific", "0")) == "1") != cls:
+			continue
+		# expansion rows (Version 1) over classic ones
+		if best.is_empty() or str(r.get("Version", "0")) == "1":
+			best = r
+	return best
+
+
+func _roll_quality(qlvl: int, ilvl: int, chain: Dictionary, bonus: Dictionary) -> String:
+	var row := _ratio_row(chain)
+	if row.is_empty():
+		return "normal"
+	var gs := get_node("/root/GameState")
+	var player_mf := float(gs.mods.get("mag%", 0))
+	for q in [["unique", "Unique"], ["set", "Set"], ["rare", "Rare"], ["magic", "Magic"]]:
+		var key: String = q[1]
+		var ratio := str(row.get(key, "0")).to_int()
+		var divisor := maxi(1, str(row.get(key + "Divisor", "1")).to_int())
+		var floor_v := str(row.get(key + "Min", "0")).to_int()
+		var chance := (ratio - (ilvl - qlvl) / divisor) * 128
+		chance = maxi(chance, floor_v)
+		var mf := player_mf + float(bonus.get(q[0], 0))
+		if mf > 0.0 and MF_DIMINISH.has(q[0]):
+			var d: float = MF_DIMINISH[q[0]]
+			mf = mf * d / (mf + d)
+		chance = int(chance * 100.0 / (100.0 + mf))
+		chance = maxi(chance, floor_v)
+		if q[0] != "magic":
+			chance = int(chance / RARITY_BOOST)
+		if randi() % maxi(1, chance) < 128:
+			return q[0]
+	return "normal"
+
+
+# ---------------------------------------------------------------------------
+# Uniques and sets: the base's own candidates, rarity-weighted, qlvl <= ilvl
+# ---------------------------------------------------------------------------
+func _weighted(pool: Array) -> Dictionary:
+	var total := 0
+	for e in pool:
+		total += maxi(1, str(e.get("rarity", "1")).to_int())
+	var pick := randi() % maxi(1, total)
+	for e in pool:
+		pick -= maxi(1, str(e.get("rarity", "1")).to_int())
+		if pick < 0:
+			return e
+	return pool[0] if not pool.is_empty() else {}
+
+
+func _make_unique(code: String, ilvl: int) -> Dictionary:
+	var pool := uniques.filter(func(u):
+		return str(u.get("code", "")) == code and str(u.get("lvl", "1")).to_int() <= ilvl)
+	if pool.is_empty():
+		return {}
+	var u := _weighted(pool)
+	return _finish({"code": code, "quality": "unique",
+			"name": str(u.get("name", code)),
+			"base_name": str(db.item(code).get("name", code)),
+			"props": _roll_vals(u.get("props", [])),
+			"color": COLOR_UNIQUE.to_html(), "ilvl": ilvl},
+			str(u.get("lvlreq", "1")).to_int())
+
+
+func _make_set(code: String, ilvl: int) -> Dictionary:
+	var pool := setitems.filter(func(s):
+		return str(s.get("code", "")) == code and str(s.get("lvl", "1")).to_int() <= ilvl)
+	if pool.is_empty():
+		return {}
+	var s := _weighted(pool)
+	return _finish({"code": code, "quality": "set",
+			"name": str(s.get("name", code)),
+			"base_name": str(db.item(code).get("name", code)),
+			"props": _roll_vals(s.get("props", [])),
+			"color": COLOR_SET.to_html(), "ilvl": ilvl},
+			str(s.get("lvlreq", "1")).to_int())
+
+
+# ---------------------------------------------------------------------------
+# Affixes: spawnable, level <= ilvl <= maxlevel, type allowed, not excluded,
+# class-specific only for the Amazon, one per group, frequency-weighted
+# ---------------------------------------------------------------------------
+func _affix_ok(a: Dictionary, chain: Dictionary, ilvl: int, rare: bool,
+		used_groups: Dictionary) -> bool:
+	if rare and not a.get("rare", false):
+		return false
+	if str(a.get("frequency", "0")).to_int() <= 0:
+		return false
+	if str(a.get("lvl", "1")).to_int() > ilvl:
+		return false
+	var mx := str(a.get("maxlevel", ""))
+	if mx != "" and mx.to_int() < ilvl:
+		return false
+	if str(a.get("classspecific", "")) == "1" and str(a.get("class", "")) != "ama":
+		return false
+	var grp := str(a.get("group", ""))
+	if grp != "" and used_groups.has(grp):
+		return false
+	for e in a.get("etypes", []):
+		if chain.has(str(e)):
+			return false
+	var ity: Array = a.get("itypes", [])
+	if ity.is_empty():
+		return true
+	for i in ity:
+		if chain.has(str(i)):
+			return true
+	return false
+
+
+func _pick_affix(pool: Array, chain: Dictionary, ilvl: int, rare: bool,
+		used_groups: Dictionary) -> Dictionary:
+	var eligible := pool.filter(func(a): return _affix_ok(a, chain, ilvl, rare, used_groups))
+	if eligible.is_empty():
+		return {}
+	var total := 0
+	for a in eligible:
+		total += str(a.get("frequency", "1")).to_int()
+	var pick := randi() % maxi(1, total)
+	for a in eligible:
+		pick -= str(a.get("frequency", "1")).to_int()
+		if pick < 0:
+			var grp := str(a.get("group", ""))
+			if grp != "":
+				used_groups[grp] = true
+			return a
+	return eligible[0]
+
+
+func _affix_entry(a: Dictionary) -> Dictionary:
+	return {"affix": str(a.get("name", "")), "props": a.get("props", []),
+			"lvl": str(a.get("lvl", "1")).to_int(),
+			"levelreq": str(a.get("levelreq", "0")).to_int()}
+
+
+func _make_magic(code: String, ilvl: int, chain: Dictionary) -> Dictionary:
+	var groups := {}
+	var pre := {}
+	var suf := {}
+	if randf() < 0.5:
+		pre = _pick_affix(affixes.get("prefixes", []), chain, ilvl, false, groups)
+	if pre.is_empty() or randf() < 0.5:
+		suf = _pick_affix(affixes.get("suffixes", []), chain, ilvl, false, groups)
+	if pre.is_empty() and suf.is_empty():
+		return {}
+	var base_name := str(db.item(code).get("name", code))
+	var name := base_name
+	var props := []
+	var req := 0
+	if not pre.is_empty():
+		name = "%s %s" % [pre.get("name", ""), name]
+		props.append(_affix_entry(pre))
+		req = maxi(req, str(pre.get("levelreq", "0")).to_int())
+	if not suf.is_empty():
+		name = "%s %s" % [name, suf.get("name", "")]
+		props.append(_affix_entry(suf))
+		req = maxi(req, str(suf.get("levelreq", "0")).to_int())
+	return _finish({"code": code, "quality": "magic", "name": name,
+			"base_name": base_name, "props": _roll_vals(props),
+			"color": COLOR_MAGIC.to_html(), "ilvl": ilvl}, req)
+
+
+func _make_rare(code: String, ilvl: int, chain: Dictionary) -> Dictionary:
+	# D2 rares: one to three prefixes and one to three suffixes, three at least
+	var np := 1 + randi() % 3
+	var ns := 1 + randi() % 3
+	while np + ns < 3:
+		if randf() < 0.5:
+			np += 1
+		else:
+			ns += 1
+	var groups := {}
+	var props := []
+	var req := 0
+	for k in range(np):
+		var a := _pick_affix(affixes.get("prefixes", []), chain, ilvl, true, groups)
+		if a.is_empty():
+			break
+		props.append(_affix_entry(a))
+		req = maxi(req, str(a.get("levelreq", "0")).to_int())
+	for k in range(ns):
+		var a := _pick_affix(affixes.get("suffixes", []), chain, ilvl, true, groups)
+		if a.is_empty():
+			break
+		props.append(_affix_entry(a))
+		req = maxi(req, str(a.get("levelreq", "0")).to_int())
+	if props.is_empty():
+		return _make_magic(code, ilvl, chain)
+	var pn: Array = rarenames.get("prefixes", ["Storm"])
+	var sn: Array = rarenames.get("suffixes", ["Brand"])
+	var name := "%s %s" % [pn[randi() % pn.size()], sn[randi() % sn.size()]]
+	return _finish({"code": code, "quality": "rare", "name": name,
+			"base_name": str(db.item(code).get("name", code)),
+			"props": _roll_vals(props), "color": COLOR_RARE.to_html(), "ilvl": ilvl},
+			req)
+
+
+# ---------------------------------------------------------------------------
+# Shared
+# ---------------------------------------------------------------------------
 func _roll_vals(plist: Array) -> Array:
 	## Roll concrete values from each prop's min-max range (D2 rolls at drop).
 	var out := []
 	for p in plist:
 		if p.has("affix"):
-			out.append({"affix": p["affix"], "props": _roll_vals(p.get("props", []))})
+			var e: Dictionary = p.duplicate()
+			e["props"] = _roll_vals(p.get("props", []))
+			out.append(e)
 			continue
 		var q: Dictionary = p.duplicate()
 		var mn := int(str(q.get("min", "0")).to_int())
 		var mx := int(str(q.get("max", "0")).to_int())
 		if mx < mn:
 			mx = mn
-		q["val"] = randi_range(mn, mx) if mx > mn else mn
+		if GameState.RANGE_PROPS.has(str(q.get("code", ""))):
+			# "Adds X-Y damage": min and max are the two ends, both kept
+			q["val"] = mn
+			q["val_max"] = mx
+		else:
+			q["val"] = randi_range(mn, mx) if mx > mn else mn
 		out.append(q)
-	return out
-
-
-func _plvl() -> int:
-	return int(get_node("/root/GameState").level)
-
-
-func _req_of(entry: Dictionary) -> int:
-	## Effective required level of a unique/set row: its own lvlreq or its
-	## base item's, whichever is higher (mirrors _finish()).
-	var base_req := str(db.item(str(entry.get("code", ""))) \
-			.get("levelreq", "")).to_int()
-	return maxi(str(entry.get("lvlreq", "1")).to_int(), base_req)
-
-
-func _roll_unique(_mlvl: int) -> Dictionary:
-	var plvl := _plvl()
-	var pool := uniques.filter(func(u): return _req_of(u) <= plvl)
-	if pool.is_empty():
-		pool = uniques
-	var u: Dictionary = pool[randi() % pool.size()]
-	var code := str(u.get("code", ""))
-	return _finish({"code": code, "quality": "unique",
-			"name": str(u.get("name", code)),
-			"base_name": str(db.item(code).get("name", code)),
-			"props": _roll_vals(u.get("props", [])),
-			"color": COLOR_UNIQUE.to_html()},
-			str(u.get("lvlreq", "1")).to_int())
-
-
-func _roll_set(_mlvl: int) -> Dictionary:
-	var plvl := _plvl()
-	var pool := setitems.filter(func(s): return _req_of(s) <= plvl)
-	if pool.is_empty():
-		pool = setitems
-	var s: Dictionary = pool[randi() % pool.size()]
-	var code := str(s.get("code", ""))
-	return _finish({"code": code, "quality": "set",
-			"name": str(s.get("name", code)),
-			"base_name": str(db.item(code).get("name", code)),
-			"props": _roll_vals(s.get("props", [])),
-			"color": COLOR_SET.to_html()},
-			str(s.get("lvlreq", "1")).to_int())
-
-
-func _rare_base_pool() -> Array:
-	var out := []
-	for code in db.items:
-		var it: Dictionary = db.items[code]
-		var t := str(it.get("type", ""))
-		if t == "" or str(it.get("invfile", "")) == "" and str(it.get("flippyfile", "")) == "":
-			continue
-		# equippable-ish: weapons, armor, rings/amulets
-		var chain := type_chain(t)
-		if chain.has("weap") or chain.has("armo") or chain.has("ring") \
-				or chain.has("amul"):
-			out.append(code)
-	return out
-
-
-var _rare_pool_cache: Array = []
-
-
-func _roll_rare(mlvl: int) -> Dictionary:
-	if _rare_pool_cache.is_empty():
-		_rare_pool_cache = _rare_base_pool()
-	if _rare_pool_cache.is_empty():
-		# data missing: at least return a plain base item
-		return {"code": "hax", "quality": "rare", "name": "Broken Axe",
-				"base_name": "Hand Axe", "props": [], "color": COLOR_RARE.to_html()}
-	var plvl := _plvl()
-	var pool := _rare_pool_cache.filter(func(c):
-		return str(db.item(str(c)).get("levelreq", "")).to_int() <= plvl)
-	if pool.is_empty():
-		pool = _rare_pool_cache
-	var code: String = pool[randi() % pool.size()]
-	var chain := type_chain(str(db.item(code).get("type", "")))
-	var props := []
-	var np := 1 + randi() % 3
-	var ns := 1 + randi() % 3
-	props.append_array(_pick_affixes(affixes.get("prefixes", []), chain, np, mlvl))
-	props.append_array(_pick_affixes(affixes.get("suffixes", []), chain, ns, mlvl))
-	var pn: Array = rarenames.get("prefixes", ["Storm"])
-	var sn: Array = rarenames.get("suffixes", ["Brand"])
-	var name := "%s %s" % [pn[randi() % pn.size()], sn[randi() % sn.size()]]
-	# D2 rule: rare required level = 3/4 of the highest affix level
-	var maxlvl := 0
-	for a in props:
-		maxlvl = maxi(maxlvl, int(a.get("lvl", 1)))
-	return _finish({"code": code, "quality": "rare", "name": name,
-			"base_name": str(db.item(code).get("name", code)),
-			"props": _roll_vals(props), "color": COLOR_RARE.to_html()},
-			maxlvl * 3 / 4)
-
-
-func _pick_affixes(pool: Array, chain: Dictionary, count: int, _mlvl: int) -> Array:
-	# rare required level is 3/4 of the highest affix level (see _roll_rare's
-	# _finish call), so affixes up to plvl * 4/3 keep the item wearable now
-	var max_affix: int = _plvl() * 4 / 3
-	var eligible := pool.filter(func(a):
-		if not a.get("rare", false):
-			return false
-		if int(str(a.get("lvl", "1")).to_int()) > max_affix:
-			return false
-		var ity: Array = a.get("itypes", [])
-		var ety: Array = a.get("etypes", [])
-		for e in ety:
-			if chain.has(str(e)):
-				return false
-		if ity.is_empty():
-			return true
-		for i in ity:
-			if chain.has(str(i)):
-				return true
-		return false)
-	var out := []
-	var used := {}
-	for k in range(count):
-		if eligible.is_empty():
-			break
-		for attempt in range(6):
-			var a: Dictionary = eligible[randi() % eligible.size()]
-			var nm := str(a.get("name", ""))
-			if not used.has(nm):
-				used[nm] = true
-				out.append({"affix": nm, "props": a.get("props", []),
-						"lvl": int(str(a.get("lvl", "1")).to_int())})
-				break
 	return out
 
 

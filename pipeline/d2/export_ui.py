@@ -57,18 +57,31 @@ def composite_pages(name, out_base):
     print('%s: %d pages' % (out_base, len(pages)))
 
 
-def composite_strip(name, out_base, limit=None):
-    """Left-to-right bottom-aligned strip (the control panel)."""
+def composite_strip(name, out_base, limit=None, order=None, offsets=None):
+    """Bottom-aligned strip (the control panel).
+
+    order: frame indices in draw order. offsets: the x at which each frame
+    is pasted; without it the frames run contiguously. The 800-wide panel's
+    six pieces are not contiguous in D2: the game leaves a 48 px gap after
+    the left orb piece and before the right one, where the assigned-skill
+    icons are drawn, so the DC6 alone cannot reproduce the layout.
+    """
     frames = _dc6_frames(name)
-    if limit:
+    if order:
+        frames = [frames[i] for i in order]
+    elif limit:
         frames = frames[:limit]
-    w = sum(f.width for f in frames)
+    if offsets is None:
+        offsets = []
+        x = 0
+        for f in frames:
+            offsets.append(x)
+            x += f.width
+    w = max(x + f.width for x, f in zip(offsets, frames))
     h = max(f.height for f in frames)
     strip = Image.new('RGBA', (w, h), (0, 0, 0, 0))
-    x = 0
-    for f in frames:
+    for x, f in zip(offsets, frames):
         strip.paste(f, (x, h - f.height))
-        x += f.width
     outdir = os.path.join(config.ASSETS, 'ui')
     os.makedirs(outdir, exist_ok=True)
     strip.save(os.path.join(outdir, out_base + '.png'))
@@ -95,6 +108,9 @@ def build():
         ('charbox', 'data\\global\\ui\\CharSelect\\charselectbox.DC6'),
         ('charbox_off', 'data\\global\\ui\\CharSelect\\charselectboxgrey.dc6'),
         ('menubutton', 'data\\global\\ui\\FrontEnd\\WideButtonBlank.dc6'),
+        # the red '+' that lights the character / skills panel buttons while
+        # points are unspent (frames: lit, pressed, dim)
+        ('levelplus', 'data\\global\\ui\\PANEL\\level.dc6'),
     ]:
         try:
             sheet, meta = simple_sheet(path)
@@ -102,7 +118,13 @@ def build():
             print('%s: %s frames cell %s' % (name, meta['frames'], meta['cell']))
         except FileNotFoundError:
             print('missing', path)
-    composite_strip('data\\global\\ui\\PANEL\\800ctrlpnl7.dc6', 'ctrlpanel', limit=6)
+    # The first six segments in stored order give the complete 704 px strip
+    # the HUD is measured against. The first six frames at the x offsets D2
+    # itself draws them at (found by matching each frame against an 800x600
+    # screenshot): 48 px gaps after frame 0 and before frame 5 hold the
+    # assigned-skill icons; the "+" buttons come from level.dc6.
+    composite_strip('data\\global\\ui\\PANEL\\800ctrlpnl7.dc6', 'ctrlpanel', limit=6,
+                    offsets=[0, 165, 293, 421, 549, 683])
     composite_pages('data\\global\\ui\\PANEL\\invchar6.dc6', 'invchar')
     composite_pages('data\\global\\ui\\SPELLS\\skltree_a_back.DC6', 'skltree')
     export_orbs()

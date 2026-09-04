@@ -176,6 +176,9 @@ func _start_attack(casting: bool) -> void:
 	state = State.ATTACK
 	var role := "cast" if casting else "attack"
 	get_node("/root/WowSfx").voice(voice, "attack", global_position, 0.35)
+	# every swing makes a sound even when a creature has no voice set —
+	# three of four dungeons used to attack in total silence
+	get_node("/root/Sfx").event("melee_swing", global_position, 0.8)
 	_play(role, 0.1)
 	var clip: String = clips.get(role, "")
 	var length := 1.0
@@ -208,9 +211,11 @@ func _strike() -> void:
 	if target is Ally:
 		target.take_damage(dmg * 2.0)
 		return
-	var ar := float(stats.get("A1TH", 30)) + mlevel * 5.0
-	var chance := GameState.chance_to_hit(ar, 25.0 + gs.player_defense(),
-			mlevel, gs.level)
+	# attack rating straight off D2's per-level curve (MonLvl TH); defense
+	# is the character's own, no hidden base
+	var ar := float(stats.get("A1TH", 30))
+	var chance := GameState.chance_to_hit(ar,
+			gs.player_defense() + float(gs.mods.get("ac-hth", 0)), mlevel, gs.level)
 	if randf() < chance:
 		if randf() < gs.dodge_chance():
 			return
@@ -354,4 +359,8 @@ func _physics_process(dt: float) -> void:
 			if _hurt_t <= 0.0:
 				state = State.CHASE
 				_play("run")
+	var wish := Vector3(velocity.x, 0.0, velocity.z)
+	var grounded := is_on_floor()
 	move_and_slide()
+	if grounded:
+		Stepper.climb(self, wish, dt)   # creatures climb stairs like the player

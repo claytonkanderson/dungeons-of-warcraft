@@ -30,6 +30,47 @@ CREATURE_SFX = {
                    "sound/creature/peasant/peasantwhat3.ogg",
                    "sound/creature/peasant/peasantwhat4.ogg"],
     },
+    # the living-human NPC set lives under character/human/male (not
+    # human/humanmale, which is why it was missed): Defias, VanCleef, miners
+    "human": {
+        "aggro": ["sound/character/human/male/humanmaleaggroa.ogg"],
+        "attack": ["sound/character/human/male/humanmaleattacka.ogg",
+                   "sound/character/human/male/humanmaleattackb.ogg",
+                   "sound/character/human/male/humanmaleattackc.ogg",
+                   "sound/character/human/male/humanmaleattackd.ogg"],
+        "wound": ["sound/character/human/male/humanmalewounda.ogg",
+                  "sound/character/human/male/humanmalewoundb.ogg",
+                  "sound/character/human/male/humanmalewoundc.ogg",
+                  "sound/character/human/male/humanmalewoundd.ogg",
+                  "sound/character/human/male/humanmalewoundcrita.ogg",
+                  "sound/character/human/male/humanmalewoundcritb.ogg"],
+        "death": ["sound/character/human/male/humanmaledeatha.ogg"],
+    },
+    # no human-female combat set is named in this client; the night elf
+    # female one is the closest voice that streams (Defias Squallshaper)
+    "human_female": {
+        "attack": ["sound/character/nightelf/nightelffemale/nightelffemaleattacka.ogg",
+                   "sound/character/nightelf/nightelffemale/nightelffemaleattackb.ogg",
+                   "sound/character/nightelf/nightelffemale/nightelffemaleattackc.ogg",
+                   "sound/character/nightelf/nightelffemale/nightelffemaleattackd.ogg"],
+        "wound": ["sound/character/nightelf/nightelffemale/nightelffemalewounda.ogg",
+                  "sound/character/nightelf/nightelffemale/nightelffemalewoundb.ogg",
+                  "sound/character/nightelf/nightelffemale/nightelffemalewoundc.ogg",
+                  "sound/character/nightelf/nightelffemale/nightelffemalewoundcrit.ogg"],
+        "death": ["sound/character/nightelf/nightelffemale/nightelffemaledeath.ogg",
+                  "sound/character/nightelf/nightelffemale/nightelffemaledeatha.ogg"],
+    },
+    "shredder": {
+        "aggro": ["sound/creature/goblinshredder/goblinshredderaggro.ogg"],
+        "attack": ["sound/creature/goblinshredder/goblinshredderattacka.ogg",
+                   "sound/creature/goblinshredder/goblinshredderattackb.ogg",
+                   "sound/creature/goblinshredder/goblinshredderattackc.ogg"],
+        "wound": ["sound/creature/goblinshredder/goblinshredderwounda.ogg",
+                  "sound/creature/goblinshredder/goblinshredderwoundb.ogg",
+                  "sound/creature/goblinshredder/goblinshredderwoundc.ogg",
+                  "sound/creature/goblinshredder/goblinshredderwoundcrit.ogg"],
+        "death": ["sound/creature/goblinshredder/goblinshredderdeatha.ogg"],
+    },
     "goblin": {
         "aggro": ["sound/creature/goblin/goblinaggroa.ogg"],
         "attack": ["sound/creature/goblin/goblinattacka.ogg",
@@ -62,6 +103,11 @@ CREATURE_SFX = {
         "death": ["sound/creature/ogre/mogredeath1.ogg"],
     },
 }
+# the remaining families (worgen, wolves, ghosts, raptors, the player-race
+# NPC voices, ...) live in the generated voice_sets.py — same shape, merged
+from voice_sets import VOICE_SETS
+CREATURE_SFX.update(VOICE_SETS)
+
 IMPACTS = {
     "sword": ["sound/item/weapons/sword1h/m1hswordhitflesh1a.ogg",
               "sound/item/weapons/sword1h/m1hswordhitflesh1b.ogg",

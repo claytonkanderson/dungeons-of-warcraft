@@ -7,8 +7,7 @@ and loot; Warcraft environments, enemies, music, and sounds.
 
 This download contains NO game assets from either title. Everything is
 generated on your machine from your own installs. You need, on 64-bit
-Windows with about 2 GB free and an internet connection for the first
-build:
+Windows with about 2 GB free (no internet connection is needed):
 
   1. Diablo II. Any install whose folder contains the classic archives
      d2data.mpq and patch_d2.mpq (a 1.14 install, or Diablo II with the
@@ -52,9 +51,11 @@ FIRST RUN — build the assets (10-20 minutes, ~600 MB):
   record of the build — send this if something goes wrong), and the paths
   you picked. It is created automatically.
 
-  Either way, creature spawn/stat data is fetched from the open-source
-  AzerothCore project (github.com/azerothcore) during the build, so the
-  first build needs internet. Windows SmartScreen may warn that setup.exe
+  Setup looks for both games on its own (Battle.net's records, the
+  registry, the usual folders) and pre-fills the paths; Browse is there
+  for when it guesses wrong. Creature spawn/stat data from the open-source
+  AzerothCore project (github.com/azerothcore) is included, so no download
+  happens during the build. Windows SmartScreen may warn that setup.exe
   is from an unknown publisher (it is unsigned) — "More info" -> "Run
   anyway".
 
@@ -98,9 +99,8 @@ LICENSE
 
   THIRD-PARTY.txt lists the components that keep their own terms: the
   Godot Engine (MIT), compiled into DungeonsOfWarcraft.exe; StormLib's
-  MPQ Huffman tables (MIT); and AzerothCore's world database
-  (AGPL-3.0), which builder.exe downloads to your machine at build time
-  rather than bundling.
+  MPQ Huffman tables (MIT); and the rows of AzerothCore's world database
+  (AGPL-3.0) that describe these dungeons, bundled inside setup.exe.
 
   No Blizzard content ships in this download. Everything the game draws
   and plays is generated on your machine from your own two installs.

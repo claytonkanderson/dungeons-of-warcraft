@@ -14,13 +14,19 @@ build. Given paths, it builds headlessly from the command line:
                     --wow "C:\\Program Files (x86)\\World of Warcraft" ^
                     [--out <assets dir>] [--ac <azerothcore db_world dir>]
 
-Spawn/stat data comes from the open-source AzerothCore project (AGPL);
-when no local checkout is given, the needed SQL files are downloaded from
-GitHub at build time.
+Spawn/stat data comes from the open-source AzerothCore project (AGPL). The
+rows the configured dungeons need ship inside setup (pipeline/ac_data,
+made by trim_ac.py), so a build needs no internet; --refresh-ac downloads
+the full current dumps instead, and --ac points at a local checkout.
+
+Both install paths are found automatically where possible (the Battle.net
+product database, the registry, the usual folders); the window pre-fills
+them and the command line uses them when --d2/--wow are omitted.
 """
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import urllib.request
@@ -92,6 +98,177 @@ def validate_wow(wow):
     return ""
 
 
+# ---------------------------------------------------------------------------
+# Finding the installs without asking. Diablo II leaves its folder in the
+# registry; Battle.net records every product's install folder in its
+# product database and the uninstall entries; both games have habitual
+# folders. Every candidate is checked with the same validators the picker
+# uses, so a stale registry key cannot pass.
+# ---------------------------------------------------------------------------
+WOW_PRODUCT_DIRS = ["_anniversary_", "_classic_era_", "_classic_", "_retail_", ""]
+
+
+def _reg_values(subkeys, names):
+    """Every string value found under the given registry subkeys, in HKCU
+    and HKLM, both the 64-bit and the WOW6432Node views."""
+    out = []
+    try:
+        import winreg
+    except ImportError:
+        return out
+    for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        for sub in subkeys:
+            for view in (0, getattr(winreg, "KEY_WOW64_32KEY", 0),
+                         getattr(winreg, "KEY_WOW64_64KEY", 0)):
+                try:
+                    k = winreg.OpenKey(root, sub, 0, winreg.KEY_READ | view)
+                except OSError:
+                    continue
+                for n in names:
+                    try:
+                        v, _ = winreg.QueryValueEx(k, n)
+                        if isinstance(v, str) and v.strip():
+                            out.append(v.strip().strip('"'))
+                    except OSError:
+                        pass
+                winreg.CloseKey(k)
+    return out
+
+
+def _uninstall_locations(match):
+    """InstallLocation of every uninstall entry whose display name contains
+    match (case-insensitive)."""
+    out = []
+    try:
+        import winreg
+    except ImportError:
+        return out
+    subs = [r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+            r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"]
+    for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+        for sub in subs:
+            try:
+                k = winreg.OpenKey(root, sub)
+            except OSError:
+                continue
+            i = 0
+            while True:
+                try:
+                    name = winreg.EnumKey(k, i)
+                except OSError:
+                    break
+                i += 1
+                try:
+                    e = winreg.OpenKey(k, name)
+                    disp, _ = winreg.QueryValueEx(e, "DisplayName")
+                    if match.lower() in str(disp).lower():
+                        loc, _ = winreg.QueryValueEx(e, "InstallLocation")
+                        if str(loc).strip():
+                            out.append(str(loc).strip().strip('"'))
+                except OSError:
+                    pass
+    return out
+
+
+def _battlenet_paths():
+    """Install folders recorded in Battle.net's product database. The file is
+    a protobuf; the paths inside are plain text, so they are scanned for."""
+    out = []
+    pd = os.environ.get("PROGRAMDATA", r"C:\ProgramData")
+    db = Path(pd) / "Battle.net" / "Agent" / "product.db"
+    try:
+        data = db.read_bytes()
+    except OSError:
+        return out
+    for m in re.finditer(rb"[A-Za-z]:[\\/][^\x00-\x1f\"<>|?*]{2,240}", data):
+        try:
+            out.append(m.group(0).decode("utf-8"))
+        except UnicodeDecodeError:
+            pass
+    return out
+
+
+def _fixed_drives():
+    drives = []
+    for letter in "CDEFGHIJKLMNOPQRSTUVWXYZ":
+        if os.path.isdir(f"{letter}:\\"):
+            drives.append(f"{letter}:\\")
+    return drives
+
+
+def _program_files():
+    out = []
+    for var in ("ProgramFiles(x86)", "ProgramFiles", "ProgramW6432"):
+        v = os.environ.get(var)
+        if v:
+            out.append(v)
+    return out
+
+
+def detect_d2():
+    """The Diablo II install folder, or '' when nothing validates."""
+    cands = _reg_values([r"Software\Blizzard Entertainment\Diablo II",
+                         r"SOFTWARE\Blizzard Entertainment\Diablo II"],
+                        ["InstallPath", "Save Path"])
+    cands += _uninstall_locations("Diablo II")
+    for base in _program_files() + _fixed_drives():
+        for sub in ("Diablo II", r"Games\Diablo II", r"Blizzard\Diablo II",
+                    r"Program Files (x86)\Diablo II"):
+            cands.append(os.path.join(base, sub))
+    seen = set()
+    for c in cands:
+        c = os.path.normpath(c)
+        if c in seen:
+            continue
+        seen.add(c)
+        if os.path.isdir(c) and not validate_d2(c):
+            return c
+    return ""
+
+
+def detect_wow():
+    """The WoW product folder (the one holding Data and .build.info), or ''."""
+    roots = _reg_values([r"SOFTWARE\Blizzard Entertainment\World of Warcraft",
+                         r"Software\Blizzard Entertainment\World of Warcraft"],
+                        ["InstallPath", "GamePath"])
+    roots += _uninstall_locations("World of Warcraft")
+    roots += _battlenet_paths()
+    for base in _program_files() + _fixed_drives():
+        for sub in ("World of Warcraft", r"Games\World of Warcraft",
+                    r"Blizzard\World of Warcraft",
+                    r"Program Files (x86)\World of Warcraft"):
+            roots.append(os.path.join(base, sub))
+    seen = set()
+    for r in roots:
+        r = os.path.normpath(r)
+        # a recorded path may already be the product folder, or its parent,
+        # or a file inside it
+        bases = [r, os.path.dirname(r), os.path.dirname(os.path.dirname(r))]
+        for b in bases:
+            for sub in WOW_PRODUCT_DIRS:
+                c = os.path.normpath(os.path.join(b, sub)) if sub else b
+                if c in seen:
+                    continue
+                seen.add(c)
+                if os.path.isdir(c) and not validate_wow(c):
+                    return c
+    return ""
+
+
+def display_path(folder, exe_names):
+    """What the picker shows for a detected folder: the game's own exe when
+    it is there (what a player recognises), else the folder."""
+    for n in exe_names:
+        f = os.path.join(folder, n)
+        if os.path.isfile(f):
+            return f
+    return folder
+
+
+D2_EXES = ["Diablo II.exe", "Game.exe"]
+WOW_EXES = ["World of Warcraft Launcher.exe", "WowClassic.exe", "Wow.exe"]
+
+
 def check_d2(d2):
     msg = validate_d2(d2)
     if msg:
@@ -106,7 +283,18 @@ def check_wow(wow):
              "install (the folder containing Data and .build.info)")
 
 
-def ensure_ac(ac_dir, cache):
+# The trimmed AzerothCore rows for the configured dungeons. Under PyInstaller
+# HERE is the extraction dir and build_dist.py adds ac_data beside d2/.
+AC_BUNDLED = HERE / "ac_data"
+
+
+def ensure_ac(ac_dir, cache, refresh=False):
+    if not ac_dir and not refresh:
+        missing = [f for f in AC_FILES if not (AC_BUNDLED / f).exists()]
+        if not missing:
+            return AC_BUNDLED
+        print(f"bundled AzerothCore data incomplete ({', '.join(missing[:3])}"
+              f"{', ...' if len(missing) > 3 else ''}); downloading instead")
     if ac_dir:
         missing = [f for f in AC_FILES if not Path(ac_dir, f).exists()]
         if not missing:
@@ -121,7 +309,7 @@ def ensure_ac(ac_dir, cache):
     cache.mkdir(parents=True, exist_ok=True)
     for f in AC_FILES:
         dest = cache / f
-        if dest.exists() and dest.stat().st_size > 0:
+        if dest.exists() and dest.stat().st_size > 0 and not refresh:
             continue
         print(f"downloading AzerothCore data: {f} ...")
         # download to a temp name and rename, so an interrupted transfer
@@ -202,7 +390,7 @@ def run_wow_stages(only=""):
 
 
 def run_build(d2, wow, out="", ac="", skip_d2=False, skip_wow=False,
-              only_dungeon=""):
+              only_dungeon="", refresh_ac=False):
     """Run the asset build. Both the CLI and the picker call this; it assumes
     d2/wow already passed check_d2/check_wow (the picker validates first, the
     CLI calls the checks below). Progress goes to stdout, which the picker
@@ -225,7 +413,7 @@ def run_build(d2, wow, out="", ac="", skip_d2=False, skip_wow=False,
     if skip_d2 and not (out_dir / "gamedata.json").exists():
         fail(f"--skip-d2 expects the Diablo II assets to be in {out_dir} "
              "already, but gamedata.json is not there. Run once without it.")
-    ac_dir = ensure_ac(ac, out_dir / "_accache")
+    ac_dir = ensure_ac(ac, out_dir / "_accache", refresh_ac)
 
     os.environ["DOW_D2_DIR"] = str(Path(d2))
     os.environ["DOW_WOW_ROOT"] = str(Path(wow))
@@ -271,6 +459,15 @@ def run_gui():
 
     state = {"d2": prefs.get("d2", ""), "wow": prefs.get("wow", ""),
              "running": False}
+    # remembered paths that still validate win; otherwise look for the games
+    if validate_d2(game_root(state["d2"])):
+        found = detect_d2()
+        if found:
+            state["d2"] = display_path(found, D2_EXES)
+    if validate_wow(game_root(state["wow"])):
+        found = detect_wow()
+        if found:
+            state["wow"] = display_path(found, WOW_EXES)
 
     header = tk.Label(root, justify="left", anchor="w", padx=12, pady=8,
                       text="Point Setup at your own Diablo II and World of "
@@ -309,6 +506,20 @@ def run_gui():
         if picked:
             var.set(os.path.normpath(picked))
             refresh()
+
+    def detect_both():
+        d2 = detect_d2()
+        wow = detect_wow()
+        if d2:
+            d2_var.set(display_path(d2, D2_EXES))
+        if wow:
+            wow_var.set(display_path(wow, WOW_EXES))
+        status_lbl.config(fg="#333", text=(
+            "Found both installs." if d2 and wow else
+            "Found Diablo II only — browse to WoW." if d2 else
+            "Found WoW only — browse to Diablo II." if wow else
+            "Neither install found — use Browse."))
+        refresh()
 
     hint = dict(fg="#666", anchor="w", justify="left")
     tk.Label(rows, text="Diablo II", anchor="w").grid(
@@ -352,6 +563,8 @@ def run_gui():
     status_lbl.pack(side="left")
     build_btn = tk.Button(bar, text="Build assets")
     build_btn.pack(side="right")
+    tk.Button(bar, text="Detect installs", command=detect_both).pack(
+        side="right", padx=(0, 8))
 
     q = queue.Queue()
 
@@ -433,13 +646,21 @@ def run_gui():
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--d2", default="", help="Diablo II install folder")
+    ap.add_argument("--d2", default="",
+                    help="Diablo II install folder (default: auto-detected)")
     ap.add_argument("--wow", default="",
-                    help="WoW Classic Anniversary install folder")
+                    help="WoW Classic Anniversary install folder (default: "
+                         "auto-detected)")
     ap.add_argument("--out", default="",
                     help="assets output dir (default: ./assets beside the game)")
     ap.add_argument("--ac", default="",
-                    help="local AzerothCore db_world dir (else downloaded)")
+                    help="local AzerothCore db_world dir (default: the trimmed "
+                         "data bundled with setup)")
+    ap.add_argument("--refresh-ac", action="store_true",
+                    help="download the current AzerothCore dumps instead of "
+                         "using the bundled rows")
+    ap.add_argument("--detect", action="store_true",
+                    help="print the installs found automatically, then exit")
     ap.add_argument("--skip-d2", action="store_true",
                     help="skip the Diablo II stages (art, items, sounds)")
     ap.add_argument("--skip-wow", action="store_true",
@@ -489,14 +710,28 @@ def main():
 
     # No install paths given (a double-click) — open the picker. If there is no
     # desktop to draw it on, fall through to the usual CLI error.
+    if args.detect:
+        d2 = detect_d2()
+        wow = detect_wow()
+        print(f"Diablo II:         {d2 or 'not found'}")
+        print(f"World of Warcraft: {wow or 'not found'}")
+        return
     if not args.d2 and not args.wow:
         if run_gui():
             return
-        fail("no folders given. Run with no arguments for the setup window, or "
-             'pass --d2 "…" --wow "…" to build from the command line.')
+    # command line: whatever was not given is looked for
+    if not args.d2:
+        args.d2 = detect_d2()
+        print(f"Diablo II: {args.d2 or 'not found'} (auto-detected)")
+    if not args.wow:
+        args.wow = detect_wow()
+        print(f"World of Warcraft: {args.wow or 'not found'} (auto-detected)")
+    if not args.d2 or not args.wow:
+        fail("could not find both installs. Run with no arguments for the setup "
+             'window, or pass --d2 "…" --wow "…" to build from the command line.')
 
     run_build(args.d2, args.wow, args.out, args.ac,
-              args.skip_d2, args.skip_wow, args.only_dungeon)
+              args.skip_d2, args.skip_wow, args.only_dungeon, args.refresh_ac)
 
 
 if __name__ == "__main__":

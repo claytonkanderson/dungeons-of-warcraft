@@ -42,8 +42,11 @@ func show_item(entry: Dictionary, at: Vector2) -> void:
 		_line(str(inst.get("name", base_name)), qcolor)
 		_line(str(inst.get("base_name", base_name)), qcolor)
 		_base_lines(it, inst)
-		for line in get_node("/root/ItemText").lines_for(inst):
-			_line(str(line), MAGIC_BLUE)
+		# a property the game does not apply yet is shown dimmed, so no line
+		# on an item promises something the fight will not deliver
+		for pair in get_node("/root/ItemText").lines_with_codes(inst):
+			var applies: bool = GameState.applies(str(pair[1]))
+			_line(str(pair[0]), MAGIC_BLUE if applies else INERT_GREY)
 		_set_lines(inst)
 	else:
 		_line(base_name, Color.WHITE)
@@ -60,6 +63,7 @@ func show_item(entry: Dictionary, at: Vector2) -> void:
 			clampf(at.y - sz.y - 12, 8, vp.y - sz.y - 8))
 
 
+const INERT_GREY := Color(0.45, 0.45, 0.5)
 const SET_GREEN := Color(0.10, 0.85, 0.10)
 const SET_GREY := Color(0.5, 0.5, 0.5)
 

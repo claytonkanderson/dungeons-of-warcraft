@@ -8,10 +8,10 @@ signal xp_changed
 var character := ""           # active character slug ("" = legacy/test save)
 var char_name := "Amazon"     # display name
 var dungeons_done: Array = [] # completed dungeon ids (per character)
-var current_dungeon := "deadmines"
-var level := 14               # a seasoned start: points arrive unallocated
+var current_dungeon := "ragefire-chasm"
+var level := 1                # D2 start: level 1, nothing allocated
 var xp := 0                   # seeded from the exp table in _ready
-var skill_points := 14
+var skill_points := 0
 var current_level := 1        # world level id
 var waypoints: Array = [1]    # activated waypoint level ids
 var session_loaded := false
@@ -63,8 +63,10 @@ func _recalc() -> void:
 	_aggregate_mods()
 	hp_max = 50.0 + 2.0 * (level - 1) + 3.0 * (float(stat.vit) - 20.0) \
 			+ float(mods.get("hp", 0)) + float(mods.get("vit", 0)) * 3.0
+	hp_max *= 1.0 + float(mods.get("hp%", 0)) / 100.0
 	mana_max = 15.0 + 1.5 * (level - 1) + 1.5 * (float(stat.ene) - 15.0) \
 			+ float(mods.get("mana", 0)) + float(mods.get("ene", 0)) * 1.5
+	mana_max *= 1.0 + float(mods.get("mana%", 0)) / 100.0
 	hp = minf(hp, hp_max)
 	mana = minf(mana, mana_max)
 
@@ -75,9 +77,11 @@ const SLOTS := ["head", "tors", "weap", "shie", "glov", "boot", "belt",
 		"ring1", "ring2", "amul"]
 var equipped := {}             # slot -> {code, inst}
 var mods := {}                 # aggregated equipment modifiers
-var stat_points := 70
+var stat_points := 0
 
-# equipment property codes we aggregate
+# Equipment property codes that add straight into a mods key. Everything
+# the game applies is listed in APPLIED_PROPS below; the tooltip dims any
+# line whose code is not there, so no item promises what combat ignores.
 const MOD_MAP := {
 	"str": "str", "dex": "dex", "vit": "vit", "enr": "ene",
 	"hp": "hp", "mana": "mana", "ac": "ac", "ac%": "ac%",
@@ -89,7 +93,71 @@ const MOD_MAP := {
 	"cold-min": "cold-min", "cold-max": "cold-max",
 	"ltng-min": "ltng-min", "ltng-max": "ltng-max",
 	"pois-min": "pois-min", "pois-max": "pois-max",
+	"mag%": "mag%", "gold%": "gold%",
+	# tier A: leech, on-kill, regeneration, stamina
+	"lifesteal": "lifesteal", "manasteal": "manasteal",
+	"heal-kill": "heal-kill", "mana-kill": "mana-kill", "demon-heal": "demon-heal",
+	"regen": "regen", "regen-mana": "regen-mana", "regen-stam": "regen-stam",
+	"stam": "stam", "stamdrain": "stamdrain", "hp%": "hp%", "mana%": "mana%",
+	# defence
+	"red-dmg": "red-dmg", "red-mag": "red-mag", "red-dmg%": "red-dmg%",
+	"ac-miss": "ac-miss", "ac-hth": "ac-hth",
+	"res-fire-max": "res-fire-max", "res-cold-max": "res-cold-max",
+	"res-ltng-max": "res-ltng-max", "res-pois-max": "res-pois-max",
+	"res-all-max": "res-all-max", "res-pois-len": "res-pois-len",
+	"abs-fire": "abs-fire", "abs-cold": "abs-cold", "abs-ltng": "abs-ltng",
+	"abs-fire%": "abs-fire%", "abs-cold%": "abs-cold%", "abs-ltng%": "abs-ltng%",
+	"dmg-to-mana": "dmg-to-mana",
+	# offence
+	"crush": "crush", "deadly": "deadly", "openwounds": "openwounds",
+	"pierce": "pierce", "dmg-undead": "dmg-undead", "dmg-demon": "dmg-demon",
+	"att-undead": "ar-undead", "att-demon": "ar-demon",
+	"cold-len": "cold-len", "pois-len": "pois-len",
+	# speeds, requirements, light, find
+	"swing1": "ias", "swing2": "ias", "swing3": "ias",
+	"move1": "frw", "move2": "frw", "move3": "frw",
+	"ease": "ease", "light": "light", "addxp": "addxp",
+	# skills
+	"allskills": "allskills", "ama": "ama", "fireskill": "fireskill",
+	"magicarrow": "magicarrow", "explosivearrow": "explosivearrow",
 }
+# "Adds X-Y <element> damage": the table's min and max are the two ends of the
+# damage, not a range to roll one value from
+const RANGE_PROPS := {
+	"dmg-fire": ["fire-min", "fire-max"], "dmg-cold": ["cold-min", "cold-max"],
+	"dmg-ltng": ["ltng-min", "ltng-max"], "dmg-mag": ["mag-min", "mag-max"],
+	"dmg-norm": ["dmg-norm-min", "dmg-norm-max"], "dmg-pois": ["pois-min", "pois-max"],
+}
+# "+N per character level" props: the table's param is N*8
+const PER_LEVEL := {
+	"hp/lvl": "hp", "mana/lvl": "mana", "ac/lvl": "ac", "att/lvl": "ar",
+	"att%/lvl": "ar%", "dmg/lvl": "dmg-max", "dmg%/lvl": "dmg%",
+	"vit/lvl": "vit", "str/lvl": "str", "dex/lvl": "dex", "stam/lvl": "stam",
+	"regen-stam/lvl": "regen-stam", "abs-fire/lvl": "abs-fire",
+	"abs-cold/lvl": "abs-cold", "res-ltng/lvl": "res-ltng",
+	"att-und/lvl": "ar-undead", "dmg-und/lvl": "dmg-undead",
+	"att-dem/lvl": "ar-demon", "dmg-dem/lvl": "dmg-demon",
+	"deadly/lvl": "deadly", "thorns/lvl": "thorns", "mag%/lvl": "mag%",
+	"gold%/lvl": "gold%",
+}
+# D2 skill tab ids -> the Amazon's pages (others belong to other classes)
+const AMAZON_TABS := {0: 1, 1: 2, 2: 3}
+var _applied_cache := {}
+
+
+func applies(code: String) -> bool:
+	## Does the game act on this property code? (tooltips dim the rest)
+	if _applied_cache.is_empty():
+		for k in MOD_MAP:
+			_applied_cache[k] = true
+		for k in RANGE_PROPS:
+			_applied_cache[k] = true
+		for k in PER_LEVEL:
+			_applied_cache[k] = true
+		for k in ["dmg", "dmg-elem", "skill", "oskill", "skilltab",
+				"*hp", "*mana", "*vit", "*enr"]:
+			_applied_cache[k] = true
+	return _applied_cache.has(code)
 
 
 func gear_elemental() -> float:
@@ -109,7 +177,9 @@ func resist(etype: String) -> float:
 			"poison": "res-pois"}.get(etype, "")
 	if key == "":
 		return 0.0
-	return minf(75.0, float(mods.get(key, 0)) + float(mods.get("res-all", 0)))
+	# D2 caps at 75, raised by the "+N to Maximum <element> Resist" lines to 95
+	var cap := 75.0 + float(mods.get(key + "-max", 0)) + float(mods.get("res-all-max", 0))
+	return minf(minf(95.0, cap), float(mods.get(key, 0)) + float(mods.get("res-all", 0)))
 
 
 var _setbonus := {}            # items/sets bonus tables (setbonus.json)
@@ -148,16 +218,93 @@ func set_worn_counts() -> Dictionary:
 	return counts
 
 
+func _add_mod(key: String, amount: float) -> void:
+	mods[key] = float(mods.get(key, 0.0)) + amount
+
+
 func _apply_prop(p: Dictionary) -> void:
-	var key = MOD_MAP.get(str(p.get("code", "")))
+	var code := str(p.get("code", ""))
+	if code.begins_with("*"):
+		code = code.substr(1)        # hidden duplicate of the plain property
+	var val := float(p.get("val", str(p.get("min", "0")).to_int()))
+	var vmax := float(p.get("val_max", val))
+	var param := str(p.get("param", ""))
+	if RANGE_PROPS.has(code):
+		var keys: Array = RANGE_PROPS[code]
+		if code == "dmg-pois":
+			# poison: min/max are damage per frame * 256 over param frames
+			var frames := maxf(1.0, float(param.to_int()))
+			_add_mod("pois-min", val * frames / 256.0)
+			_add_mod("pois-max", vmax * frames / 256.0)
+			_add_mod("pois-len", frames / 25.0)
+		else:
+			_add_mod(keys[0], val)
+			_add_mod(keys[1], vmax)
+			if code == "dmg-cold":
+				_add_mod("cold-len", float(param.to_int()) / 25.0)
+		return
+	if code == "dmg-elem":
+		for el in ["fire", "ltng", "cold"]:
+			_add_mod(el + "-min", val)
+			_add_mod(el + "-max", vmax)
+		_add_mod("cold-len", float(param.to_int()) / 25.0)
+		return
+	if code == "dmg":
+		_add_mod("dmg-min", val)
+		_add_mod("dmg-max", val)
+		return
+	if PER_LEVEL.has(code):
+		_add_mod(PER_LEVEL[code], float(param.to_int()) / 8.0 * float(level))
+		return
+	match code:
+		"skill":
+			var nm := _skill_by_param(param)
+			if nm != "":
+				skill_bonus[nm] = int(skill_bonus.get(nm, 0)) + int(val)
+			return
+		"oskill":
+			var nm := _skill_by_param(param)
+			if nm != "":
+				oskills[nm] = maxi(int(oskills.get(nm, 0)), int(val))
+			return
+		"skilltab":
+			var page: int = int(AMAZON_TABS.get(param.to_int(), -1))
+			if page > 0:
+				tab_bonus[page] = int(tab_bonus.get(page, 0)) + int(val)
+			return
+		"cold-len", "pois-len":
+			_add_mod(code, val / 25.0)
+			return
+	var key = MOD_MAP.get(code)
 	if key == null:
 		return
-	mods[key] = int(mods.get(key, 0)) \
-			+ int(p.get("val", str(p.get("min", "0")).to_int()))
+	_add_mod(key, val)
+
+
+func _skill_by_param(param: String) -> String:
+	## Skill properties name their skill by id or by name in the tables.
+	var gd: Dictionary = get_node("/root/SpriteDB").gamedata()
+	var names: Dictionary = gd.get("skill_names", {})
+	if names.has(param):
+		return str(names[param])
+	if gd.get("skills", {}).has(param):
+		return param
+	for n in gd.get("skills", {}):
+		if str(n).to_lower() == param.to_lower():
+			return str(n)
+	return ""
+
+
+var skill_bonus := {}          # item +N to a specific skill
+var tab_bonus := {}            # item +N to an Amazon skill page
+var oskills := {}              # item-granted skills (level), no points needed
 
 
 func _aggregate_mods() -> void:
 	mods = {}
+	skill_bonus = {}
+	tab_bonus = {}
+	oskills = {}
 	for slot in equipped:
 		var inst: Dictionary = equipped[slot].get("inst", {})
 		var flat := []
@@ -222,7 +369,21 @@ func crit_chance() -> float:
 
 func pierce_chance() -> float:
 	var l := skill_level("Pierce")
-	return 0.0 if l <= 0 else minf(0.15 + 0.08 * l, 0.85)
+	var c := 0.0 if l <= 0 else 0.15 + 0.08 * l
+	return minf(c + float(mods.get("pierce", 0)) / 100.0, 0.85)
+
+
+func attack_speed_factor() -> float:
+	## Increased attack speed: D2 tops out around +75% effective
+	return 1.0 + minf(75.0, float(mods.get("ias", 0))) / 100.0
+
+
+func run_speed_factor() -> float:
+	return 1.0 + float(mods.get("frw", 0)) / 100.0
+
+
+func stamina_max() -> float:
+	return 100.0 + float(mods.get("stam", 0))
 
 
 func dodge_chance() -> float:      # vs melee
@@ -302,10 +463,18 @@ func equip_requirements(entry: Dictionary) -> Dictionary:
 	## {lvl, str, dex}: base item requirements + the instance's reqlvl.
 	var it: Dictionary = get_node("/root/ItemDB").item(str(entry.get("code", "")))
 	var inst: Dictionary = entry.get("inst", {})
+	# "Requirements -N%" on the item itself (D2 stores ease as a negative)
+	var ease := 1.0
+	for p in inst.get("props", []):
+		var flat: Array = p.get("props", [p]) if p.has("affix") else [p]
+		for q in flat:
+			if str(q.get("code", "")) == "ease":
+				ease += float(q.get("val", str(q.get("min", "0")).to_int())) / 100.0
+	ease = clampf(ease, 0.0, 1.0)
 	return {
 		"lvl": maxi(int(inst.get("reqlvl", 0)), str(it.get("levelreq", "")).to_int()),
-		"str": str(it.get("reqstr", "")).to_int(),
-		"dex": str(it.get("reqdex", "")).to_int(),
+		"str": int(str(it.get("reqstr", "")).to_int() * ease),
+		"dex": int(str(it.get("reqdex", "")).to_int() * ease),
 	}
 
 
@@ -360,7 +529,10 @@ func allocate_stat(name: String) -> bool:
 	return true
 
 
-const DMG_MULT := 5.0   # global player damage boost: ~2 hits per fallen
+# Player damage against D2's monster curve. Monster life now follows
+# MonLvl.txt (7 at level 1, 35 at 10, 73 at 20), which a D2-table weapon
+# already kills in two to four hits; a small boost keeps the FPS pace brisk.
+const DMG_MULT := 1.5
 
 
 func weapon_damage() -> Vector2:
@@ -379,9 +551,74 @@ func weapon_damage() -> Vector2:
 			mn = float(bmn)
 			mx = float(bmx)
 	var ed := float(mods.get("dmg%", 0)) + float(total_stat("dex"))
-	mn = (mn * (1.0 + ed / 100.0) + float(mods.get("dmg-min", 0))) * DMG_MULT
-	mx = (mx * (1.0 + ed / 100.0) + float(mods.get("dmg-max", 0))) * DMG_MULT
+	mn = (mn * (1.0 + ed / 100.0) + float(mods.get("dmg-min", 0))
+			+ float(mods.get("dmg-norm-min", 0))) * DMG_MULT
+	mx = (mx * (1.0 + ed / 100.0) + float(mods.get("dmg-max", 0))
+			+ float(mods.get("dmg-norm-max", 0))) * DMG_MULT
 	return Vector2(mn, maxf(mn, mx))
+
+
+func roll_player_hit(ranged: bool, ctype := "") -> Dictionary:
+	## One blow's worth of numbers, D2 order: physical (critical strike, then
+	## deadly strike doubles it; +% vs undead/demons), elemental per element
+	## with cold length and poison duration, crushing blow, open wounds, and
+	## the life/mana the physical part leeches.
+	var wd := weapon_damage()
+	var phys := randf_range(wd.x, wd.y)
+	if randf() < crit_chance():
+		phys *= 2.0
+	elif randf() < float(mods.get("deadly", 0)) / 100.0:
+		phys *= 2.0
+	if ctype == "undead":
+		phys *= 1.0 + float(mods.get("dmg-undead", 0)) / 100.0
+	elif ctype == "demon":
+		phys *= 1.0 + float(mods.get("dmg-demon", 0)) / 100.0
+	var elem := {}
+	for el in ["fire", "cold", "ltng", "mag"]:
+		var lo := float(mods.get(el + "-min", 0))
+		var hi := maxf(lo, float(mods.get(el + "-max", 0)))
+		if hi > 0.0:
+			elem[el] = randf_range(lo, hi) * DMG_MULT
+	var pois_total := 0.0
+	var pois_len := float(mods.get("pois-len", 0))
+	if float(mods.get("pois-max", 0)) > 0.0:
+		pois_total = randf_range(float(mods.get("pois-min", 0)),
+				float(mods.get("pois-max", 0))) * DMG_MULT
+		if pois_len <= 0.0:
+			pois_len = 2.0
+	return {
+		"phys": phys, "elem": elem,
+		"cold_len": float(mods.get("cold-len", 0)) if elem.has("cold") else 0.0,
+		"pois_total": pois_total, "pois_len": pois_len,
+		# D2: crushing blow takes a quarter of current life in melee, an eighth
+		# from range; open wounds bleeds for eight seconds
+		"crush": randf() < float(mods.get("crush", 0)) / 100.0,
+		"crush_frac": 0.125 if ranged else 0.25,
+		"openwounds": randf() < float(mods.get("openwounds", 0)) / 100.0,
+		"ow_dps": (9.0 * level + 31.0) / 10.24 * DMG_MULT / 5.0,
+		"lifesteal": phys * float(mods.get("lifesteal", 0)) / 100.0,
+		"manasteal": phys * float(mods.get("manasteal", 0)) / 100.0,
+	}
+
+
+func on_hit_dealt(h: Dictionary) -> void:
+	if float(h.get("lifesteal", 0.0)) > 0.0:
+		hp = minf(hp_max, hp + float(h["lifesteal"]))
+		hp_changed.emit()
+	if float(h.get("manasteal", 0.0)) > 0.0:
+		mana = minf(mana_max, mana + float(h["manasteal"]))
+
+
+func on_kill(ctype: String) -> void:
+	## "+N life/mana after each kill", "+N life after each demon kill"
+	var heal := float(mods.get("heal-kill", 0))
+	if ctype == "demon":
+		heal += float(mods.get("demon-heal", 0))
+	if heal > 0.0:
+		hp = minf(hp_max, hp + heal)
+		hp_changed.emit()
+	if float(mods.get("mana-kill", 0)) > 0.0:
+		mana = minf(mana_max, mana + float(mods.get("mana-kill", 0)))
 
 
 static func chance_to_hit(ar: float, defense: float, alvl: int, dlvl: int) -> float:
@@ -391,6 +628,7 @@ static func chance_to_hit(ar: float, defense: float, alvl: int, dlvl: int) -> fl
 
 
 func award_xp(amount: int) -> void:
+	amount = int(amount * (1.0 + float(mods.get("addxp", 0)) / 100.0))
 	xp += amount
 	xp_changed.emit()
 	while level < exp_table.size() and xp >= int(exp_table[level]):
@@ -405,7 +643,27 @@ func award_xp(amount: int) -> void:
 		get_node("/root/Sfx").event_ui("level_up")
 
 
-func take_damage(dmg: float) -> bool:
+func take_damage(dmg: float, etype := "phys", ranged := false) -> bool:
+	## Incoming damage through the character's reductions: physical gets the
+	## flat and percent damage reductions; elemental gets resistance, the flat
+	## magic reduction, then flat and percent absorb. A share can return as
+	## mana ("damage taken goes to mana").
+	var raw := dmg
+	if etype == "phys":
+		dmg -= float(mods.get("red-dmg", 0))
+		dmg *= 1.0 - minf(50.0, float(mods.get("red-dmg%", 0))) / 100.0
+	else:
+		dmg *= 1.0 - resist(etype) / 100.0
+		dmg -= float(mods.get("red-mag", 0))
+		var key: String = {"fire": "fire", "cold": "cold", "ltng": "ltng",
+				"lightning": "ltng"}.get(etype, "")
+		if key != "":
+			dmg -= float(mods.get("abs-" + key, 0))
+			dmg *= 1.0 - minf(40.0, float(mods.get("abs-" + key + "%", 0))) / 100.0
+	dmg = maxf(0.0, dmg)
+	var to_mana := float(mods.get("dmg-to-mana", 0))
+	if to_mana > 0.0:
+		mana = minf(mana_max, mana + raw * to_mana / 100.0)
 	hp = max(0.0, hp - dmg)
 	hp_changed.emit()
 	return hp <= 0.0
@@ -549,8 +807,14 @@ func is_poisoned() -> bool:
 
 
 func _process(dt: float) -> void:
-	# D2-style slow mana regeneration
-	mana = minf(mana_max, mana + mana_max * dt / 30.0)
+	# D2-style slow mana regeneration, sped up by "+N% Regenerate Mana";
+	# "Replenish Life +N" restores N*25/256 life a second
+	mana = minf(mana_max, mana + mana_max * dt / 30.0
+			* (1.0 + float(mods.get("regen-mana", 0)) / 100.0))
+	var regen := float(mods.get("regen", 0))
+	if regen > 0.0 and hp > 0.0 and hp < hp_max:
+		hp = minf(hp_max, hp + regen * 25.0 / 256.0 * dt)
+		hp_changed.emit()
 	if poison_t > 0.0:
 		poison_t -= dt
 		# poison never quite kills in D2: stop at a sliver of life
@@ -565,7 +829,25 @@ func skill_row(n: String) -> Dictionary:
 
 
 func skill_level(n: String) -> int:
-	return int(skills.get(n, 0))
+	## Points spent plus item bonuses (+all, +Amazon, +tab, +skill, +fire
+	## skills), which only apply to a skill with at least one point — except
+	## skills an item grants outright (oskill, "fires magic arrows").
+	var base := int(skills.get(n, 0))
+	var granted := int(oskills.get(n, 0))
+	if n == "Magic Arrow":
+		granted = maxi(granted, int(mods.get("magicarrow", 0)))
+	elif n == "Exploding Arrow":
+		granted = maxi(granted, int(mods.get("explosivearrow", 0)))
+	if base <= 0 and granted <= 0:
+		return 0
+	var bonus := int(mods.get("allskills", 0)) + int(mods.get("ama", 0)) \
+			+ int(skill_bonus.get(n, 0))
+	var sd: Dictionary = get_node("/root/SpriteDB").gamedata() \
+			.get("skilldesc", {}).get(n.to_lower(), {})
+	bonus += int(tab_bonus.get(str(sd.get("page", "0")).to_int(), 0))
+	if str(skill_row(n).get("EType", "")).strip_edges() == "fire":
+		bonus += int(mods.get("fireskill", 0))
+	return maxi(base, granted) + bonus
 
 
 func mana_cost(n: String) -> float:
@@ -622,10 +904,10 @@ static func slugify(disp: String) -> String:
 
 
 func reset_state() -> void:
-	## Fresh-character defaults (the level-14 seasoned start).
-	level = 14
-	skill_points = 14
-	stat_points = 70
+	## Fresh-character defaults: D2's level-1 start.
+	level = 1
+	skill_points = 0
+	stat_points = 0
 	stat = {"str": 20, "dex": 25, "vit": 20, "ene": 15}
 	skills = {}
 	hotkeys = {}
@@ -635,7 +917,7 @@ func reset_state() -> void:
 	belt = [{}, {}, {}, {}]
 	stash_items = []
 	dungeons_done = []
-	current_dungeon = "deadmines"
+	current_dungeon = "ragefire-chasm"
 	_saved_action = ["Attack", "Attack"]
 	xp = int(str(exp_table[level - 1])) if level <= exp_table.size() else 0
 	poison_dps = 0.0

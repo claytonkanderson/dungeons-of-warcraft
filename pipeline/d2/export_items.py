@@ -98,8 +98,28 @@ def build_treasure():
                 entries.append([it, r.get('Prob%d' % i, '')])
         out[name] = {'picks': r.get('Picks', ''),
                      'nodrop': r.get('NoDrop', ''),
+                     'level': r.get('level', ''),
+                     # quality bonuses: added to the character's magic find
+                     # per quality when this class drops (act bosses: ~1000)
+                     'unique': r.get('Unique', ''), 'set': r.get('Set', ''),
+                     'rare': r.get('Rare', ''), 'magic': r.get('Magic', ''),
                      'items': entries}
     return out, src
+
+
+def build_itemratio():
+    """ItemRatio.txt rows keyed by (version, uber, class specific)."""
+    out = []
+    for r in read_table('itemratio.txt'):
+        if not r.get('Unique', '').strip():
+            continue
+        row = {k: r.get(k, '') for k in (
+            'Version', 'Uber', 'Class Specific',
+            'Unique', 'UniqueDivisor', 'UniqueMin', 'Rare', 'RareDivisor',
+            'RareMin', 'Set', 'SetDivisor', 'SetMin', 'Magic', 'MagicDivisor',
+            'MagicMin', 'HiQuality', 'HiQualityDivisor', 'Normal', 'NormalDivisor')}
+        out.append(row)
+    return out
 
 
 def export_sprites(names, subdir):

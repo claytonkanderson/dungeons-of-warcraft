@@ -54,8 +54,8 @@ setup.exe --d2 "C:\Path\To\Diablo II" --wow "C:\Path\To\World of Warcraft"
 `--d2` points at the folder containing `d2data.mpq`; `--wow` at the folder
 containing `Data\` and `.build.info`. Either way it writes everything it
 generates into `_build\` next to the executables — `_build\assets` (about
-600 MB, 10–20 minutes; the first build fetches AzerothCore data over the
-internet), plus `setup.log` and the remembered paths — after which
+600 MB, 10–20 minutes, no internet needed), plus `setup.log` and the
+remembered paths — after which
 `DungeonsOfWarcraft.exe` runs. From a source checkout, `run_game.bat`
 launches the Godot build directly against the repo's `assets/`.
 
@@ -96,8 +96,12 @@ The D2 stages decode MPQ archives (tables, interface art, Amazon animation
 sheets, paperdoll layers, item catalog and sprites, uniques/sets/affixes,
 sound effects). The WoW stages open the CASC storage and build each
 configured dungeon, then the soundscape and the menu backdrops. Creature
-spawns and stats come from nine AzerothCore `.sql` files, downloaded from
-their repository at build time unless you point `--ac` at a local copy.
+spawns and stats come from nine AzerothCore `.sql` tables. The rows the
+configured dungeons need ship in `pipeline/ac_data/` (regenerate with
+`pipeline/trim_ac.py` after adding a dungeon); `--refresh-ac` downloads the
+full current dumps instead, and `--ac` points at a local checkout. Both
+install paths are auto-detected (Battle.net's product database, the
+registry, the usual folders) when not given; `--detect` shows what is found.
 `--skip-d2` and `--skip-wow` run one half.
 
 Individual stages, for iterating on one thing:
@@ -181,8 +185,9 @@ offer anyway.
 No Diablo II or World of Warcraft content is in this repository or in the
 binary distribution. `pipeline/` reads the player's own installs and writes
 the derived assets to the player's own machine; `assets/` is git-ignored and
-never shipped. Creature data comes from AzerothCore (AGPL-3.0), downloaded
-from their repository at build time rather than vendored here.
+never shipped. Creature spawn and stat data comes from AzerothCore
+(AGPL-3.0); the rows for the built dungeons are vendored in
+`pipeline/ac_data/` with attribution, unmodified apart from trimming.
 
 Third-party components and their terms — Godot Engine (MIT), StormLib (MIT),
 AzerothCore (AGPL-3.0) — are listed in [THIRD-PARTY.md](THIRD-PARTY.md).

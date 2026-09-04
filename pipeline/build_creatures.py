@@ -33,8 +33,23 @@ DEFIAS_HELM_RED_TEX = 138220
 GAME_SEQS = {0, 1, 4, 5, 9, 10, 16, 17, 18, 19, 31, 32, 51}
 
 # --- D2 stat mapping tuning -------------------------------------------------
-HP_TUNE = 0.18        # wow hp -> D2 hp
-DMG_TUNE = 0.60       # wow damage/hit -> D2 damage
+# M2 model name -> voice family in build_audio.CREATURE_SFX. Every family
+# listed has readable files in the local client (probed); models with no
+# usable set map to "" and rely on the generic swing/impact foley.
+VOICE_BY_MODEL = {
+    "Worgen": "worgen", "Wolf": "wolf", "DireWolf": "wolf", "Wolf_ghost": "wolf",
+    "FelBat": "bat", "Horse": "horse", "Rat": "rat", "Satyr": "satyr",
+    "Raptor": "raptor", "snake": "snake", "Serpent": "snake",
+    "Lasher": "lasher", "BogBeast": "bogbeast", "SeaTurtle": "seaturtle",
+    "FaerieDragon": "faeriedragon", "ThunderLizard": "thunderlizard",
+    "Frog": "frog", "Infernal": "infernal", "Skeleton": "skeleton",
+    "Murloc": "murloc", "GoblinMale": "goblin", "Ogre": "ogre",
+    "OrcMale": "orc", "NightElfMale": "nightelf", "TaurenMale": "tauren",
+    # the peasant greeting set never streamed; the human combat set does
+    "HumanMalePeasant": "human", "HumanMale": "human", "HumanThief": "human",
+    "HumanFemale": "human_female", "GoblinShredder": "shredder",
+}
+
 
 
 def sql_rows(path, pattern):
@@ -79,7 +94,20 @@ def f32(bits):
     return struct.unpack("<f", struct.pack("<I", bits))[0]
 
 
-def nearest_blp(s, fdid, span=10):
+# creaturedisplayinfoextra race id -> character/ folder
+RACE_FOLDER = {1: "human", 2: "orc", 3: "dwarf", 4: "nightelf", 5: "scourge",
+               6: "tauren", 7: "gnome", 8: "troll", 9: "goblin",
+               10: "bloodelf", 11: "draenei", 22: "worgen"}
+# flat colour for a hair geoset with no texture: dark brown reads as hair
+# at a glance; untextured it rendered bright white (Mr. Smite's mane)
+HAIR_FALLBACK_RGBA = (0.13, 0.09, 0.06, 1.0)
+
+CREATURE_TYPES = {1: "beast", 2: "dragonkin", 3: "demon", 4: "elemental",
+                  5: "giant", 6: "undead", 7: "humanoid", 8: "critter",
+                  9: "mechanical", 11: "totem"}
+
+
+def nearest_blp(s, fdid, span=30):
     for off in range(1, span):
         for cand in (fdid + off, fdid - off):
             try:
@@ -106,8 +134,17 @@ def xp_target(cfg):
     gd = json.loads((ASSETS / "gamedata.json").read_text())
     e = gd["experience"]
     hi = int(cfg["target_level"])
-    lo = max(13, hi - 4)
-    return int(str(e[hi])) - int(str(e[lo]))
+    lo = max(1, hi - 5)
+    return int(str(e[hi - 1])) - int(str(e[lo - 1]))
+
+
+def gd_monlvl():
+    gd = json.loads((ASSETS / "gamedata.json").read_text())
+    rows = gd.get("monlvl", [])
+    if not rows:
+        raise SystemExit("gamedata.json has no monlvl table: re-run the D2 "
+                         "table export (pipeline/d2/export_tables.py)")
+    return rows
 
 
 def load_stats(entries, spawns, cfg):
@@ -172,7 +209,19 @@ def load_stats(entries, spawns, cfg):
     print(f"level band: mean wow {mean_wow:.1f}, player ~{band_player}, "
           f"mlvl shift {shift}")
 
-    stats = {}
+    # D2's own monster curve: MonLvl.txt gives HP / damage / AC / AR / XP per
+    # monster level, and monstats scales each monster off it in percent. The
+    # WoW template supplies that percent: a creature's health and damage
+    # relative to its dungeon's average (rank and hp/dmg modifiers included),
+    # clamped to the band D2's normal monsters use. So the same level-1
+    # kobold in Ragefire and level-18 worgen in Shadowfang sit on one curve.
+    monlvl = {int(r["Level"]): r for r in gd_monlvl()}
+
+    def curve(m):
+        return monlvl.get(max(1, min(99, m)), monlvl[max(monlvl)])
+
+    wow_hp_of = {}
+    wow_dph_of = {}
     for entry in entries:
         f = tpl.get(entry)
         if f is None:
@@ -182,42 +231,64 @@ def load_stats(entries, spawns, cfg):
         crow = cls.get((lvl, ucls)) or cls.get((lvl, 1))
         if crow is None:
             continue
-        hp_mod = float(f[CT_HP_MOD])
-        dmg_mod = float(f[CT_DMG_MOD])
         atk_time = max(1.0, float(f[CT_ATK_TIME] or 2000) / 1000.0)
-        wow_hp = int(crow[CLS_BASEHP0]) * hp_mod
-        wow_dph = (float(crow[CLS_DMG_BASE])
-                   + int(crow[CLS_AP]) / 14.0) * atk_time * dmg_mod
+        wow_hp_of[entry] = int(crow[CLS_BASEHP0]) * float(f[CT_HP_MOD])
+        wow_dph_of[entry] = ((float(crow[CLS_DMG_BASE]) + int(crow[CLS_AP]) / 14.0)
+                             * atk_time * float(f[CT_DMG_MOD]))
+    normals = [e for e in wow_hp_of if e not in boss_entries]
+    mean_hp = sum(wow_hp_of[e] for e in normals) / max(1, len(normals))
+    mean_dph = sum(wow_dph_of[e] for e in normals) / max(1, len(normals))
+
+    stats = {}
+    for entry in entries:
+        f = tpl.get(entry)
+        if f is None or entry not in wow_hp_of:
+            continue
+        lvl = (int(f[CT_MINLVL]) + int(f[CT_MAXLVL])) // 2
+        ucls = int(f[CT_UNIT_CLASS]) or 1
+        atk_time = max(1.0, float(f[CT_ATK_TIME] or 2000) / 1000.0)
+        boss = entry in boss_entries
         mlvl = max(1, lvl - shift)
+        if boss:
+            mlvl += 3                  # D2 gives unique monsters +3 levels
+        row = curve(mlvl)
+        # relative toughness within the dungeon -> D2's monstats percent band
+        hp_pct = wow_hp_of[entry] / max(1.0, mean_hp)
+        dm_pct = wow_dph_of[entry] / max(1.0, mean_dph)
+        if boss:
+            hp_pct = min(6.0, max(3.0, hp_pct))    # super uniques: ~3-6x
+            dm_pct = min(1.9, max(1.3, dm_pct))    # UniqueDamageBonus 90%
+        else:
+            hp_pct = min(1.5, max(0.55, hp_pct))
+            dm_pct = min(1.5, max(0.55, dm_pct))
+        hp = row["HP"] * hp_pct
+        dm = row["DM"] * dm_pct
         vel = min(float(f[CT_SPEED_RUN]) * 7.0 * 0.9144 * 0.55, 4.2)
         archetype = "caster" if ucls == 8 else "melee"
         passive = int(f[CT_TYPE]) == 8          # critters ignore the player
-        boss = entry in boss_entries
-        if entry == final_entry:
-            tc = "Andariel"                      # act-boss-grade flavour
-        elif boss:
-            tc = "Act 1 Unique B"
-        elif archetype == "caster":
-            tc = "Act 1 Cast B"
-        else:
-            tc = "Act 1 Melee B"
         stats[entry] = {
             "wow_level": lvl,
             "Level": mlvl,
-            "minHP": round(wow_hp * HP_TUNE * 0.9, 1),
-            "maxHP": round(wow_hp * HP_TUNE * 1.1, 1),
-            "A1MinD": round(min(wow_dph * DMG_TUNE * 0.75, 55.0), 1),
-            "A1MaxD": round(min(wow_dph * DMG_TUNE * 1.25, 85.0), 1),
-            "A1TH": 30 + 6 * mlvl,
-            "AC": 6 + 4 * mlvl,
+            "minHP": round(hp * 0.9, 1),
+            "maxHP": round(hp * 1.1, 1),
+            "A1MinD": round(dm * 0.6, 1),
+            "A1MaxD": round(dm * 1.2, 1),
+            "A1TH": row["TH"],
+            "AC": row["AC"],
             "Velocity": round(vel, 2),
             "attack_time": round(atk_time, 2),
             "archetype": archetype,
+            # creature_template.type, for the "+% damage to undead/demons"
+            # item lines: 3 demon, 6 undead, 1 beast, 7 humanoid ...
+            "ctype": CREATURE_TYPES.get(int(f[CT_TYPE]), "other"),
             "passive": passive,
             "boss": boss,
             "final_boss": entry == final_entry,
-            "TC": tc,
-            "Exp": (5 * lvl + 45) * float(f[CT_EXP_MOD])
+            # drops are rolled in-game from the monster level and kind
+            # (Act-band treasure classes, D2's quality algorithm)
+            "kind": "final" if entry == final_entry else (
+                "boss" if boss else ("champion" if int(f[CT_RANK]) > 0 else "normal")),
+            "Exp": row["XP"] * float(f[CT_EXP_MOD])
                    * (1.5 if int(f[CT_RANK]) > 0 else 1.0)
                    * (3.0 if boss else 1.0),     # normalized below
         }
@@ -356,6 +427,7 @@ def build(s, dungeon_id, cfg, stats_only=False):
             continue
 
         textures, geosets = {}, None
+        flat_colors = {}      # texture slot -> RGBA when no texture can be found
         if extra_id and extra_id in cde.rows:
             erow = cde.rows[extra_id]
             race, sex, style = erow[1], erow[2], erow[5]
@@ -367,15 +439,44 @@ def build(s, dungeon_id, cfg, stats_only=False):
                     hair_geoset = hrow[3]
                     break
             geosets = {0, hair_geoset, 101, 201, 301, 401, 501, 702, 1301}
-            hair_tex = s.root.fdid_for_path("character/human/hair00_00.blp") \
-                if race == 1 else None
+            folder = RACE_FOLDER.get(race, "")
+            sexdir = "female" if sex == 1 else "male"
+            # hair: a per-race texture exists for the classic races; tauren,
+            # goblin and worgen keep theirs elsewhere (no readable path under
+            # any naming probed), so their hair falls back to a flat dark
+            # colour below rather than rendering untextured white
+            hair_tex = s.root.fdid_for_path(f"character/{folder}/hair00_00.blp") \
+                if folder else None
+            # body: the baked NPC texture, or — when that file is not in the
+            # local client (named in the root but never streamed, which is
+            # the common case) — the race's base skin, so the body is not
+            # left grey
+            skin_fallback = s.root.fdid_for_path(
+                f"character/{folder}/{sexdir}/{folder}{sexdir}skin00_00.blp") \
+                if folder else None
             for i, tex in enumerate(model.textures):
-                if tex["type"] == 1 and baked:
-                    textures[i] = blp_to_png(s.read_fdid(baked))
+                if tex["type"] == 1:
+                    for cand in (baked, skin_fallback):
+                        if not cand:
+                            continue
+                        try:
+                            textures[i] = blp_to_png(s.read_fdid(cand))
+                            break
+                        except CascError:
+                            continue
                 elif tex["type"] == 6 and hair_tex:
-                    textures[i] = blp_to_png(s.read_fdid(hair_tex))
+                    try:
+                        textures[i] = blp_to_png(s.read_fdid(hair_tex))
+                    except CascError:
+                        pass
                 elif tex["type"] == 0 and i < len(model.txid) and model.txid[i]:
                     textures[i] = blp_to_png(s.read_fdid(model.txid[i]))
+            # whatever slot is still bare (hair on races with no readable hair
+            # texture, and whichever type the tauren mane uses) renders as a
+            # flat dark colour instead of untextured white
+            for i in range(len(model.textures)):
+                if i not in textures:
+                    flat_colors[i] = HAIR_FALLBACK_RGBA
         else:
             vi = 0
             for i, tex in enumerate(model.textures):
@@ -405,11 +506,16 @@ def build(s, dungeon_id, cfg, stats_only=False):
                 w = weapon_for_item(item_id)
                 if w:
                     specs.append((slot_i + 1, w[0], w[1]))
-            if extra_id and extra_id in cde.rows:
-                h = helm_for_extra(extra_id, cde.rows[extra_id][1],
-                                   cde.rows[extra_id][2])
-                if h:
-                    specs.append((11, h[0], h[1]))
+        else:
+            specs = list(specs)
+        # the head item regardless of how the hands were chosen: hand-tuned
+        # weapons used to replace the whole list, which is why VanCleef lost
+        # the same Defias bandana every pirate around him was wearing
+        if extra_id and extra_id in cde.rows:
+            h = helm_for_extra(extra_id, cde.rows[extra_id][1],
+                               cde.rows[extra_id][2])
+            if h:
+                specs.append((11, h[0], h[1]))
         for attach_id, wfdid, wtex in specs:
             try:
                 wm = M2Model(s.read_fdid(wfdid))
@@ -435,15 +541,23 @@ def build(s, dungeon_id, cfg, stats_only=False):
         try:
             info = gltf_export.export_glb(
                 model, skin, textures, dest, seq_filter=GAME_SEQS,
-                allowed_geosets=geosets, attachments=attachments)
+                allowed_geosets=geosets, attachments=attachments,
+                flat_colors=flat_colors)
             if not info["animations"]:
                 info = gltf_export.export_glb(
                     model, skin, textures, dest, seq_filter=None,
-                    allowed_geosets=geosets, attachments=attachments)
+                    allowed_geosets=geosets, attachments=attachments,
+                    flat_colors=flat_colors)
         except (CascError, KeyError, ValueError, struct.error) as e:
             print(f"{entry} {name}: export failed: {e}")
             continue
+        # voice family: by model, overridable per entry from dungeon_config
+        # (an undead HumanMale in Shadowfang should not sound like a Defias
+        # miner). Families are the keys of build_audio.CREATURE_SFX.
+        voice = cfg.get("voices", {}).get(entry) \
+            or VOICE_BY_MODEL.get(model.name, "")
         manifest[entry] = {"name": name, "scale": scale,
+                           "model": model.name, "voice": voice,
                            "anims": info["animations"],
                            "stats": stats.get(entry, {})}
         print(f"{entry} {name}: {model.name} scale={scale:.2f} "

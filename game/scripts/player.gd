@@ -32,6 +32,7 @@ var attack_time := 0.0          # seconds remaining in the current attack
 var attack_release := 0.0       # time from attack start until the arrow leaves
 var _pending_slot := -1
 var _attack_len := 0.55
+var _ias := 1.0                  # attack speed factor of the swing in flight
 var _safe: Array[Vector3] = []
 # footstep surface, set per-dungeon from placements.json (stone/wood/dirt)
 var surface := "stone"
@@ -55,7 +56,8 @@ func _ready() -> void:
 	# proved undeliverable on this machine (focus=true, clicks and keys fine,
 	# zero motion). Hide the cursor, read its offset from centre every frame,
 	# warp it back. Plain WM_MOUSEMOVE path - works everywhere.
-	Input.mouse_mode = Input.MOUSE_MODE_HIDDEN
+	if not Cli.offscreen():
+		Input.mouse_mode = Input.MOUSE_MODE_HIDDEN
 	await get_tree().process_frame
 	if not is_inside_tree():
 		return
@@ -63,6 +65,10 @@ func _ready() -> void:
 
 
 func _center_mouse() -> void:
+	# offscreen captures must never touch the real cursor — the whole point is
+	# that the machine stays usable while they run
+	if Cli.offscreen():
+		return
 	var vp := get_viewport()
 	if vp == null:
 		return
@@ -71,7 +77,11 @@ func _center_mouse() -> void:
 	# never turns the camera (this replaced the old 2-frame settle window,
 	# which threw real motion away and made fast turns feel chunky)
 	_warp_comp = vp.get_mouse_position() - c
-	Input.warp_mouse(c)
+	# the viewport's own warp, not Input.warp_mouse: everything here is in
+	# canvas pixels, and in fullscreen the canvas is stretched, so a warp
+	# given in window pixels landed off-centre and the compensation above
+	# no longer cancelled it — every re-centre turned the camera
+	vp.warp_mouse(c)
 
 
 var look_enabled := true
@@ -99,8 +109,11 @@ var _refocus_swallow := false
 func _process(_dt: float) -> void:
 	if look_enabled and not ui_locked and _focused:
 		if _accum != Vector2.ZERO:
-			yaw -= _accum.x * SENS
-			pitch = clampf(pitch - _accum.y * SENS, -PITCH_LIMIT, PITCH_LIMIT)
+			# motion arrives in canvas pixels, which the stretch shrinks in
+			# fullscreen; scale back so a hand movement turns the same amount
+			var k: float = get_viewport().get_screen_transform().get_scale().x
+			yaw -= _accum.x * SENS * k
+			pitch = clampf(pitch - _accum.y * SENS * k, -PITCH_LIMIT, PITCH_LIMIT)
 			_accum = Vector2.ZERO
 		# rotation applied per rendered frame (not per physics tick) so the
 		# camera stays smooth when the frame rate drifts off 60
@@ -182,7 +195,9 @@ func die() -> void:
 func _start_attack(slot: int) -> void:
 	if attack_time > 0.0:
 		return
-	attack_time = _attack_len
+	# "+N% Increased Attack Speed" shortens the whole swing, release included
+	_ias = get_node("/root/GameState").attack_speed_factor()
+	attack_time = _attack_len / _ias
 	_pending_slot = slot
 
 
@@ -199,7 +214,7 @@ func _physics_process(dt: float) -> void:
 		var before := attack_time
 		attack_time -= dt
 		# release the arrow when the animation crosses its trigger frame
-		var rel := _attack_len - attack_release
+		var rel := (_attack_len - attack_release) / maxf(0.01, _ias)
 		if before > rel and attack_time <= rel and _pending_slot >= 0:
 			_fire(_pending_slot)
 			_pending_slot = -1
@@ -212,12 +227,17 @@ func _physics_process(dt: float) -> void:
 	if Input.is_key_pressed(KEY_A): input.x -= 1.0
 	if Input.is_key_pressed(KEY_D): input.x += 1.0
 
+	var gs := get_node("/root/GameState")
 	var want_run := Input.is_key_pressed(KEY_SHIFT) and stamina > 0.0
-	var speed := RUN if want_run else WALK
+	# "+N% Faster Run/Walk", "+N Maximum Stamina", "Heal Stamina +N%",
+	# "Slower Stamina Drain N%"
+	var speed: float = (RUN if want_run else WALK) * gs.run_speed_factor()
 	if want_run and input != Vector2.ZERO:
-		stamina = max(0.0, stamina - STAMINA_DRAIN * dt)
+		var drain := 1.0 - clampf(float(gs.mods.get("stamdrain", 0)) / 100.0, 0.0, 0.9)
+		stamina = max(0.0, stamina - STAMINA_DRAIN * drain * dt)
 	else:
-		stamina = min(STAMINA_MAX, stamina + STAMINA_REGEN * dt)
+		var regen := 1.0 + float(gs.mods.get("regen-stam", 0)) / 100.0
+		stamina = min(gs.stamina_max(), stamina + STAMINA_REGEN * regen * dt)
 
 	var wish := Vector3.ZERO
 	if input != Vector2.ZERO:
@@ -241,7 +261,10 @@ func _physics_process(dt: float) -> void:
 					STEP_TRIM)
 	else:
 		velocity.y -= GRAVITY * dt
+	var grounded := is_on_floor()
 	move_and_slide()
+	if grounded:
+		Stepper.climb(self, hv, dt)     # stairs: lift over risers the slide caught on
 
 	# footsteps and landing. Distance-driven cadence, so it speeds up with the
 	# player rather than ticking on a fixed timer; the surface picks the D2

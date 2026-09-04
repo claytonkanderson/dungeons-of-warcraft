@@ -1,5 +1,6 @@
 assets/
 game/.godot/
+game/override.cfg
 shots/
 video/
 __pycache__/

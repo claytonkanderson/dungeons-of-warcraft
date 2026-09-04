@@ -1,0 +1,87 @@
+-- MySQL dump 10.13  Distrib 8.0.34, for Win64 (x86_64)
+--
+-- Host: 127.0.0.1    Database: acore_world
+-- ------------------------------------------------------
+-- Server version	8.0.34
+
+/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
+/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
+/*!50503 SET NAMES utf8mb4 */;
+/*!40014 SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0 */;
+/*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
+/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
+/*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
+
+--
+-- Table structure for table `creature_equip_template`
+--
+
+DROP TABLE IF EXISTS `creature_equip_template`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `creature_equip_template` (
+  `CreatureID` int unsigned NOT NULL DEFAULT '0',
+  `ID` tinyint unsigned NOT NULL DEFAULT '1',
+  `ItemID1` int unsigned NOT NULL DEFAULT '0',
+  `ItemID2` int unsigned NOT NULL DEFAULT '0',
+  `ItemID3` int unsigned NOT NULL DEFAULT '0',
+  `VerifiedBuild` int DEFAULT NULL,
+  PRIMARY KEY (`CreatureID`,`ID`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `creature_equip_template`
+--
+
+LOCK TABLES `creature_equip_template` WRITE;
+/*!40000 ALTER TABLE `creature_equip_template` DISABLE KEYS */;
+INSERT INTO `creature_equip_template` VALUES
+(598,1,1910,0,0,18019),
+(622,1,1911,0,2552,18019),
+(634,1,1896,0,0,18019),
+(636,1,5285,0,0,18019),
+(639,1,2179,2147,0,18019),
+(641,1,1905,0,5856,18019),
+(644,1,3326,0,0,18019),
+(645,1,2200,0,0,18019),
+(646,1,2179,0,0,0),
+(646,2,2179,2179,0,0),
+(646,3,7230,0,0,0),
+(647,1,3368,0,0,18019),
+(657,1,1897,0,0,18019),
+(1725,1,5281,0,5259,18019),
+(1729,1,1907,0,0,18019),
+(1731,1,1906,0,0,18019),
+(1732,1,1907,0,0,18019),
+(1763,1,3361,0,0,18019),
+(3586,1,1910,0,0,18019),
+(3669,1,3494,1906,0,18019),
+(3670,1,1909,5286,0,18019),
+(3671,1,1908,0,0,18019),
+(3673,1,5287,0,0,18019),
+(3678,1,1908,0,0,18019),
+(3840,1,3494,35719,0,18019),
+(3849,1,1899,0,0,18019),
+(3872,1,4991,0,0,18019),
+(3873,1,2147,2052,0,18019),
+(3875,1,2827,0,0,1),
+(3877,1,3432,0,0,18019),
+(3887,1,11264,0,0,18019),
+(3947,1,5292,0,0,18019),
+(4275,1,6322,0,0,18019),
+(4278,1,41343,25818,0,18019),
+(4416,1,1910,0,0,18019),
+(4417,1,4991,0,2552,18019),
+(4418,1,2177,0,0,18019),
+(10000,1,6322,0,0,18019),
+(11318,1,1904,0,0,18019),
+(11322,1,10619,0,0,18019),
+(11323,1,3361,2052,0,18019),
+(11324,1,12937,0,0,18019),
+(11517,1,3350,0,0,18019),
+(11518,1,2559,0,0,18019),
+(11519,1,2179,0,0,18019),
+(11520,1,11321,0,0,18019),
+(36296,1,45214,0,0,18019);

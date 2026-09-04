@@ -8,7 +8,7 @@ roughly target_level-4 to target_level.
 
 DUNGEONS = {
     "deadmines": dict(
-        map_name="deadminesinstance", ac_map=36, target_level=26,
+        map_name="deadminesinstance", ac_map=36, target_level=15,
         bosses=["Rhahk'Zor", "Sneed's Shredder", "Sneed", "Gilnid",
                 "Mr. Smite", "Captain Greenskin", "Cookie",
                 "Edwin VanCleef", "Miner Johnson"],
@@ -33,7 +33,7 @@ DUNGEONS = {
         loot_generic=["Smite's Chest"],
     ),
     "ragefire-chasm": dict(
-        map_name="orgrimmarinstance", ac_map=389, target_level=18,
+        map_name="orgrimmarinstance", ac_map=389, target_level=5,
         bosses=["Oggleflint", "Taragaman the Hungerer",
                 "Jergosh the Invoker", "Bazzalan"],
         final_boss="Taragaman the Hungerer",
@@ -41,7 +41,7 @@ DUNGEONS = {
         footstep="stone",
     ),
     "wailing-caverns": dict(
-        map_name="wailingcaverns", ac_map=43, target_level=22,
+        map_name="wailingcaverns", ac_map=43, target_level=10,
         bosses=["Lady Anacondra", "Lord Cobrahn", "Kresh", "Lord Pythas",
                 "Skum", "Lord Serpentis", "Verdan the Everliving"],
         # Mutanus is event-summoned (no static spawn); Verdan ends the run
@@ -50,7 +50,7 @@ DUNGEONS = {
         footstep="dirt",
     ),
     "shadowfang-keep": dict(
-        map_name="shadowfang", ac_map=33, target_level=30,
+        map_name="shadowfang", ac_map=33, target_level=20,
         bosses=["Rethilgore", "Razorclaw the Butcher", "Baron Silverlaine",
                 "Commander Springvale", "Odo the Blindwatcher",
                 "Fenrus the Devourer", "Wolf Master Nandos",
@@ -58,5 +58,10 @@ DUNGEONS = {
         final_boss="Archmage Arugal",
         ambience=["shadowfangkeep", "shadowfang", "silverpine"],
         footstep="stone",
+        # the keep's humans are undead: the Forsaken voice set, not a living
+        # human's (there is no readable living-human set locally anyway)
+        voices={3872: "scourge", 3873: "scourge", 3875: "scourge",
+                3877: "scourge", 3887: "scourge", 4278: "scourge",
+                4275: "scourge", 3850: "scourge"},
     ),
 }

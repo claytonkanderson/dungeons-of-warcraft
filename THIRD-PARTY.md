@@ -77,12 +77,16 @@ implementation.
 
 ## AzerothCore — AGPL-3.0
 
-**Not redistributed.** Creature spawns, creature templates, class/level
-stats, gameobjects and area triggers come from AzerothCore's world database.
-The builder downloads those nine `.sql` files from AzerothCore's own repository onto the
-player's machine at build time (`ensure_ac()` in `pipeline/builder.py`); they
-are neither committed here nor bundled into any executable, and the parsers
-that read them are original code.
+**Redistributed in part, with attribution.** Creature spawns, creature
+templates, class/level stats, gameobjects and area triggers come from
+AzerothCore's world database. The rows describing the dungeons this game
+builds are vendored, unmodified apart from trimming, in `pipeline/ac_data/`
+(nine `.sql` tables, about 250 KB, produced by `pipeline/trim_ac.py`) and
+bundled into setup.exe so a build needs no network access. `--refresh-ac`
+downloads the full current dumps from AzerothCore's repository instead
+(`ensure_ac()` in `pipeline/builder.py`). The parsers that read them are
+original code. AzerothCore's data is licensed AGPL-3.0; that licence and
+their copyright notice travel with the vendored rows.
 
 <https://github.com/azerothcore/azerothcore-wotlk> · AGPL-3.0
 

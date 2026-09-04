@@ -55,8 +55,12 @@ def export_wmo_glb(root, groups, textures, out_path, meta_path=None,
             mat["alphaCutoff"] = 0.5
         elif m["blend"] >= 2:
             mat["alphaMode"] = "BLEND"
-        if m["flags"] & 0x04:
-            mat["doubleSided"] = True
+        # Every face two-sided, not only the ones WoW flags (0x04). WoW draws
+        # a group only through a visible portal, so the underside of a stair
+        # ramp or floor is never seen; without portal culling each one is a
+        # hole that shows the room above (Shadowfang's kennel hay hanging in
+        # the stair landing's ceiling).
+        mat["doubleSided"] = True
         materials_out.append(mat)
     liquid_mat = len(materials_out)
     materials_out.append({

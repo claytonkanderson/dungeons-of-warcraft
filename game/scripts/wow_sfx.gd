@@ -66,7 +66,12 @@ func voice(group: String, field: String, pos: Vector3, chance := 1.0) -> void:
 	if group == "" or (chance < 1.0 and randf() > chance):
 		return
 	var g: Dictionary = manifest.get("voices", {}).get(group, {})
-	_play_at(g.get(field, []), pos)
+	var names: Array = g.get(field, [])
+	# the player-race NPC sets (orc, tauren, night elf, ...) ship attack,
+	# wound and death but no aggro line — an attack bark serves as one
+	if names.is_empty() and field == "aggro":
+		names = g.get("attack", [])
+	_play_at(names, pos)
 
 
 func impact(kind: String, pos: Vector3, chance := 1.0) -> void:

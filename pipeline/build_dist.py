@@ -78,6 +78,9 @@ def build_builder():
                # the pipeline is loaded from sys.path at runtime, so it has to
                # travel as data laid out the way builder.py expects to find it
                "--add-data", f"{HERE / 'd2'}{os.pathsep}d2",
+               # the trimmed AzerothCore dumps (pipeline/trim_ac.py): the
+               # build reads these, so no download is needed at install time
+               "--add-data", f"{HERE / 'ac_data'}{os.pathsep}ac_data",
                # only the bundled data files import these, so name them and
                # let PyInstaller's own hooks pull in what each actually needs
                "--hidden-import", "PIL.Image",

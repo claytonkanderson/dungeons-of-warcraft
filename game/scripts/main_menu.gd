@@ -56,10 +56,11 @@ func _ready() -> void:
 	_refresh()
 	for a in OS.get_cmdline_user_args():
 		if str(a).begins_with("--menu-shot="):
+			if Cli.offscreen():
+				Cli.hide_window()
 			for i in range(12):
-				await RenderingServer.frame_post_draw
-			get_viewport().get_texture().get_image().save_png(
-				str(a).substr(12))
+				await get_tree().process_frame
+			await Cli.capture(get_viewport(), str(a).substr(12))
 			get_tree().quit()
 
 
@@ -424,3 +425,9 @@ func _enter(did: String) -> void:
 
 func _on_enter() -> void:
 	_enter(sel_dungeon)
+
+
+func _unhandled_key_input(e: InputEvent) -> void:
+	if e is InputEventKey and e.pressed and e.keycode == KEY_F11:
+		Cli.toggle_fullscreen()
+		get_viewport().set_input_as_handled()

@@ -3,16 +3,25 @@ extends CanvasLayer
 ## D2 UI: original 800-mode control panel with health/mana orb fills,
 ## assigned-skill icons, viewmodel, crosshair, Alt item labels.
 
-const PANEL_W := 704.0        # composited strip size
+const PANEL_W := 800.0        # the 800x600-mode panel, at D2's own layout
 const PANEL_H := 104.0
-# positions measured off the composited strip's gold borders
+# Everything below is in panel pixels, measured on a D2 800x600 screenshot
+# (panel top = screen y 496). The strip's six pieces sit at the offsets D2
+# draws them at, leaving 48 px gaps for the assigned-skill icons.
 var ORB_L := Vector2(33.0, 8.0)       # health orb top-left (80x80 fill)
-var ORB_R := Vector2(591.0, 8.0)      # mana orb top-left
-# gold-border-measured boxes in the composited 704x104 strip
-var SKILL_L := Vector2(158.0, 62.0)   # assigned skill icon boxes (30x38)
-var SKILL_R := Vector2(515.0, 62.0)
-const SKILL_SIZE := Vector2(30.0, 38.0)
-const BELT_X := 374.5                 # four 29x30 sockets, 31px pitch
+var ORB_R := Vector2(687.0, 8.0)      # mana orb top-left
+var SKILL_L := Vector2(117.0, 57.0)   # assigned skill icons, 48x48
+var SKILL_R := Vector2(635.0, 57.0)
+const SKILL_SIZE := Vector2(48.0, 48.0)
+# the red "+" buttons (level.dc6, 30x30 with a 26x27 red face): the
+# character one 43 px right of the left skill icon, the skills one 70 px
+# left of the right skill icon, both 8 px below the icons' top edge
+const PLUS_SIZE := Vector2(30.0, 30.0)
+const CHAR_PLUS := Vector2(208.0, 65.0)
+const SKILL_PLUS := Vector2(565.0, 65.0)
+const STAMINA_RECT := Rect2(277.0, 75.0, 95.0, 17.0)
+const STAMINA_COLOR := Color(0.80, 0.64, 0.27)
+const BELT_X := 422.5                 # four 29x30 sockets, 31px pitch
 const BELT_Y := 65.0
 const BELT_PITCH := 31.0
 const BELT_SIZE := Vector2(28.0, 30.0)
@@ -24,7 +33,6 @@ const XP_FILL := Color(0.50, 0.0, 0.48)
 const XP_GLINT := Color(0.72, 0.25, 0.70)
 
 var bow: TextureRect
-var info: Label
 var panel_ui: Control
 var _bob := 0.0
 var _kick := 0.0
@@ -71,6 +79,14 @@ class PanelControl:
 		var htint := Color(0.35, 1.0, 0.35) if gs.is_poisoned() else Color(1, 1, 1)
 		_orb(orb_h, hud.ORB_L, hfrac, s, htint)
 		_orb(orb_m, hud.ORB_R, mfrac, s)
+		# stamina: the gold bar in the track right of the run button
+		var pl: Player = hud.get_tree().get_first_node_in_group("player")
+		if pl != null:
+			var sfrac: float = clampf(pl.stamina / gs.stamina_max(), 0.0, 1.0)
+			if sfrac > 0.0:
+				draw_rect(Rect2(HUD.STAMINA_RECT.position * s,
+						Vector2(HUD.STAMINA_RECT.size.x * sfrac, HUD.STAMINA_RECT.size.y) * s),
+						HUD.STAMINA_COLOR)
 		# belt potions in the four panel sockets (keys 1-4)
 		var db = hud.get_node("/root/ItemDB")
 		for bi in range(4):
@@ -82,7 +98,7 @@ class PanelControl:
 				continue
 			var bpos := Vector2(HUD.BELT_X + bi * HUD.BELT_PITCH, HUD.BELT_Y) * s
 			draw_texture_rect(ptex, Rect2(bpos, HUD.BELT_SIZE * s), false)
-			var cnt := str(slot.get("count", 1))
+			var cnt := str(int(slot.get("count", 1)))
 			var font := ThemeDB.fallback_font
 			draw_string(font, bpos + Vector2(18, 12) * s, cnt,
 					HORIZONTAL_ALIGNMENT_LEFT, -1, maxi(1, int(10 * s)), Color(1, 1, 1))
@@ -125,6 +141,15 @@ class PanelControl:
 			var pos: Vector2 = (hud.SKILL_L if i == 0 else hud.SKILL_R) * s
 			if at != null:
 				draw_texture_rect(at, Rect2(pos, HUD.SKILL_SIZE * s), false)
+		# D2's red "+" buttons (level.dc6): the character button lights beside
+		# the left skill box while stat points are unspent, the skills button
+		# beside the right skill box while skill points are — and only then
+		var plus := hud._icon_tex(0, "ui/levelplus")
+		if plus != null:
+			if gs.stat_points > 0:
+				draw_texture_rect(plus, Rect2(HUD.CHAR_PLUS * s, HUD.PLUS_SIZE * s), false)
+			if gs.skill_points > 0:
+				draw_texture_rect(plus, Rect2(HUD.SKILL_PLUS * s, HUD.PLUS_SIZE * s), false)
 
 	func _orb(tex: Texture2D, tl: Vector2, frac: float, s: float,
 			tint := Color(1, 1, 1)) -> void:
@@ -154,11 +179,6 @@ func _ready() -> void:
 	panel_ui = PanelControl.new()
 	panel_ui.hud = self
 	add_child(panel_ui)
-
-	info = Label.new()
-	info.add_theme_color_override("font_color", Color(0.9, 0.85, 0.7))
-	info.add_theme_font_size_override("font_size", 16)
-	add_child(info)
 
 	gs.equipment_changed.connect(_update_viewmodel)
 	_update_viewmodel()
@@ -328,6 +348,3 @@ func _process(dt: float) -> void:
 	panel_ui.size = Vector2(vp.x, PANEL_H * s)
 	panel_ui.position = Vector2(0, vp.y - panel_ui.size.y - XP_H * s)
 	panel_ui.queue_redraw()
-	info.position = Vector2(30, 24)
-	info.text = "lvl %d   xp %d   skill pts %d   gold %d" % [
-		gs.level, gs.xp, gs.skill_points, gs.gold]

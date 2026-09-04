@@ -76,6 +76,15 @@ def build():
     ama = next((r for r in charstats if r.get('class', '').lower() == 'amazon'), None)
     out['charstats'] = ama or {}
 
+    # MonLvl.txt: the per-level monster curve (normal difficulty). The
+    # WoW-side build scales every creature off this, so all dungeons
+    # share D2's own HP/damage/AC/AR/XP progression.
+    monlvl = []
+    for r in read_table('monlvl.txt'):
+        if not r.get('Level', '').strip().isdigit():
+            continue
+        monlvl.append({k: int(r[k] or 0) for k in ('Level', 'AC', 'TH', 'HP', 'DM', 'XP')})
+    out['monlvl'] = monlvl
     exp = read_table('experience.txt')
     out['experience'] = [r.get('Amazon', '') for r in exp if r.get('Amazon')]
 

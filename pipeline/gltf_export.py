@@ -175,8 +175,11 @@ def export_static_glb(model, skin, textures, out_path):
 
 
 def export_glb(model, skin, textures, out_path, seq_filter=None,
-               allowed_geosets=None, attachments=None):
+               allowed_geosets=None, attachments=None, flat_colors=None):
     """textures: {m2_texture_index: png_bytes};
+    flat_colors: {m2_texture_index: (r, g, b, a)} for slots with no texture
+    to give — the material gets a baseColorFactor instead of rendering white
+    (hair geosets of races whose hair texture is not in the local client);
     allowed_geosets: set of submesh (geoset) ids to keep, None = all;
     attachments: [{'attach_id': int, 'model': M2Model, 'skin': Skin,
                    'textures': {idx: png}}] rigid meshes hung on the
@@ -264,6 +267,10 @@ def export_glb(model, skin, textures, out_path, seq_filter=None,
                     tex_out[tkey] = len(gl_textures) - 1
                 mat["pbrMetallicRoughness"]["baseColorTexture"] = \
                     {"index": tex_out[tkey]}
+            elif flat_colors and mdl is model and m2tex in flat_colors:
+                # no texture to give this slot: a flat colour, not white
+                mat["pbrMetallicRoughness"]["baseColorFactor"] = \
+                    list(flat_colors[m2tex])
             if blend == 1:
                 mat["alphaMode"] = "MASK"
                 mat["alphaCutoff"] = 0.5

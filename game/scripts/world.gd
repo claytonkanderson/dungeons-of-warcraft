@@ -42,6 +42,11 @@ func _spawn_gameobjects(placements: Dictionary) -> void:
 		# worse than no fixture at all.
 		if int(g["type"]) == 1:
 			continue
+		# Type 2 is QUESTGIVER: the "Mysterious <Dungeon> Chest" quest
+		# containers. They are big, they look like loot, and they belong to a
+		# quest this game does not have — not placed at all.
+		if int(g["type"]) == 2:
+			continue
 		var glb := wow_dir.path_join("gobj/%d.glb" % int(g["fdid"]))
 		var node: Node3D
 		var fresh := false
@@ -131,26 +136,29 @@ func _try_interact() -> bool:
 			"chest":
 				it["used"] = true
 				get_node("/root/Sfx").event_ui("pickup")
+				# D2's chest class for the act; the big reward chests roll it
+				# twice and floor at magic like a champion's drop
+				var db := get_node("/root/ItemDB")
+				var gen := get_node("/root/ItemGen")
 				var big: bool = str(it["name"]).containsn("smite") \
 						or str(it["name"]).containsn("mysterious")
-				var rolls := 2 if big else \
-						(1 if str(it["name"]).containsn("battered") else 0)
-				for i in range(rolls):
-					var inst: Dictionary = get_node("/root/ItemGen") \
-							.roll_drop(gs.level)
-					if inst.is_empty():
-						continue
-					var qi := GroundItem.new()
-					add_child(qi)
-					qi.drop_instance(inst)
-					qi.global_position = pos + Vector3(
-							randf_range(-0.6, 0.6), 0.05, randf_range(-0.6, 0.6))
-					ground_items.append(qi)
-				var gg := GroundItem.new()
-				add_child(gg)
-				gg.drop("gold", randi_range(60, 180))
-				gg.global_position = pos + Vector3(0, 0.05, 0.4)
-				ground_items.append(gg)
+				var tc: String = db.tc_for(gs.level, "chest")
+				for i in range(2 if big else 1):
+					for res in db.roll(tc, gs.level):
+						var qi := GroundItem.new()
+						add_child(qi)
+						if int(res["gold"]) > 0:
+							qi.drop("gold", int(res["gold"]))
+						else:
+							var inst: Dictionary = gen.roll_item(str(res["code"]), gs.level,
+									db.quality_bonus(tc, "chest"), "magic" if big else "")
+							if inst.is_empty():
+								qi.drop(res["code"], 0)
+							else:
+								qi.drop_instance(inst)
+						qi.global_position = pos + Vector3(
+								randf_range(-0.6, 0.6), 0.05, randf_range(-0.6, 0.6))
+						ground_items.append(qi)
 			"vein":
 				it["used"] = true
 				get_node("/root/WowSfx").impact("wood", pos, 0.8)
@@ -212,6 +220,13 @@ func _ready() -> void:
 	_at_override = Cli.vec3("--at=", Vector3.INF)
 	wow_dir = _assets_dir().path_join("wow/%s" % gs.current_dungeon)
 
+	# loading screen: the dungeon's backdrop and name while the world builds.
+	# Everything below is synchronous, so yield two frames first so it draws
+	# instead of the player staring at a frozen frame for the load.
+	var loading := _loading_screen(str(gs.current_dungeon))
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	_lighting()
 	var placements := _load_json(wow_dir.path_join("placements.json"))
 	if placements.is_empty():
@@ -232,6 +247,7 @@ func _ready() -> void:
 	hud_node = HUD.new()
 	add_child(hud_node)
 	player.hud = hud_node
+	loading.queue_free()
 	inv_ui = InventoryUI.new()
 	add_child(inv_ui)
 	tree_ui = SkillTreeUI.new()
@@ -261,6 +277,10 @@ func _ready() -> void:
 	gs.equipment_changed.connect(player.refresh_attack_style)
 	player.refresh_attack_style()
 
+	# every verification mode keeps the window minimized under --offscreen,
+	# so probes can run while the machine is in use
+	if Cli.offscreen():
+		Cli.hide_window()
 	if _shot_dir != "":
 		await _spawn_shots()
 		get_tree().quit()
@@ -269,6 +289,91 @@ func _ready() -> void:
 		get_tree().quit()
 	elif OS.get_cmdline_user_args().has("--ui-test"):
 		await _ui_test()
+		get_tree().quit()
+	elif OS.get_cmdline_user_args().has("--item-test"):
+		_item_test()
+		get_tree().quit()
+	elif OS.get_cmdline_user_args().has("--loot-test"):
+		_loot_test()
+		get_tree().quit()
+	elif OS.get_cmdline_user_args().has("--what-here"):
+		# which placed models' world bounds enclose the camera: the engine's
+		# own transforms, so no offline reconstruction can be wrong
+		await get_tree().process_frame
+		await get_tree().process_frame
+		var cam: Vector3 = player.get_node("Camera3D").global_position
+		var names := _load_json(wow_dir.path_join("doodads/names.json"))
+		var placed: Array = []
+		var stack: Array = [self]
+		while not stack.is_empty():
+			var n: Node = stack.pop_back()
+			if n is Node3D and n.has_meta("fdid"):
+				var lo := Vector3.INF
+				var hi := -Vector3.INF
+				for mi in _find_meshes(n):
+					var ab: AABB = mi.global_transform * mi.get_aabb()
+					lo = lo.min(ab.position)
+					hi = hi.max(ab.end)
+				if lo.x < hi.x:
+					placed.append([n, AABB(lo, hi - lo)])
+			stack.append_array(n.get_children())
+		# everything close, whatever direction: the stray objects overhead
+		var near := []
+		for pr in placed:
+			var box: AABB = pr[1]
+			var q := cam.clamp(box.position, box.end)
+			if cam.distance_to(q) < 15.0:
+				var n: Node3D = pr[0]
+				near.append([cam.distance_to(q), "%s fdid=%d %s at %s scale=%.2f size=%s parent=%s" % [
+						n.get_meta("src"), n.get_meta("fdid"),
+						str(names.get(str(n.get_meta("fdid")), "")),
+						n.global_position, n.scale.x, box.size, n.get_parent().name]])
+		near.sort_custom(func(a, b): return a[0] < b[0])
+		print("WHAT-HERE within 15 m: %d placements" % near.size())
+		for h in near.slice(0, 20):
+			print("  %5.1f m  %s" % [h[0], h[1]])
+		# the four capture directions: what does the crosshair ray hit first
+		for k in 4:
+			var dir: Vector3 = Basis(Vector3.UP, spawn_yaw + k * PI / 2.0) * Vector3(0, 0, -1)
+			var hits := []
+			for pr in placed:
+				var hp = (pr[1] as AABB).intersects_ray(cam, dir)
+				if hp != null and cam.distance_to(hp) < 40.0:
+					var n: Node3D = pr[0]
+					hits.append([cam.distance_to(hp), "%s fdid=%d %s at %s scale=%.2f size=%s" % [
+							n.get_meta("src"), n.get_meta("fdid"),
+							str(names.get(str(n.get_meta("fdid")), "")),
+							n.global_position, n.scale.x, (pr[1] as AABB).size]])
+			hits.sort_custom(func(a, b): return a[0] < b[0])
+			print("WHAT-HERE dir %d: %d placements on the crosshair ray within 40 m" % [k, hits.size()])
+			for h in hits.slice(0, 6):
+				print("  %5.1f m  %s" % [h[0], h[1]])
+		get_tree().quit()
+	elif OS.get_cmdline_user_args().has("--stair-test"):
+		# push the player up the entrance staircase with and without the
+		# stepper and report height gained: risers are climbed, not walls.
+		# Shadowfang's grand stair is the reference (3.7 m up / 31 m along
+		# with the stepper, 1.2 m / 7.5 m without, when this landed)
+		var fwd: Vector3 = Basis(Vector3.UP, spawn_yaw) * Vector3(0, 0, -1)
+		for use_step in [false, true]:
+			player.global_position = spawn
+			player.velocity = Vector3.ZERO
+			for f in range(240):
+				await get_tree().physics_frame
+			var y0 := player.global_position.y
+			for f in range(300):
+				player.velocity.x = fwd.x * 4.2
+				player.velocity.z = fwd.z * 4.2
+				player.velocity.y = 0.0 if player.is_on_floor() else player.velocity.y - 22.0 / 60.0
+				var g := player.is_on_floor()
+				var before_p := player.global_position
+				player.move_and_slide()
+				if use_step and g:
+					Stepper.climb(player, Vector3(fwd.x, 0, fwd.z) * 4.2, 1.0 / 60.0)
+				await get_tree().physics_frame
+			print("STAIR TEST stepper=%s: climbed %.2f m, moved %.1f m" % [
+					use_step, player.global_position.y - y0,
+					(player.global_position - spawn).length()])
 		get_tree().quit()
 	elif OS.get_cmdline_user_args().has("--walk-test"):
 		# stride around the cove ground between dock and ship — the area
@@ -305,6 +410,13 @@ func _ready() -> void:
 		get_tree().quit()
 
 
+func _ui_shot(path: String) -> void:
+	## settle the panel for a few frames, then capture (offscreen-safe)
+	for i in range(8):
+		await get_tree().process_frame
+	await Cli.capture(get_viewport(), path)
+
+
 func _ui_test() -> void:
 	var shots := ProjectSettings.globalize_path("res://../shots")
 	DirAccess.make_dir_recursive_absolute(shots)
@@ -315,31 +427,25 @@ func _ui_test() -> void:
 	for i in range(3):
 		var inst: Dictionary = gen.roll_drop(10)
 		gs.inv_try_add(str(inst.get("code", "")), inst)
-	for i in range(8):
-		await RenderingServer.frame_post_draw
-	get_viewport().get_texture().get_image().save_png(shots + "/ui_hud.png")
+	# a few skill levels so the tree's per-socket numbers are in the capture
+	for sk in ["Magic Arrow", "Magic Arrow", "Fire Arrow", "Cold Arrow"]:
+		if gs.skill_points > 0:
+			gs.allocate(sk)
+	await _ui_shot(shots + "/ui_hud.png")
 	char_ui.toggle()
 	_sync_ui()
-	for i in range(8):
-		await RenderingServer.frame_post_draw
-	get_viewport().get_texture().get_image().save_png(shots + "/ui_char.png")
+	await _ui_shot(shots + "/ui_char.png")
 	char_ui.toggle()
 	inv_ui.toggle()
 	_sync_ui()
-	for i in range(8):
-		await RenderingServer.frame_post_draw
-	get_viewport().get_texture().get_image().save_png(shots + "/ui_inv.png")
+	await _ui_shot(shots + "/ui_inv.png")
 	inv_ui.toggle()
 	tree_ui.toggle()
 	_sync_ui()
-	for i in range(8):
-		await RenderingServer.frame_post_draw
-	get_viewport().get_texture().get_image().save_png(shots + "/ui_tree.png")
+	await _ui_shot(shots + "/ui_tree.png")
 	tree_ui.toggle()
 	toggle_menu()
-	for i in range(8):
-		await RenderingServer.frame_post_draw
-	get_viewport().get_texture().get_image().save_png(shots + "/ui_menu.png")
+	await _ui_shot(shots + "/ui_menu.png")
 	print("ui captures done")
 
 
@@ -432,6 +538,11 @@ func _build_world(placements: Dictionary) -> void:
 				continue    # water surfaces are visual only
 			mi.create_trimesh_collision()
 			mesh_count += 1
+			if Cli.has("--two-sided"):
+				for s in mi.mesh.get_surface_count():
+					var m := mi.get_active_material(s)
+					if m is BaseMaterial3D:
+						m.cull_mode = BaseMaterial3D.CULL_DISABLED
 	# Whether a prop blocks movement is the model's own answer: the pipeline
 	# lists the fdids whose M2 carries collision geometry. Sizing a collider
 	# off the render mesh instead made the giant ferns solid, and their trimesh
@@ -442,10 +553,14 @@ func _build_world(placements: Dictionary) -> void:
 	for fd in placements.get("solid", []):
 		solid[int(fd)] = true
 	var solid_known: bool = placements.has("solid")
-	mesh_count += _place_set(placements.get("doodads", []), wmo_nodes,
-			solid, solid_known)
-	mesh_count += _place_set(placements.get("props", []), wmo_nodes,
-			solid, solid_known)
+	# --no-doodads / --no-props: diagnostic captures that show which list a
+	# piece of scenery comes from (or that it is part of the WMO itself)
+	if not Cli.has("--no-doodads"):
+		mesh_count += _place_set(placements.get("doodads", []), wmo_nodes,
+				solid, solid_known)
+	if not Cli.has("--no-props"):
+		mesh_count += _place_set(placements.get("props", []), wmo_nodes,
+				solid, solid_known)
 	print("collision built for %d meshes" % mesh_count)
 
 	# outdoor terrain + water from the ADT pass (optional; run build_terrain.py)
@@ -526,6 +641,8 @@ func _place_set(entries: Array, wmo_nodes: Dictionary, solid: Dictionary,
 			node.rotation.y = d["yaw"]
 		var sc: float = d.get("scale", 1.0)
 		node.scale = Vector3.ONE * sc
+		node.set_meta("fdid", int(d["fdid"]))
+		node.set_meta("src", "doodad" if d.has("parent_uid") else "prop")
 		placed += 1
 		if fresh:  # duplicates inherit the collision children
 			for mi in _find_meshes(node):
@@ -537,6 +654,55 @@ func _place_set(entries: Array, wmo_nodes: Dictionary, solid: Dictionary,
 					collisions += 1
 	print("placed %d instances (%d with collision)" % [placed, collisions])
 	return collisions
+
+
+func _loading_screen(did: String) -> CanvasLayer:
+	## Full-screen backdrop + dungeon name shown while the world builds. The
+	## painted zone art (menu backdrops) stands in for WoW's loading screens,
+	## which are not in the local client data.
+	var layer := CanvasLayer.new()
+	layer.layer = 50
+	add_child(layer)
+	var bg := ColorRect.new()
+	bg.color = Color(0, 0, 0)
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	layer.add_child(bg)
+	var img := Image.load_from_file(ProjectSettings.globalize_path(
+			Paths.asset("wow/backdrops/%s.png" % did)))
+	if img != null:
+		var tr := TextureRect.new()
+		tr.texture = ImageTexture.create_from_image(img)
+		tr.set_anchors_preset(Control.PRESET_FULL_RECT)
+		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		layer.add_child(tr)
+	var name := Label.new()
+	name.text = get_node("/root/Dungeons").display_name(did)
+	name.add_theme_font_size_override("font_size", 44)
+	name.add_theme_color_override("font_color", Color(0.9, 0.82, 0.6))
+	name.add_theme_color_override("font_outline_color", Color(0, 0, 0))
+	name.add_theme_constant_override("outline_size", 10)
+	name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	name.offset_left = -400
+	name.offset_right = 400
+	name.offset_top = -130
+	name.offset_bottom = -70
+	layer.add_child(name)
+	var sub := Label.new()
+	sub.text = "Loading…"
+	sub.add_theme_font_size_override("font_size", 20)
+	sub.add_theme_color_override("font_color", Color(0.75, 0.7, 0.6))
+	sub.add_theme_color_override("font_outline_color", Color(0, 0, 0))
+	sub.add_theme_constant_override("outline_size", 6)
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sub.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	sub.offset_left = -200
+	sub.offset_right = 200
+	sub.offset_top = -66
+	sub.offset_bottom = -36
+	layer.add_child(sub)
+	return layer
 
 
 func unstuck_player() -> void:
@@ -632,7 +798,9 @@ func _spawn_creatures(entries: Array) -> void:
 		add_child(mob)
 		mob.setup(str(info.get("name", key)), info, _find_anim_player(model),
 				radius)
-		mob.voice = str(VOICE_MAP.get(int(c["entry"]), ""))
+		# the pipeline assigns a voice family per model (with per-dungeon
+		# overrides); the entry map is only a fallback for older manifests
+		mob.voice = str(info.get("voice", VOICE_MAP.get(int(c["entry"]), "")))
 		mob.impact_kind = "heavy" if int(c["entry"]) in HEAVY_HITTERS else "sword"
 		mob.target = player
 		mob.died.connect(_on_monster_died)
@@ -664,7 +832,7 @@ func spawn_enemy_missile(origin: Vector3, dir: Vector3, mob: WowCreature) -> voi
 			float(mob.stats.get("A1MaxD", 10)))
 	enemy_missiles.append({"node": node, "vel": dir * mob.ranged_vel,
 			"life": 2.6, "dmg": dmg, "etype": mob.ranged_etype,
-			"ar": float(mob.stats.get("A1TH", 40)) + mob.mlevel * 5.0,
+			"ar": float(mob.stats.get("A1TH", 40)),
 			"mlvl": mob.mlevel, "explode": mob.ranged_explode})
 
 
@@ -678,13 +846,14 @@ func _update_enemy_missiles(dt: float) -> void:
 		m["life"] -= dt
 		var to_p := player.global_position + Vector3(0, 1.0, 0) - node.global_position
 		if to_p.length() < 0.85:
-			var chance := GameState.chance_to_hit(m["ar"], 25.0 + gs.player_defense(),
+			var chance := GameState.chance_to_hit(m["ar"],
+					gs.player_defense() + float(gs.mods.get("ac-miss", 0)),
 					int(m["mlvl"]), gs.level)
 			if randf() < chance and randf() >= gs.avoid_chance():
-				var resf: float = 1.0 - gs.resist(str(m["etype"])) / 100.0
-				var dmg: float = m["dmg"] * resf
 				get_node("/root/Sfx").event("player_gethit", node.global_position, 0.4)
-				if gs.take_damage(dmg) and player.has_method("die"):
+				var et := str(m["etype"])
+				if gs.take_damage(m["dmg"], et if et != "" else "phys", true) \
+						and player.has_method("die"):
 					player.die()
 			m["life"] = 0.0
 		if m["life"] <= 0.0:
@@ -725,6 +894,28 @@ func _skill_impact(a: Dictionary, pos: Vector3) -> void:
 				mob.burn(4.0 * lvl * GameState.DMG_MULT / 5.0, 3.0)
 
 
+func _hit_monster(mob: WowCreature, ranged: bool, extra: float) -> void:
+	## One player blow landing: physical + item elemental damage, crushing
+	## blow, open wounds, cold slow and poison from the gear, and the life and
+	## mana the blow leeches back. extra: a skill's own elemental damage.
+	var gs := get_node("/root/GameState")
+	var h: Dictionary = gs.roll_player_hit(ranged, str(mob.stats.get("ctype", "")))
+	var total: float = float(h["phys"]) + extra
+	for el in h["elem"]:
+		total += float(h["elem"][el])
+	if float(h["cold_len"]) > 0.0:
+		mob.slow(float(h["cold_len"]), 0.5)
+	if float(h["pois_total"]) > 0.0:
+		mob.burn(float(h["pois_total"]) / maxf(0.5, float(h["pois_len"])), float(h["pois_len"]))
+	if h["openwounds"]:
+		mob.burn(float(h["ow_dps"]), 8.0)
+	if h["crush"]:
+		# D2 halves crushing blow against bosses
+		total += mob.hp * float(h["crush_frac"]) * (0.5 if mob.is_boss else 1.0)
+	gs.on_hit_dealt(h)
+	mob.take_damage(total)
+
+
 func _melee_params() -> Vector2:
 	## (reach, half-arc): bigger D2 weapons cleave further and wider —
 	## a dagger pokes, a great poleaxe sweeps the whole doorway.
@@ -760,11 +951,7 @@ func _melee_swing(origin: Vector3, dir: Vector3) -> void:
 			continue
 		if flat_dir.angle_to(to.normalized()) > p.y:
 			continue
-		var wd: Vector2 = gs.weapon_damage()
-		var dmg := randf_range(wd.x, wd.y)
-		if randf() < gs.crit_chance():
-			dmg *= 2.0
-		mob.take_damage(dmg + gs.gear_elemental() * GameState.DMG_MULT)
+		_hit_monster(mob, false, 0.0)
 		if not connected:
 			connected = true
 			sfx.event("blade_impact", mob.global_position)
@@ -839,6 +1026,13 @@ func _on_fire(slot: int, origin: Vector3, dir: Vector3) -> void:
 	if gs.mana < cost:
 		skill = "Attack"        # D2 falls back to normal attack when oom
 		cost = 0.0
+	# "Fires Magic Arrows" / "Fires Explosive Arrows": the bow converts a plain
+	# attack into that skill at the item's level, at no mana cost
+	if skill == "Attack" and not player.melee:
+		if int(gs.mods.get("magicarrow", 0)) > 0:
+			skill = "Magic Arrow"
+		elif int(gs.mods.get("explosivearrow", 0)) > 0:
+			skill = "Exploding Arrow"
 	gs.mana -= cost
 	var lvl: int = maxi(1, gs.skill_level(skill))
 	var count := 1
@@ -946,21 +1140,18 @@ func _physics_process(dt: float) -> void:
 			if col is WowCreature and col.state != WowCreature.State.DEAD:
 				# an arrow that physically connects always hits — the FPS aim
 				# replaces D2's attack-rating roll for missiles
-				var wd: Vector2 = gs.weapon_damage()
-				var dmg := randf_range(wd.x, wd.y)
-				if randf() < gs.crit_chance():
-					dmg *= 2.0
-				dmg += gs.gear_elemental() * GameState.DMG_MULT
+				# the skill's own elemental damage rides on top of the blow
+				var extra := 0.0
 				var edmg: Vector2 = a.get("edmg", Vector2.ZERO)
 				if edmg.y > 0.0:
-					dmg += randf_range(edmg.x, edmg.y) * GameState.DMG_MULT
+					extra = randf_range(edmg.x, edmg.y) * GameState.DMG_MULT
 				var sk := str(a.get("skill", ""))
 				if a.get("etype", "") == "cold":
 					var factor := 0.25 if sk in ["Ice Arrow", "Freezing Arrow"] else 0.4
 					col.slow(2.0 + 0.5 * gs.skill_level(sk), factor)
 				if sk == "Immolation Arrow":
 					col.burn(6.0 * gs.skill_level(sk) * GameState.DMG_MULT / 5.0, 3.0)
-				col.take_damage(dmg)
+				_hit_monster(col, true, extra)
 				get_node("/root/Sfx").event("arrow_impact", hit["position"])
 				_skill_impact(a, hit["position"])
 				if randf() < gs.pierce_chance():
@@ -986,43 +1177,38 @@ func _physics_process(dt: float) -> void:
 # Loot
 # ---------------------------------------------------------------------------
 func _on_monster_died(dead: WowCreature) -> void:
-	# treasure-class flavour drops (gold, potions, bases)
-	var tc := str(dead.stats.get("TC", ""))
-	for res in get_node("/root/ItemDB").roll(tc):
+	# D2's drop: the monster's treasure class (by level and kind), rolled
+	# through with its NoDrop and Picks; every base that comes out goes
+	# through the ItemRatio quality roll with the class's magic-find bonus.
+	# Champions and uniques floor their drops at magic, as D2 does.
+	var db := get_node("/root/ItemDB")
+	var gen := get_node("/root/ItemGen")
+	var gs := get_node("/root/GameState")
+	var kind := str(dead.stats.get("kind", "boss" if dead.is_boss else "normal"))
+	if dead.is_final_boss:
+		kind = "final"
+	var tc: String = db.tc_for(dead.mlevel, kind, str(dead.stats.get("archetype", "melee")))
+	var bonus: Dictionary = db.quality_bonus(tc, kind)
+	var minq := "magic" if kind in ["boss", "final", "champion"] else ""
+	for res in db.roll(tc, dead.mlevel):
 		var gi := GroundItem.new()
 		add_child(gi)
-		var minst: Dictionary = {}
-		if int(res["gold"]) == 0:
-			minst = get_node("/root/ItemGen").maybe_magic(str(res["code"]), dead.mlevel)
-		if minst.is_empty():
-			gi.drop(res["code"], res["gold"])
+		if int(res["gold"]) > 0:
+			var amount: int = int(res["gold"]) * (100 + int(gs.mods.get("gold%", 0))) / 100
+			gi.drop("gold", maxi(1, amount))
 		else:
-			gi.drop_instance(minst)
+			var inst: Dictionary = gen.roll_item(str(res["code"]), dead.mlevel, bonus, minq)
+			if inst.is_empty():
+				gi.drop(res["code"], 0)
+			else:
+				gi.drop_instance(inst)
 		var a := randf() * TAU
-		var r := randf_range(0.3, 1.0)
+		var r := randf_range(0.3, 1.4) if kind != "normal" else randf_range(0.3, 1.0)
 		gi.global_position = dead.global_position \
 				+ Vector3(cos(a) * r, 0.02, sin(a) * r)
 		ground_items.append(gi)
 	get_node("/root/Sfx").event("flippy", dead.global_position)
-	# quality drops: common mobs 70% of the time, mini-bosses a handful,
-	# a shower for the Kingpin himself
-	var ndrops := 1 if randf() < 0.7 else 0
-	if dead.is_final_boss:
-		ndrops = 7
-	elif dead.is_boss:
-		ndrops = 4
-	for di in range(ndrops):
-		var inst: Dictionary = get_node("/root/ItemGen").roll_drop(dead.mlevel)
-		if inst.is_empty():
-			continue
-		var qi := GroundItem.new()
-		add_child(qi)
-		qi.drop_instance(inst)
-		var qa := randf() * TAU
-		var qr := randf_range(0.5, 1.6) if ndrops > 1 else 0.7
-		qi.global_position = dead.global_position \
-				+ Vector3(cos(qa) * qr, 0.02, sin(qa) * qr)
-		ground_items.append(qi)
+	gs.on_kill(str(dead.stats.get("ctype", "")))
 	# boss-keyed doors swing open on the kill
 	for dr in doors:
 		if not dr["open"] and str(dr.get("rule", {}).get("boss", "")) == dead.cname:
@@ -1034,6 +1220,120 @@ func _on_monster_died(dead: WowCreature) -> void:
 			gsd.save_game(player)
 			hud_node.show_area("%s conquered!" % get_node("/root/Dungeons")
 					.display_name(gsd.current_dungeon), Color(0.3, 0.95, 0.3), 7.0)
+
+
+func _item_test() -> void:
+	## Every tier-A / Amazon-skill property on one item, equipped, and the
+	## numbers it changes — the check that a tooltip line does something.
+	var gs := get_node("/root/GameState")
+	var gen := get_node("/root/ItemGen")
+	var txt := get_node("/root/ItemText")
+	gs.level = 12
+	var before := {"hp_max": gs.hp_max, "mana_max": gs.mana_max,
+			"dmg": gs.weapon_damage(), "ias": gs.attack_speed_factor(),
+			"frw": gs.run_speed_factor(), "stam": gs.stamina_max(),
+			"pierce": gs.pierce_chance(), "res_fire": gs.resist("fire"),
+			"magic_arrow": gs.skill_level("Magic Arrow"),
+			"fire_arrow": gs.skill_level("Fire Arrow")}
+	var props := [
+		{"code": "dmg-fire", "param": "", "min": "10", "max": "20"},
+		{"code": "dmg-cold", "param": "50", "min": "3", "max": "6"},
+		{"code": "dmg-pois", "param": "75", "min": "34", "max": "34"},
+		{"code": "dmg-norm", "param": "", "min": "2", "max": "5"},
+		{"code": "lifesteal", "param": "", "min": "8", "max": "8"},
+		{"code": "manasteal", "param": "", "min": "5", "max": "5"},
+		{"code": "regen", "param": "", "min": "10", "max": "10"},
+		{"code": "regen-mana", "param": "", "min": "25", "max": "25"},
+		{"code": "hp%", "param": "", "min": "20", "max": "20"},
+		{"code": "hp/lvl", "param": "20", "min": "", "max": ""},
+		{"code": "stam", "param": "", "min": "30", "max": "30"},
+		{"code": "red-dmg", "param": "", "min": "3", "max": "3"},
+		{"code": "red-dmg%", "param": "", "min": "10", "max": "10"},
+		{"code": "res-fire", "param": "", "min": "60", "max": "60"},
+		{"code": "res-fire-max", "param": "", "min": "10", "max": "10"},
+		{"code": "abs-fire", "param": "", "min": "4", "max": "4"},
+		{"code": "crush", "param": "", "min": "25", "max": "25"},
+		{"code": "deadly", "param": "", "min": "30", "max": "30"},
+		{"code": "openwounds", "param": "", "min": "50", "max": "50"},
+		{"code": "pierce", "param": "", "min": "30", "max": "30"},
+		{"code": "dmg-undead", "param": "", "min": "50", "max": "50"},
+		{"code": "swing2", "param": "", "min": "20", "max": "20"},
+		{"code": "move2", "param": "", "min": "30", "max": "30"},
+		{"code": "ease", "param": "", "min": "-20", "max": "-20"},
+		{"code": "addxp", "param": "", "min": "10", "max": "10"},
+		{"code": "allskills", "param": "", "min": "1", "max": "1"},
+		{"code": "skilltab", "param": "0", "min": "2", "max": "2"},
+		{"code": "skill", "param": "7", "min": "3", "max": "3"},
+		{"code": "fireskill", "param": "", "min": "1", "max": "1"},
+		{"code": "magicarrow", "param": "", "min": "5", "max": "5"},
+	]
+	var inst := {"code": "sbw", "quality": "unique", "name": "Test Bow",
+			"base_name": "Short Bow", "props": gen._roll_vals(props),
+			"color": "ffffff", "reqlvl": 1}
+	gs.skills["Fire Arrow"] = 1
+	gs.equipped["weap"] = {"code": "sbw", "inst": inst}
+	gs._recalc()
+	print("ITEM-TEST lines:")
+	for pair in txt.lines_with_codes(inst):
+		print("   %s  %s" % ["ok " if gs.applies(str(pair[1])) else "dim", pair[0]])
+	print("ITEM-TEST hp_max %.0f -> %.0f   mana_max %.0f -> %.0f   stamina %.0f -> %.0f" % [
+			before.hp_max, gs.hp_max, before.mana_max, gs.mana_max, before.stam, gs.stamina_max()])
+	print("ITEM-TEST weapon dmg %s -> %s   ias %.2f -> %.2f   frw %.2f -> %.2f   pierce %.2f -> %.2f" % [
+			before.dmg, gs.weapon_damage(), before.ias, gs.attack_speed_factor(),
+			before.frw, gs.run_speed_factor(), before.pierce, gs.pierce_chance()])
+	print("ITEM-TEST fire resist %.0f -> %.0f (cap raised)   Magic Arrow lvl %d -> %d   Fire Arrow lvl %d -> %d" % [
+			before.res_fire, gs.resist("fire"), before.magic_arrow, gs.skill_level("Magic Arrow"),
+			before.fire_arrow, gs.skill_level("Fire Arrow")])
+	print("ITEM-TEST requirements for a bow needing 35 str: %s" % str(
+			gs.equip_requirements({"code": "lbw", "inst": inst})))
+	var h: Dictionary = gs.roll_player_hit(true, "undead")
+	print("ITEM-TEST one ranged hit vs undead: %s" % str(h))
+	var hp0: float = gs.hp
+	gs.take_damage(20.0, "fire")
+	print("ITEM-TEST 20 fire damage in -> %.1f taken (60%% resist, -4 absorb)" % (hp0 - gs.hp))
+	hp0 = gs.hp
+	gs.take_damage(20.0, "phys")
+	print("ITEM-TEST 20 physical in -> %.1f taken (-3 flat, -10%%)" % (hp0 - gs.hp))
+
+
+func _loot_test() -> void:
+	## Drop statistics for the levels the four dungeons span: per kind, the
+	## treasure class used, drops per kill, and the quality mix of gear.
+	var db := get_node("/root/ItemDB")
+	var gen := get_node("/root/ItemGen")
+	const N := 3000
+	for mlvl in [2, 4, 8, 12, 15, 18, 22]:
+		for kind in ["normal", "champion", "boss", "final"]:
+			var tc: String = db.tc_for(mlvl, kind, "melee")
+			var bonus: Dictionary = db.quality_bonus(tc, kind)
+			var minq := "magic" if kind != "normal" else ""
+			var drops := 0
+			var gold := 0
+			var gear := 0
+			var q := {"normal": 0, "magic": 0, "rare": 0, "set": 0, "unique": 0}
+			var sample := []
+			for i in range(N):
+				for res in db.roll(tc, mlvl):
+					drops += 1
+					if int(res["gold"]) > 0:
+						gold += 1
+						continue
+					var inst: Dictionary = gen.roll_item(str(res["code"]), mlvl, bonus, minq)
+					var it: Dictionary = db.item(str(res["code"]))
+					if not gen._equippable(gen.type_chain(str(it.get("type", "")))):
+						continue
+					gear += 1
+					var qual := str(inst.get("quality", "normal"))
+					q[qual] = int(q[qual]) + 1
+					if qual in ["unique", "set"] and sample.size() < 3:
+						sample.append("%s (%s, rlvl %d)" % [inst.get("name", ""),
+								inst.get("base_name", ""), int(inst.get("reqlvl", 0))])
+			print("LOOT mlvl %2d %-8s %-22s drops/kill %.2f  gold %.2f  gear/kill %.2f  "
+					% [mlvl, kind, tc, float(drops) / N, float(gold) / N, float(gear) / N]
+					+ "quality n/m/r/s/u %.0f%% %.0f%% %.1f%% %.1f%% %.1f%%  %s" % [
+					100.0 * q["normal"] / maxi(1, gear), 100.0 * q["magic"] / maxi(1, gear),
+					100.0 * q["rare"] / maxi(1, gear), 100.0 * q["set"] / maxi(1, gear),
+					100.0 * q["unique"] / maxi(1, gear), " | ".join(sample)])
 
 
 func _pickup_nearest() -> void:
@@ -1135,6 +1435,9 @@ func _unhandled_input(e: InputEvent) -> void:
 			if char_ui != null:
 				char_ui.toggle()
 				_sync_ui()
+		elif e.keycode == KEY_F11:
+			Cli.toggle_fullscreen()
+			get_viewport().set_input_as_handled()
 		elif e.keycode == KEY_ESCAPE:
 			# Esc closes panels first; with nothing open it toggles the menu
 			var closed := false
@@ -1228,16 +1531,18 @@ func _notification(what: int) -> void:
 # Verification modes
 # ---------------------------------------------------------------------------
 func _spawn_shots() -> void:
+	if Cli.offscreen():
+		Cli.hide_window()
 	await get_tree().process_frame
 	await get_tree().process_frame
 	DirAccess.make_dir_recursive_absolute(_shot_dir)
 	for k in 4:
 		player.yaw = spawn_yaw + k * PI / 2.0
-		await RenderingServer.frame_post_draw
-		await RenderingServer.frame_post_draw
-		get_viewport().get_texture().get_image().save_png(
-			_shot_dir.path_join("spawn_%d.png" % k))
-	print("spawn shots done")
+		await get_tree().process_frame
+		await Cli.capture(get_viewport(), _shot_dir.path_join("spawn_%d.png" % k))
+	print("spawn shots done (window %s)" % (
+			"minimized" if DisplayServer.window_get_mode()
+			== DisplayServer.WINDOW_MODE_MINIMIZED else "on screen"))
 
 
 func _combat_test() -> void:

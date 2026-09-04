@@ -81,6 +81,234 @@ def glb_bare_box(path):
     return n <= BARE_BOX_VERTS and span > 1.0     # already in metres
 
 
+TRUNK_H = 6.0          # trunk height when a model's own height is unknown
+
+
+FOLIAGE_MIN_H = 8.0     # metres: a tree, not a chair
+FOLIAGE_MIN_W = 5.0     # metres across: a canopy, not a pillar or banner
+
+
+def _glb_foliage(path):
+    """(height, radius, is_foliage, bottom) for an exported doodad, from its
+    geometry; bottom is how far the mesh reaches below its root (<= 0).
+
+    Trees are told apart from furniture by shape, not name: many modern M2s
+    carry no internal name at all (the Shadowfang pines are nameless), so a
+    name rule silently passes them. A tree is tall, wide, and drawn with an
+    alpha-masked material (leaf cards); a pillar is tall and narrow and
+    opaque, a banner tall and narrow, a chandelier hangs.
+    """
+    b = path.read_bytes()
+    ln = struct.unpack_from("<I", b, 12)[0]
+    j = json.loads(b[20:20 + ln])
+    lo = [1e9] * 3
+    hi = [-1e9] * 3
+    for mesh in j["meshes"]:
+        for prim in mesh["primitives"]:
+            a = j["accessors"][prim["attributes"]["POSITION"]]
+            for i in range(3):
+                lo[i] = min(lo[i], a["min"][i])
+                hi[i] = max(hi[i], a["max"][i])
+    h = max(0.0, hi[1] - lo[1])
+    w = max(hi[0] - lo[0], hi[2] - lo[2])
+    masked = any(m.get("alphaMode") == "MASK" for m in j.get("materials", []))
+    return (h, w / 2.0, (masked and h > FOLIAGE_MIN_H and w > FOLIAGE_MIN_W),
+            min(0.0, lo[1]))
+
+
+def _wmo_index(out, out_dir):
+    """uid -> placement, group boxes and lazily loaded triangles."""
+    wmos = {}
+    for w in out["wmos"]:
+        glb = out_dir / w["glb"]
+        meta_p = out_dir / w["glb"].replace(".glb", "_meta.json")
+        if not glb.exists() or not meta_p.exists():
+            continue
+        groups = json.loads(meta_p.read_text()).get("groups", [])
+        boxes = [(g["min"], g["max"]) for g in groups if g.get("min")]
+        wmos[int(w["uid"])] = {"pos": w["pos"], "yaw": w["yaw"],
+                               "boxes": boxes, "glb": glb, "tris": None}
+    return wmos
+
+
+def _tris_of(w):
+    if w["tris"] is None:           # load the WMO's triangles on demand
+        w["tris"] = _glb_tris(w["glb"])
+    return w["tris"]
+
+
+SINK_MIN = 0.2      # metres below the root before a doodad counts as sunk
+SINK_KEEP = 0.15    # how far below the floor a lifted doodad may still reach
+
+
+def lift_sunk_doodads(out, out_dir, bottoms):
+    """Raise WMO doodads whose mesh reaches through the floor they stand on.
+
+    WoW draws a group's doodads only while that group is visible through a
+    portal, so a hay pile sunk half a metre into the kennel floor is never
+    seen from the stair landing beneath it. Everything here is drawn always,
+    and the sunk half hangs from the landing's ceiling. bottoms: fdid -> how
+    far the model reaches below its root. A doodad is lifted only when the
+    sunk span actually crosses a WMO triangle — one sitting on open terrain,
+    or sunk into nothing, is left as placed.
+    """
+    wmos = _wmo_index(out, out_dir)
+    lifted = 0
+    for d in out["doodads"]:
+        w = wmos.get(int(d.get("parent_uid", -1)))
+        depth = -bottoms.get(d["fdid"], 0.0) * float(d.get("scale", 1.0))
+        if w is None or depth < SINK_MIN:
+            continue
+        x, y, z = d["pos"]
+        top, span = y + 0.05, -(depth + 0.1)
+        for a, b, c in _tris_of(w):
+            if max(a[1], b[1], c[1]) < top + span or min(a[1], b[1], c[1]) > top:
+                continue
+            if max(a[0], b[0], c[0]) < x - 1 or min(a[0], b[0], c[0]) > x + 1:
+                continue
+            if max(a[2], b[2], c[2]) < z - 1 or min(a[2], b[2], c[2]) > z + 1:
+                continue
+            if _seg_hits_tri((x, top, z), (0.0, span, 0.0), a, b, c):
+                d["pos"] = [x, y + depth - SINK_KEEP, z]
+                lifted += 1
+                break
+    return lifted
+
+
+def _glb_tris(path):
+    """[(a, b, c)] world-local triangles of every mesh in a GLB."""
+    b = path.read_bytes()
+    ln = struct.unpack_from("<I", b, 12)[0]
+    j = json.loads(b[20:20 + ln])
+    blob = b[20 + ln + 8:]
+
+    def acc(i):
+        a = j["accessors"][i]
+        v = j["bufferViews"][a["bufferView"]]
+        ct = {5121: ("B", 1), 5123: ("H", 2), 5125: ("I", 4), 5126: ("f", 4)}[
+            a["componentType"]]
+        n = {"SCALAR": 1, "VEC3": 3}[a["type"]]
+        off = v.get("byteOffset", 0) + a.get("byteOffset", 0)
+        cnt = a["count"] * n
+        vals = struct.unpack_from("<%d%s" % (cnt, ct[0]), blob, off)
+        return [vals[k:k + n] for k in range(0, cnt, n)] if n > 1 else vals
+
+    tris = []
+    for mesh in j["meshes"]:
+        for prim in mesh["primitives"]:
+            pos = acc(prim["attributes"]["POSITION"])
+            idx = acc(prim["indices"])
+            for k in range(0, len(idx), 3):
+                tris.append((pos[idx[k]], pos[idx[k + 1]], pos[idx[k + 2]]))
+    return tris
+
+
+def _seg_hits_tri(p, d, a, b, c):
+    """Möller–Trumbore: does segment p..p+d cross triangle abc."""
+    e1 = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
+    e2 = (c[0] - a[0], c[1] - a[1], c[2] - a[2])
+    h = (d[1] * e2[2] - d[2] * e2[1], d[2] * e2[0] - d[0] * e2[2],
+         d[0] * e2[1] - d[1] * e2[0])
+    det = e1[0] * h[0] + e1[1] * h[1] + e1[2] * h[2]
+    if abs(det) < 1e-9:
+        return False
+    inv = 1.0 / det
+    s = (p[0] - a[0], p[1] - a[1], p[2] - a[2])
+    u = inv * (s[0] * h[0] + s[1] * h[1] + s[2] * h[2])
+    if u < 0.0 or u > 1.0:
+        return False
+    q = (s[1] * e1[2] - s[2] * e1[1], s[2] * e1[0] - s[0] * e1[2],
+         s[0] * e1[1] - s[1] * e1[0])
+    v = inv * (d[0] * q[0] + d[1] * q[1] + d[2] * q[2])
+    if v < 0.0 or u + v > 1.0:
+        return False
+    t = inv * (e2[0] * q[0] + e2[1] * q[1] + e2[2] * q[2])
+    return 0.0 < t < 1.0
+
+
+CANOPY_SAMPLES = 8      # vertical probes around the trunk, at 0.7 x radius
+
+
+def cull_trees_through_walls(out, out_dir, heights):
+    """Drop foliage whose canopy passes through a WMO triangle.
+
+    heights: fdid -> (height, canopy radius) for every foliage model. Both
+    placement lists are tested: tile-props (world space, tried against every
+    WMO they overlap) and the WMOs' own doodad sets (already in the parent's
+    local frame).
+
+    A tree is a cylinder, not a line. Silverpine's pines are 50-170 m tall
+    with ~20 m canopies and stand on the hillside 20-60 m below Shadowfang's
+    upper floors; their trunks are well outside the keep while their canopies
+    reach through its arcade walls. So the whole cylinder is probed: the
+    trunk plus a ring of verticals at 70% of the canopy radius, each from a
+    little above the root (clear of the floor it stands on) to the crown.
+    """
+    wmos = _wmo_index(out, out_dir)
+    if not wmos:
+        return 0
+
+    def local(p, pos, yaw):
+        dx, dy, dz = p[0] - pos[0], p[1] - pos[1], p[2] - pos[2]
+        c, sn = math.cos(yaw), math.sin(yaw)
+        return (c * dx - sn * dz, dy, sn * dx + c * dz)
+
+    def crosses(lp, h, r, w):
+        near = [bx for bx in w["boxes"]
+                if bx[0][0] - r < lp[0] < bx[1][0] + r
+                and bx[0][2] - r < lp[2] < bx[1][2] + r
+                and bx[0][1] - h < lp[1] < bx[1][1] + 1]
+        if not near:
+            return False
+        tris = _tris_of(w)
+        seg = (0.0, h - 0.3, 0.0)
+        # rings out to the full radius: the clip is at the canopy's outer
+        # edge against a roof or column, which an inner ring never reaches
+        probes = [(lp[0], lp[2])]
+        for frac in (0.5, 0.85, 1.0):
+            for k in range(CANOPY_SAMPLES):
+                ang = 2.0 * math.pi * k / CANOPY_SAMPLES
+                probes.append((lp[0] + frac * r * math.cos(ang),
+                               lp[2] + frac * r * math.sin(ang)))
+        ylo, yhi = lp[1] + 0.3, lp[1] + h
+        for a, b, c in tris:
+            if max(a[1], b[1], c[1]) < ylo or min(a[1], b[1], c[1]) > yhi:
+                continue
+            for px, pz in probes:
+                if max(a[0], b[0], c[0]) < px - 1 or min(a[0], b[0], c[0]) > px + 1:
+                    continue
+                if max(a[2], b[2], c[2]) < pz - 1 or min(a[2], b[2], c[2]) > pz + 1:
+                    continue
+                if _seg_hits_tri((px, ylo, pz), seg, a, b, c):
+                    return True
+        return False
+
+    culled = 0
+    kept = []
+    for d in out["props"]:
+        if d["fdid"] in heights:
+            sc = float(d.get("scale", 1.0))
+            h, r = heights[d["fdid"]][0] * sc, heights[d["fdid"]][1] * sc
+            if any(crosses(local(d["pos"], w["pos"], w["yaw"]), h, r, w)
+                   for w in wmos.values()):
+                culled += 1
+                continue
+        kept.append(d)
+    out["props"] = kept
+    kept = []
+    for d in out["doodads"]:
+        w = wmos.get(int(d.get("parent_uid", -1)))
+        if d["fdid"] in heights and w is not None:
+            sc = float(d.get("scale", 1.0))
+            h, r = heights[d["fdid"]][0] * sc, heights[d["fdid"]][1] * sc
+            if crosses(tuple(d["pos"]), h, r, w):
+                culled += 1
+                continue
+        kept.append(d)
+    out["doodads"] = kept
+    return culled
+
+
 def build(s, did, cfg):
     print(f"=== {did} ({cfg['map_name']}, map {cfg['ac_map']}) ===")
     wdt = find_wdt(s, cfg["map_name"])
@@ -387,6 +615,31 @@ def build(s, did, cfg):
         if len(kept) != len(out[key]):
             print(f"deduped {key}: {len(out[key]) - len(kept)} exact repeats")
         out[key] = kept
+
+    # Trees whose trunk passes through a building wall. Culling by "inside a
+    # room" was wrong (Shadowfang furnishes its rooms with tile-props) and
+    # by "near a wall" strips the forest; the precise test is geometric: a
+    # vertical trunk segment from the root against the WMO's own triangles,
+    # broad-phased by group box. A tree standing in open forest touches no
+    # wall triangle; one planted in the keep's footprint does.
+    foliage = {}
+    bottoms = {}
+    for f in model_names:
+        g = dd_dir / f"{f}.glb"
+        if g.exists():
+            h, r, is_tree, bottom = _glb_foliage(g)
+            if is_tree:
+                foliage[int(f)] = (h, r)
+            if bottom < -SINK_MIN:
+                bottoms[int(f)] = bottom
+    if foliage:
+        culled = cull_trees_through_walls(out, out_dir, foliage)
+        print(f"foliage through walls culled: {culled} "
+              f"({len(foliage)} foliage models)")
+    if bottoms:
+        lifted = lift_sunk_doodads(out, out_dir, bottoms)
+        print(f"sunk doodads lifted clear of the floor: {lifted} "
+              f"({len(bottoms)} sunk models)")
 
     # dungeon-level runtime hints (consumed by world.gd / player.gd)
     out["footstep"] = cfg.get("footstep", "stone")
