@@ -27,6 +27,10 @@ def read_table(name):
     return rows
 
 
+# the charm rows name a scroll-like 'invchm'; the game itself draws the
+# three charm plates
+CHARM_INV = {'cm1': 'invch1', 'cm2': 'invch2', 'cm3': 'invch3'}
+
 BASE_COLS = ['type', 'invwidth', 'invheight', 'invfile', 'flippyfile',
              'level', 'levelreq', 'rarity', 'cost', 'reqstr', 'reqdex']
 
@@ -46,7 +50,7 @@ def build_items(strings):
     for src, extra in (('weapons.txt', ('mindam', 'maxdam',
                                         '2handmindam', '2handmaxdam',
                                         'minmisdam', 'maxmisdam')),
-                       ('armor.txt', ('minac', 'maxac')),
+                       ('armor.txt', ('minac', 'maxac', 'block')),
                        ('misc.txt', ())):
         for r in read_table(src):
             code = r.get('code', '').strip()
@@ -72,6 +76,9 @@ def build_items(strings):
                          'type': 'gold', 'invwidth': '1', 'invheight': '1',
                          'invfile': 'invgld', 'flippyfile': 'flpgld',
                          'level': '', 'levelreq': '', 'rarity': '', 'cost': ''}
+    for c, inv in CHARM_INV.items():
+        if c in items:
+            items[c]['invfile'] = inv
     return items
 
 

@@ -9,47 +9,6 @@ keyed by the names used in build_creatures.VOICE_BY_MODEL and
 dungeon_config voices=; build_audio merges this into CREATURE_SFX."""
 
 VOICE_SETS = {
-    "worgen": {
-        "aggro": [
-            "sound/creature/worgen/mworgenaggroa.ogg",
-        ],
-        "attack": [
-            "sound/creature/worgen/mworgenattacka.ogg",
-            "sound/creature/worgen/mworgenattackb.ogg",
-            "sound/creature/worgen/mworgenattackc.ogg",
-            "sound/creature/worgen/mworgenattackd.ogg",
-        ],
-        "wound": [
-            "sound/creature/worgen/mworgenwounda.ogg",
-            "sound/creature/worgen/mworgenwoundb.ogg",
-            "sound/creature/worgen/mworgenwoundc.ogg",
-        ],
-        "death": [
-            "sound/creature/worgen/mworgendeatha.ogg",
-        ],
-    },
-    "wolf": {
-        "aggro": [
-            "sound/creature/wolf/mwolfaggro1.ogg",
-            "sound/creature/wolf/mwolfaggro2.ogg",
-            "sound/creature/wolf/mwolfaggro3.ogg",
-        ],
-        "attack": [
-            "sound/creature/wolf/mwolfattack1.ogg",
-            "sound/creature/wolf/mwolfattack2.ogg",
-            "sound/creature/wolf/mwolfattack3.ogg",
-            "sound/creature/wolf/mwolfattack4.ogg",
-        ],
-        "wound": [
-            "sound/creature/wolf/mwolfwound1.ogg",
-            "sound/creature/wolf/mwolfwound2.ogg",
-            "sound/creature/wolf/mwolfwound3.ogg",
-            "sound/creature/wolf/mwolfwound4.ogg",
-        ],
-        "death": [
-            "sound/creature/wolf/mwolfdeath1.ogg",
-        ],
-    },
     "bat": {
         "aggro": [
             "sound/creature/felbat/felbataggro.ogg",
@@ -65,6 +24,83 @@ VOICE_SETS = {
         ],
         "death": [
             "sound/creature/felbat/felbatdeath.ogg",
+        ],
+    },
+    "bogbeast": {
+        "aggro": [
+            "sound/creature/bogbeast/mbogbeastaggroa.ogg",
+        ],
+        "attack": [
+            "sound/creature/bogbeast/mbogbeastattack2a.ogg",
+            "sound/creature/bogbeast/mbogbeastattack2b.ogg",
+        ],
+        "wound": [
+            "sound/creature/bogbeast/mbogbeastwounda.ogg",
+            "sound/creature/bogbeast/mbogbeastwoundb.ogg",
+            "sound/creature/bogbeast/mbogbeastwoundc.ogg",
+        ],
+        "death": [
+            "sound/creature/bogbeast/mbogbeastdeatha.ogg",
+        ],
+    },
+    "crab": {
+        "aggro": [
+            "sound/creature/crab/crabaggro.ogg",
+        ],
+        "attack": [
+            "sound/creature/crab/crabattacka.ogg",
+            "sound/creature/crab/crabattackb.ogg",
+            "sound/creature/crab/crabattackc.ogg",
+        ],
+        "wound": [
+            "sound/creature/crab/crabwounda.ogg",
+            "sound/creature/crab/crabwoundb.ogg",
+            "sound/creature/crab/crabwoundc.ogg",
+        ],
+        "death": [
+            "sound/creature/crab/crabdeatha.ogg",
+        ],
+    },
+    "dwarf": {
+        "attack": [
+            "sound/character/dwarf/dwarfmale/dwarfmaleattacka.ogg",
+            "sound/character/dwarf/dwarfmale/dwarfmaleattackb.ogg",
+            "sound/character/dwarf/dwarfmale/dwarfmaleattackc.ogg",
+            "sound/character/dwarf/dwarfmale/dwarfmaleattackd.ogg",
+        ],
+        "wound": [
+            "sound/character/dwarf/dwarfmale/dwarfmalewounda.ogg",
+            "sound/character/dwarf/dwarfmale/dwarfmalewoundb.ogg",
+            "sound/character/dwarf/dwarfmale/dwarfmalewoundc.ogg",
+        ],
+        "death": [
+            "sound/character/dwarf/dwarfmale/dwarfmaledeatha.ogg",
+        ],
+    },
+    "faeriedragon": {
+        "aggro": [
+            "sound/creature/faeriedragon/faeriedragonaggroa.ogg",
+        ],
+        "attack": [
+            "sound/creature/faeriedragon/faeriedragonattacka.ogg",
+            "sound/creature/faeriedragon/faeriedragonattackb.ogg",
+            "sound/creature/faeriedragon/faeriedragonattackc.ogg",
+        ],
+        "wound": [
+            "sound/creature/faeriedragon/faeriedragonwounda.ogg",
+            "sound/creature/faeriedragon/faeriedragonwoundb.ogg",
+            "sound/creature/faeriedragon/faeriedragonwoundc.ogg",
+        ],
+        "death": [
+            "sound/creature/faeriedragon/faeriedragondeatha.ogg",
+        ],
+    },
+    "frog": {
+        "wound": [
+            "sound/creature/frog/frogwounda.ogg",
+        ],
+        "death": [
+            "sound/creature/frog/frogdeatha.ogg",
         ],
     },
     "ghost": {
@@ -103,56 +139,37 @@ VOICE_SETS = {
             "sound/creature/horse/mhorsedeatha.ogg",
         ],
     },
-    "raptor": {
+    "hydra": {
         "aggro": [
-            "sound/creature/raptor/mraptoraggroa.ogg",
+            "sound/creature/hydra/mhydraaggroa.ogg",
         ],
         "attack": [
-            "sound/creature/raptor/mraptorattacka.ogg",
-            "sound/creature/raptor/mraptorattackb.ogg",
-            "sound/creature/raptor/mraptorattackc.ogg",
+            "sound/creature/hydra/mhydraattacka.ogg",
+            "sound/creature/hydra/mhydraattackb.ogg",
+            "sound/creature/hydra/mhydraattackc.ogg",
         ],
         "wound": [
-            "sound/creature/raptor/mraptorwounda.ogg",
-            "sound/creature/raptor/mraptorwoundb.ogg",
-            "sound/creature/raptor/mraptorwoundc.ogg",
+            "sound/creature/hydra/mhydrawounda.ogg",
+            "sound/creature/hydra/mhydrawoundb.ogg",
+            "sound/creature/hydra/mhydrawoundc.ogg",
         ],
         "death": [
-            "sound/creature/raptor/mraptordeatha.ogg",
+            "sound/creature/hydra/mhydradeatha.ogg",
         ],
     },
-    "snake": {
-        "wound": [
-            "sound/creature/snake/snakewound.ogg",
-        ],
-        "death": [
-            "sound/creature/snake/snakedeath.ogg",
-        ],
-    },
-    "satyr": {
+    "hyena": {
         "aggro": [
-            "sound/creature/satyr/satyraggroa.ogg",
+            "sound/creature/hyena/hyenaaggroa.ogg",
         ],
         "attack": [
-            "sound/creature/satyr/satyrattacka.ogg",
-            "sound/creature/satyr/satyrattackb.ogg",
-            "sound/creature/satyr/satyrattackc.ogg",
+            "sound/creature/hyena/hyenaattacka.ogg",
+            "sound/creature/hyena/hyenaattackb.ogg",
+            "sound/creature/hyena/hyenaattackc.ogg",
         ],
         "wound": [
-            "sound/creature/satyr/satyrwounda.ogg",
-            "sound/creature/satyr/satyrwoundb.ogg",
-            "sound/creature/satyr/satyrwoundc.ogg",
-        ],
-        "death": [
-            "sound/creature/satyr/satyrdeatha.ogg",
-        ],
-    },
-    "rat": {
-        "wound": [
-            "sound/creature/rat/ratwounda.ogg",
-        ],
-        "death": [
-            "sound/creature/rat/ratdeatha.ogg",
+            "sound/creature/hyena/hyenawounda.ogg",
+            "sound/creature/hyena/hyenawoundb.ogg",
+            "sound/creature/hyena/hyenawoundc.ogg",
         ],
     },
     "lasher": {
@@ -173,39 +190,206 @@ VOICE_SETS = {
             "sound/creature/lasher/lasherdeath.ogg",
         ],
     },
-    "bogbeast": {
+    "lich": {
         "aggro": [
-            "sound/creature/bogbeast/mbogbeastaggroa.ogg",
+            "sound/creature/lich/lichaggro.ogg",
         ],
         "attack": [
-            "sound/creature/bogbeast/mbogbeastattack2a.ogg",
-            "sound/creature/bogbeast/mbogbeastattack2b.ogg",
+            "sound/creature/lich/lichattacka.ogg",
+            "sound/creature/lich/lichattackb.ogg",
+            "sound/creature/lich/lichattackc.ogg",
         ],
         "wound": [
-            "sound/creature/bogbeast/mbogbeastwounda.ogg",
-            "sound/creature/bogbeast/mbogbeastwoundb.ogg",
-            "sound/creature/bogbeast/mbogbeastwoundc.ogg",
+            "sound/creature/lich/lichwounda.ogg",
+            "sound/creature/lich/lichwoundb.ogg",
+            "sound/creature/lich/lichwoundc.ogg",
         ],
         "death": [
-            "sound/creature/bogbeast/mbogbeastdeatha.ogg",
+            "sound/creature/lich/lichdeath.ogg",
         ],
     },
-    "skeleton": {
+    "lobstrok": {
         "aggro": [
-            "sound/creature/skeletonmage/skeletonmageaggro.ogg",
+            "sound/creature/lobstrok/lobstrokaggroa.ogg",
         ],
         "attack": [
-            "sound/creature/skeletonmage/skeletonmageattacka.ogg",
-            "sound/creature/skeletonmage/skeletonmageattackb.ogg",
-            "sound/creature/skeletonmage/skeletonmageattackc.ogg",
+            "sound/creature/lobstrok/lobstrokattacka.ogg",
+            "sound/creature/lobstrok/lobstrokattackb.ogg",
+            "sound/creature/lobstrok/lobstrokattackc.ogg",
         ],
         "wound": [
-            "sound/creature/skeletonmage/skeletonmagewounda.ogg",
-            "sound/creature/skeletonmage/skeletonmagewoundb.ogg",
-            "sound/creature/skeletonmage/skeletonmagewoundc.ogg",
+            "sound/creature/lobstrok/lobstrokwounda.ogg",
+            "sound/creature/lobstrok/lobstrokwoundb.ogg",
+            "sound/creature/lobstrok/lobstrokwoundc.ogg",
         ],
         "death": [
-            "sound/creature/skeletonmage/skeletonmagedeatha.ogg",
+            "sound/creature/lobstrok/lobstrokdeatha.ogg",
+        ],
+    },
+    "mechanical": {
+        "aggro": [
+            "sound/creature/harvestgolem/harvestgolemaggroa.ogg",
+        ],
+        "attack": [
+            "sound/creature/harvestgolem/harvestgolemattacka.ogg",
+            "sound/creature/harvestgolem/harvestgolemattackb.ogg",
+            "sound/creature/harvestgolem/harvestgolemattackc.ogg",
+        ],
+        "wound": [
+            "sound/creature/harvestgolem/harvestgolemwounda.ogg",
+            "sound/creature/harvestgolem/harvestgolemwoundb.ogg",
+            "sound/creature/harvestgolem/harvestgolemwoundc.ogg",
+        ],
+        "death": [
+            "sound/creature/harvestgolem/harvestgolemdeatha.ogg",
+        ],
+    },
+    "naga": {
+        "aggro": [
+            "sound/creature/naga/nagaaggro.ogg",
+        ],
+        "attack": [
+            "sound/creature/naga/nagaattacka.ogg",
+            "sound/creature/naga/nagaattackb.ogg",
+            "sound/creature/naga/nagaattackc.ogg",
+        ],
+        "wound": [
+            "sound/creature/naga/nagawounda.ogg",
+            "sound/creature/naga/nagawoundb.ogg",
+            "sound/creature/naga/nagawoundc.ogg",
+        ],
+        "death": [
+            "sound/creature/naga/nagadeath.ogg",
+        ],
+    },
+    "nightelf": {
+        "attack": [
+            "sound/character/nightelf/nightelfmale/nightelfmaleattacka.ogg",
+            "sound/character/nightelf/nightelfmale/nightelfmaleattackb.ogg",
+            "sound/character/nightelf/nightelfmale/nightelfmaleattackc.ogg",
+        ],
+        "wound": [
+            "sound/character/nightelf/nightelfmale/nightelfmalewounda.ogg",
+            "sound/character/nightelf/nightelfmale/nightelfmalewoundb.ogg",
+            "sound/character/nightelf/nightelfmale/nightelfmalewoundc.ogg",
+        ],
+        "death": [
+            "sound/character/nightelf/nightelfmale/nightelfmaledeatha.ogg",
+        ],
+    },
+    "ogremage": {
+        "aggro": [
+            "sound/creature/ogremage/mogremageaggro1.ogg",
+            "sound/creature/ogremage/mogremageaggro2.ogg",
+        ],
+        "attack": [
+            "sound/creature/ogremage/mogremageattack1.ogg",
+            "sound/creature/ogremage/mogremageattack2.ogg",
+            "sound/creature/ogremage/mogremageattack3.ogg",
+        ],
+        "wound": [
+            "sound/creature/ogremage/mogremagewound1.ogg",
+            "sound/creature/ogremage/mogremagewound2.ogg",
+            "sound/creature/ogremage/mogremagewound3.ogg",
+        ],
+        "death": [
+            "sound/creature/ogremage/mogremagedeath1.ogg",
+        ],
+    },
+    "orc": {
+        "attack": [
+            "sound/character/orc/orcmale/orcmaleattacka.ogg",
+            "sound/character/orc/orcmale/orcmaleattackb.ogg",
+            "sound/character/orc/orcmale/orcmaleattackc.ogg",
+            "sound/character/orc/orcmale/orcmaleattackd.ogg",
+        ],
+        "wound": [
+            "sound/character/orc/orcmale/orcmalewounda.ogg",
+            "sound/character/orc/orcmale/orcmalewoundb.ogg",
+            "sound/character/orc/orcmale/orcmalewoundc.ogg",
+        ],
+        "death": [
+            "sound/character/orc/orcmale/orcmaledeath.ogg",
+        ],
+    },
+    "quillboar": {
+        "aggro": [
+            "sound/creature/quillboar/quillboaraggro.ogg",
+        ],
+        "attack": [
+            "sound/creature/quillboar/quillboarattacka.ogg",
+            "sound/creature/quillboar/quillboarattackb.ogg",
+            "sound/creature/quillboar/quillboarattackc.ogg",
+            "sound/creature/quillboar/quillboarattackd.ogg",
+        ],
+        "wound": [
+            "sound/creature/quillboar/quillboarwounda.ogg",
+            "sound/creature/quillboar/quillboarwoundb.ogg",
+            "sound/creature/quillboar/quillboarwoundc.ogg",
+        ],
+        "death": [
+            "sound/creature/quillboar/quillboardeatha.ogg",
+        ],
+    },
+    "raptor": {
+        "aggro": [
+            "sound/creature/raptor/mraptoraggroa.ogg",
+        ],
+        "attack": [
+            "sound/creature/raptor/mraptorattacka.ogg",
+            "sound/creature/raptor/mraptorattackb.ogg",
+            "sound/creature/raptor/mraptorattackc.ogg",
+        ],
+        "wound": [
+            "sound/creature/raptor/mraptorwounda.ogg",
+            "sound/creature/raptor/mraptorwoundb.ogg",
+            "sound/creature/raptor/mraptorwoundc.ogg",
+        ],
+        "death": [
+            "sound/creature/raptor/mraptordeatha.ogg",
+        ],
+    },
+    "rat": {
+        "wound": [
+            "sound/creature/rat/ratwounda.ogg",
+        ],
+        "death": [
+            "sound/creature/rat/ratdeatha.ogg",
+        ],
+    },
+    "satyr": {
+        "aggro": [
+            "sound/creature/satyr/satyraggroa.ogg",
+        ],
+        "attack": [
+            "sound/creature/satyr/satyrattacka.ogg",
+            "sound/creature/satyr/satyrattackb.ogg",
+            "sound/creature/satyr/satyrattackc.ogg",
+        ],
+        "wound": [
+            "sound/creature/satyr/satyrwounda.ogg",
+            "sound/creature/satyr/satyrwoundb.ogg",
+            "sound/creature/satyr/satyrwoundc.ogg",
+        ],
+        "death": [
+            "sound/creature/satyr/satyrdeatha.ogg",
+        ],
+    },
+    "scourge": {
+        "attack": [
+            "sound/character/scourge/scourgemale/scourgemaleattacka.ogg",
+            "sound/character/scourge/scourgemale/scourgemaleattackb.ogg",
+            "sound/character/scourge/scourgemale/scourgemaleattackc.ogg",
+            "sound/character/scourge/scourgemale/scourgemaleattackd.ogg",
+        ],
+        "wound": [
+            "sound/character/scourge/scourgemale/scourgemalewounda.ogg",
+            "sound/character/scourge/scourgemale/scourgemalewoundb.ogg",
+            "sound/character/scourge/scourgemale/scourgemalewoundc.ogg",
+        ],
+        "death": [
+            "sound/character/scourge/scourgemale/scourgemaledeatha.ogg",
+            "sound/character/scourge/scourgemale/scourgemaledeathb.ogg",
         ],
     },
     "seaturtle": {
@@ -227,22 +411,100 @@ VOICE_SETS = {
             "sound/creature/seaturtle/seaturtledeatha.ogg",
         ],
     },
-    "faeriedragon": {
+    "shade": {
         "aggro": [
-            "sound/creature/faeriedragon/faeriedragonaggroa.ogg",
+            "sound/creature/shade/shadeaggro.ogg",
         ],
         "attack": [
-            "sound/creature/faeriedragon/faeriedragonattacka.ogg",
-            "sound/creature/faeriedragon/faeriedragonattackb.ogg",
-            "sound/creature/faeriedragon/faeriedragonattackc.ogg",
+            "sound/creature/shade/shadeattacka.ogg",
+            "sound/creature/shade/shadeattackb.ogg",
+            "sound/creature/shade/shadeattackc.ogg",
         ],
         "wound": [
-            "sound/creature/faeriedragon/faeriedragonwounda.ogg",
-            "sound/creature/faeriedragon/faeriedragonwoundb.ogg",
-            "sound/creature/faeriedragon/faeriedragonwoundc.ogg",
+            "sound/creature/shade/shadewounda.ogg",
+            "sound/creature/shade/shadewoundb.ogg",
+            "sound/creature/shade/shadewoundc.ogg",
         ],
         "death": [
-            "sound/creature/faeriedragon/faeriedragondeatha.ogg",
+            "sound/creature/shade/shadedeath.ogg",
+        ],
+    },
+    "siren": {
+        "aggro": [
+            "sound/creature/nagafemale/nagafemaleaggro.ogg",
+        ],
+        "attack": [
+            "sound/creature/nagafemale/nagafemaleattacka.ogg",
+            "sound/creature/nagafemale/nagafemaleattackb.ogg",
+            "sound/creature/nagafemale/nagafemaleattackc.ogg",
+        ],
+        "wound": [
+            "sound/creature/nagafemale/nagafemalewounda.ogg",
+            "sound/creature/nagafemale/nagafemalewoundb.ogg",
+            "sound/creature/nagafemale/nagafemalewoundc.ogg",
+        ],
+        "death": [
+            "sound/creature/nagafemale/nagafemaledeatha.ogg",
+        ],
+    },
+    "skeleton": {
+        "aggro": [
+            "sound/creature/skeletonmage/skeletonmageaggro.ogg",
+        ],
+        "attack": [
+            "sound/creature/skeletonmage/skeletonmageattacka.ogg",
+            "sound/creature/skeletonmage/skeletonmageattackb.ogg",
+            "sound/creature/skeletonmage/skeletonmageattackc.ogg",
+        ],
+        "wound": [
+            "sound/creature/skeletonmage/skeletonmagewounda.ogg",
+            "sound/creature/skeletonmage/skeletonmagewoundb.ogg",
+            "sound/creature/skeletonmage/skeletonmagewoundc.ogg",
+        ],
+        "death": [
+            "sound/creature/skeletonmage/skeletonmagedeatha.ogg",
+        ],
+    },
+    "snake": {
+        "wound": [
+            "sound/creature/snake/snakewound.ogg",
+        ],
+        "death": [
+            "sound/creature/snake/snakedeath.ogg",
+        ],
+    },
+    "tauren": {
+        "attack": [
+            "sound/character/tauren/taurenmale/taurenmaleattacka.ogg",
+            "sound/character/tauren/taurenmale/taurenmaleattackb.ogg",
+            "sound/character/tauren/taurenmale/taurenmaleattackc.ogg",
+            "sound/character/tauren/taurenmale/taurenmaleattackd.ogg",
+        ],
+        "wound": [
+            "sound/character/tauren/taurenmale/taurenmalewounda.ogg",
+            "sound/character/tauren/taurenmale/taurenmalewoundb.ogg",
+            "sound/character/tauren/taurenmale/taurenmalewoundc.ogg",
+        ],
+        "death": [
+            "sound/character/tauren/taurenmale/taurenmaledeatha.ogg",
+        ],
+    },
+    "threshadon": {
+        "aggro": [
+            "sound/creature/threshadon/threshadonaggroa.ogg",
+        ],
+        "attack": [
+            "sound/creature/threshadon/threshadonattacka.ogg",
+            "sound/creature/threshadon/threshadonattackb.ogg",
+            "sound/creature/threshadon/threshadonattackc.ogg",
+        ],
+        "wound": [
+            "sound/creature/threshadon/threshadonwounda.ogg",
+            "sound/creature/threshadon/threshadonwoundb.ogg",
+            "sound/creature/threshadon/threshadonwoundc.ogg",
+        ],
+        "death": [
+            "sound/creature/threshadon/threshadondeatha.ogg",
         ],
     },
     "thunderlizard": {
@@ -263,92 +525,81 @@ VOICE_SETS = {
             "sound/creature/thunderlizard/thunderlizarddeatha.ogg",
         ],
     },
-    "frog": {
+    "troglodyte": {
+        "aggro": [
+            "sound/creature/troglodyte/mtroglodyteaggroa.ogg",
+        ],
+        "attack": [
+            "sound/creature/troglodyte/mtroglodyteattacka.ogg",
+            "sound/creature/troglodyte/mtroglodyteattackb.ogg",
+            "sound/creature/troglodyte/mtroglodyteattackc.ogg",
+        ],
         "wound": [
-            "sound/creature/frog/frogwounda.ogg",
+            "sound/creature/troglodyte/mtroglodytewounda.ogg",
+            "sound/creature/troglodyte/mtroglodytewoundb.ogg",
+            "sound/creature/troglodyte/mtroglodytewoundc.ogg",
         ],
         "death": [
-            "sound/creature/frog/frogdeatha.ogg",
+            "sound/creature/troglodyte/mtroglodytedeatha.ogg",
         ],
     },
-    "orc": {
+    "waterelemental": {
+        "aggro": [
+            "sound/creature/waterelemental/waterelementalaggro.ogg",
+        ],
         "attack": [
-            "sound/character/orc/orcmale/orcmaleattacka.ogg",
-            "sound/character/orc/orcmale/orcmaleattackb.ogg",
-            "sound/character/orc/orcmale/orcmaleattackc.ogg",
-            "sound/character/orc/orcmale/orcmaleattackd.ogg",
+            "sound/creature/waterelemental/waterelementalattacka.ogg",
+            "sound/creature/waterelemental/waterelementalattackb.ogg",
+            "sound/creature/waterelemental/waterelementalattackc.ogg",
         ],
         "wound": [
-            "sound/character/orc/orcmale/orcmalewounda.ogg",
-            "sound/character/orc/orcmale/orcmalewoundb.ogg",
-            "sound/character/orc/orcmale/orcmalewoundc.ogg",
+            "sound/creature/waterelemental/waterelementalwounda.ogg",
+            "sound/creature/waterelemental/waterelementalwoundb.ogg",
+            "sound/creature/waterelemental/waterelementalwoundc.ogg",
         ],
         "death": [
-            "sound/character/orc/orcmale/orcmaledeath.ogg",
+            "sound/creature/waterelemental/waterelementaldeatha.ogg",
         ],
     },
-    "nightelf": {
+    "wolf": {
+        "aggro": [
+            "sound/creature/wolf/mwolfaggro1.ogg",
+            "sound/creature/wolf/mwolfaggro2.ogg",
+            "sound/creature/wolf/mwolfaggro3.ogg",
+        ],
         "attack": [
-            "sound/character/nightelf/nightelfmale/nightelfmaleattacka.ogg",
-            "sound/character/nightelf/nightelfmale/nightelfmaleattackb.ogg",
-            "sound/character/nightelf/nightelfmale/nightelfmaleattackc.ogg",
+            "sound/creature/wolf/mwolfattack1.ogg",
+            "sound/creature/wolf/mwolfattack2.ogg",
+            "sound/creature/wolf/mwolfattack3.ogg",
+            "sound/creature/wolf/mwolfattack4.ogg",
         ],
         "wound": [
-            "sound/character/nightelf/nightelfmale/nightelfmalewounda.ogg",
-            "sound/character/nightelf/nightelfmale/nightelfmalewoundb.ogg",
-            "sound/character/nightelf/nightelfmale/nightelfmalewoundc.ogg",
+            "sound/creature/wolf/mwolfwound1.ogg",
+            "sound/creature/wolf/mwolfwound2.ogg",
+            "sound/creature/wolf/mwolfwound3.ogg",
+            "sound/creature/wolf/mwolfwound4.ogg",
         ],
         "death": [
-            "sound/character/nightelf/nightelfmale/nightelfmaledeatha.ogg",
+            "sound/creature/wolf/mwolfdeath1.ogg",
         ],
     },
-    "tauren": {
+    "worgen": {
+        "aggro": [
+            "sound/creature/worgen/mworgenaggroa.ogg",
+        ],
         "attack": [
-            "sound/character/tauren/taurenmale/taurenmaleattacka.ogg",
-            "sound/character/tauren/taurenmale/taurenmaleattackb.ogg",
-            "sound/character/tauren/taurenmale/taurenmaleattackc.ogg",
-            "sound/character/tauren/taurenmale/taurenmaleattackd.ogg",
+            "sound/creature/worgen/mworgenattacka.ogg",
+            "sound/creature/worgen/mworgenattackb.ogg",
+            "sound/creature/worgen/mworgenattackc.ogg",
+            "sound/creature/worgen/mworgenattackd.ogg",
         ],
         "wound": [
-            "sound/character/tauren/taurenmale/taurenmalewounda.ogg",
-            "sound/character/tauren/taurenmale/taurenmalewoundb.ogg",
-            "sound/character/tauren/taurenmale/taurenmalewoundc.ogg",
+            "sound/creature/worgen/mworgenwounda.ogg",
+            "sound/creature/worgen/mworgenwoundb.ogg",
+            "sound/creature/worgen/mworgenwoundc.ogg",
         ],
         "death": [
-            "sound/character/tauren/taurenmale/taurenmaledeatha.ogg",
-        ],
-    },
-    "scourge": {
-        "attack": [
-            "sound/character/scourge/scourgemale/scourgemaleattacka.ogg",
-            "sound/character/scourge/scourgemale/scourgemaleattackb.ogg",
-            "sound/character/scourge/scourgemale/scourgemaleattackc.ogg",
-            "sound/character/scourge/scourgemale/scourgemaleattackd.ogg",
-        ],
-        "wound": [
-            "sound/character/scourge/scourgemale/scourgemalewounda.ogg",
-            "sound/character/scourge/scourgemale/scourgemalewoundb.ogg",
-            "sound/character/scourge/scourgemale/scourgemalewoundc.ogg",
-        ],
-        "death": [
-            "sound/character/scourge/scourgemale/scourgemaledeatha.ogg",
-            "sound/character/scourge/scourgemale/scourgemaledeathb.ogg",
-        ],
-    },
-    "dwarf": {
-        "attack": [
-            "sound/character/dwarf/dwarfmale/dwarfmaleattacka.ogg",
-            "sound/character/dwarf/dwarfmale/dwarfmaleattackb.ogg",
-            "sound/character/dwarf/dwarfmale/dwarfmaleattackc.ogg",
-            "sound/character/dwarf/dwarfmale/dwarfmaleattackd.ogg",
-        ],
-        "wound": [
-            "sound/character/dwarf/dwarfmale/dwarfmalewounda.ogg",
-            "sound/character/dwarf/dwarfmale/dwarfmalewoundb.ogg",
-            "sound/character/dwarf/dwarfmale/dwarfmalewoundc.ogg",
-        ],
-        "death": [
-            "sound/character/dwarf/dwarfmale/dwarfmaledeatha.ogg",
+            "sound/creature/worgen/mworgendeatha.ogg",
         ],
     },
 }

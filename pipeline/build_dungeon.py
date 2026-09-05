@@ -49,7 +49,7 @@ CLUTTER = re.compile(r"(?:^|[^A-Za-z])(?:barrel|crate|urn|jug|basket|vase)"
 # gauges and whistles are set dressing on the machinery. Those are separated
 # by the mesh itself — a placeholder is a bare 24-vertex cuboid metres across,
 # where the gauges carry 154 vertices inside a third of a metre.
-EFFECT_ALWAYS = re.compile(r"emitter|ember", re.I)
+EFFECT_ALWAYS = re.compile(r"InstancePortal|emitter|ember", re.I)
 EFFECT_BOXY = re.compile(r"steam|smoke|geyser|fog|dust|sparkle|glow", re.I)
 BARE_BOX_VERTS = 24
 
@@ -311,7 +311,9 @@ def cull_trees_through_walls(out, out_dir, heights):
 
 def build(s, did, cfg):
     print(f"=== {did} ({cfg['map_name']}, map {cfg['ac_map']}) ===")
-    wdt = find_wdt(s, cfg["map_name"])
+    # a map whose directory name the client no longer resolves can be given
+    # by its WDT file id instead (Gnomeregan)
+    wdt = cfg.get("wdt_fdid") or find_wdt(s, cfg["map_name"])
     if not wdt:
         print("!! WDT not found, aborting")
         return False
@@ -578,7 +580,16 @@ def build(s, did, cfg):
     effects = set()
     for fdid, name in model_names.items():
         glb = dd_dir / f"{fdid}.glb"
-        if not glb.exists() or not EFFECT_BOXY.search(name or ""):
+        if not glb.exists():
+            continue
+        # models purged by name whenever they turn up (the instance portal
+        # swirl, emitters), cached from a build before the rule existed
+        if EFFECT_ALWAYS.search(name or ""):
+            effects.add(fdid)
+            glb.unlink()
+            print(f"  dropped effect model: {name} ({fdid})")
+            continue
+        if not EFFECT_BOXY.search(name or ""):
             continue
         if glb_bare_box(glb):
             effects.add(fdid)

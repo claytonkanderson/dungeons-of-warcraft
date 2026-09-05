@@ -64,4 +64,57 @@ DUNGEONS = {
                 3877: "scourge", 3887: "scourge", 4278: "scourge",
                 4275: "scourge", 3850: "scourge"},
     ),
+    # ---- the next six, configured from the data: bosses in AzerothCore's
+    # instance_encounters order (the last is the final boss), target levels
+    # from the D2-paced ladder in dungeons.gd. Untested until built.
+    "blackfathom-deeps": dict(
+        map_name="blackfathom", ac_map=48, target_level=23,
+        bosses=["Ghamoo-ra", "Lady Sarevess", "Gelihast", "Lorgus Jett",
+                "Old Serra'kis", "Twilight Lord Kelris", "Aku'mai"],
+        final_boss="Aku'mai",
+        ambience=["blackfathom", "ashenvale"],
+        footstep="stone",
+    ),
+    "stockade": dict(
+        map_name="stormwindjail", ac_map=34, target_level=26,
+        bosses=["Targorr the Dread", "Kam Deepfury", "Hamhock", "Bazil Thredd",
+                "Dextren Ward"],
+        final_boss="Bazil Thredd",
+        ambience=["stockade", "stormwind"],
+        footstep="stone",
+    ),
+    "gnomeregan": dict(
+        # the client no longer resolves this map by name; its WDT file id
+        # was identified by the fact that all 404 spawns fall inside it
+        map_name="gnomeraganinstance", wdt_fdid=782773, ac_map=90, target_level=31,
+        bosses=["Viscous Fallout", "Electrocutioner 6000", "Crowd Pummeler 9-60",
+                "Mekgineer Thermaplugg"],
+        final_boss="Mekgineer Thermaplugg",
+        ambience=["gnomeregan", "dunmorogh"],
+        footstep="stone",
+    ),
+    "razorfen-kraul": dict(
+        map_name="razorfenkraulinstance", ac_map=47, target_level=34,
+        bosses=["Roogug", "Aggem Thorncurse", "Death Speaker Jargba",
+                "Overlord Ramtusk", "Charlga Razorflank", "Agathelos the Raging"],
+        final_boss="Charlga Razorflank",
+        ambience=["razorfenkraul", "razorfen", "barrens"],
+        footstep="dirt",
+    ),
+    "scarlet-monastery": dict(
+        map_name="monasteryinstances", ac_map=189, target_level=40,
+        bosses=["Interrogator Vishas", "Bloodmage Thalnos", "Houndmaster Loksey",
+                "Arcanist Doan", "Herod", "High Inquisitor Fairbanks",
+                "High Inquisitor Whitemane"],
+        final_boss="High Inquisitor Whitemane",
+        ambience=["scarletmonastery", "monastery", "tirisfal"],
+        footstep="stone",
+    ),
+    "razorfen-downs": dict(
+        map_name="razorfendowns", ac_map=129, target_level=47,
+        bosses=["Mordresh Fire Eye", "Glutton", "Amnennar the Coldbringer"],
+        final_boss="Amnennar the Coldbringer",
+        ambience=["razorfendowns", "razorfen", "barrens"],
+        footstep="dirt",
+    ),
 }

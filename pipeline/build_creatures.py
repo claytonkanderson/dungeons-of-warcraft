@@ -14,6 +14,7 @@ neighborhood.
 """
 import argparse
 import json
+import re
 import struct
 
 from config import OUT, AC, ASSETS
@@ -48,6 +49,16 @@ VOICE_BY_MODEL = {
     # the peasant greeting set never streamed; the human combat set does
     "HumanMalePeasant": "human", "HumanMale": "human", "HumanThief": "human",
     "HumanFemale": "human_female", "GoblinShredder": "shredder",
+    # the next six dungeons (pipeline/probe_voices.py found these sets)
+    "QuillBoar": "quillboar", "QuillBoarCaster": "quillboar",
+    "QuillBoarWarrior": "quillboar", "Crab": "crab", "Hydra": "hydra",
+    "Lobstrok": "lobstrok", "NagaMale": "naga", "Siren": "siren",
+    "Threshadon": "threshadon", "DwarfMale": "dwarf", "OgreMage": "ogremage",
+    "OrcMaleWarriorLight": "orc", "Troglodyte": "troglodyte",
+    "WaterElemental": "waterelemental", "Ghost": "ghost", "Lich": "lich",
+    "Hyena": "hyena", "Shade": "shade", "GnomeBot": "mechanical",
+    "GnomeAlertBot": "mechanical", "GnomePounder": "mechanical",
+    "GnomeSpiderTank": "mechanical", "GnomeMechaStrider": "mechanical",
 }
 
 
@@ -102,9 +113,71 @@ RACE_FOLDER = {1: "human", 2: "orc", 3: "dwarf", 4: "nightelf", 5: "scourge",
 # at a glance; untextured it rendered bright white (Mr. Smite's mane)
 HAIR_FALLBACK_RGBA = (0.13, 0.09, 0.06, 1.0)
 
+# name keyword -> stand-in model names, in preference order (see ok_models)
+MODEL_STANDINS = [
+    ("mordresh", ["Lich", "Ghost"]), ("summoner", ["Lich", "Ghost"]),
+    ("frostweaver", ["Lich", "Ghost"]), ("skelet", ["Ghost", "Lich"]),
+    ("splinterbone", ["Ghost"]), ("ironspine", ["Ghost"]), ("ghoul", ["Ghost"]),
+    ("glutton", ["Ghost"]), ("anguished", ["Ghost"]), ("suffering", ["Ghost"]),
+    ("fallen champion", ["Ghost"]), ("fairbanks", ["HumanMale", "Ghost"]),
+    ("vorrel", ["HumanMale", "Ghost"]), ("thalnos", ["HumanMale", "Lich"]),
+    ("shadowmage", ["HumanMale", "TrollMale", "NagaMale", "OrcFemale"]),
+]
+
 CREATURE_TYPES = {1: "beast", 2: "dragonkin", 3: "demon", 4: "elemental",
                   5: "giant", 6: "undead", 7: "humanoid", 8: "critter",
                   9: "mechanical", 11: "totem"}
+
+# D2 gives every monster a resistance line-up and the WoW templates carry
+# none, so the creature type sets a baseline and the name refines it: a
+# Molten Elemental shrugs off fire and hates the cold, a skeleton cannot be
+# poisoned. Percent; 100 is immune; negative is a weakness. The game applies
+# them per damage type, less the character's "-N% to Enemy <element>
+# Resistance" lines.
+RESIST_BY_TYPE = {
+    "elemental": {"fire": 50, "cold": 50, "ltng": 50, "pois": 100},
+    "undead": {"cold": 75, "pois": 100},
+    "demon": {"fire": 75, "pois": 25},
+    "mechanical": {"fire": 25, "ltng": 25, "pois": 100},
+    "totem": {"fire": 50, "cold": 50, "ltng": 50, "pois": 100},
+    "dragonkin": {"fire": 50},
+    "giant": {"fire": 25, "cold": 25},
+    "beast": {"pois": 25},
+}
+# (whole words in the name, resists that override the baseline)
+RESIST_BY_NAME = [
+    (("molten", "fire", "flame", "lava", "magma", "blaze", "ember", "searing",
+      "burning", "infernal"), {"fire": 100, "cold": -50}),
+    (("frost", "ice", "frozen", "chill", "glacial", "snow"),
+     {"cold": 100, "fire": -50}),
+    (("water", "tide", "deep", "sea", "naga"), {"cold": 75, "ltng": -50}),
+    (("earth", "stone", "rock", "crystal", "boulder"),
+     {"ltng": 100, "pois": 100, "fire": 50}),
+    (("storm", "thunder", "lightning", "spark", "static"),
+     {"ltng": 100, "cold": -25}),
+    (("shadow", "void", "dark", "shade", "spectral", "ghost", "phantom",
+      "wraith"), {"cold": 50, "pois": 100}),
+    (("slime", "ooze", "sludge", "ectoplasm"), {"pois": 100, "fire": -25}),
+    (("mechanical", "mech", "golem", "shredder", "robot", "bomb"),
+     {"pois": 100, "ltng": -25}),
+]
+
+
+# the name describes the creature itself for these types; for people and
+# animals it names a faction (the Searing Blade orcs are not fireproof)
+NAME_RESIST_TYPES = {"elemental", "totem", "undead", "mechanical", "giant", "other"}
+
+
+def resistances(name, ctype):
+    """The resistance dict for one creature: type baseline, name overrides."""
+    res = dict(RESIST_BY_TYPE.get(ctype, {}))
+    if ctype in NAME_RESIST_TYPES:
+        words = set(re.findall(r"[a-z]+", name.lower()))
+        for keys, over in RESIST_BY_NAME:
+            if words & set(keys):
+                res.update(over)
+                break
+    return {k: v for k, v in res.items() if v}
 
 
 def nearest_blp(s, fdid, span=30):
@@ -281,6 +354,8 @@ def load_stats(entries, spawns, cfg):
             # creature_template.type, for the "+% damage to undead/demons"
             # item lines: 3 demon, 6 undead, 1 beast, 7 humanoid ...
             "ctype": CREATURE_TYPES.get(int(f[CT_TYPE]), "other"),
+            "res": resistances(f[CT_NAME],
+                               CREATURE_TYPES.get(int(f[CT_TYPE]), "other")),
             "passive": passive,
             "boss": boss,
             "final_boss": entry == final_entry,
@@ -397,6 +472,37 @@ def build(s, dungeon_id, cfg, stats_only=False):
         return None
 
     out_dir.mkdir(parents=True, exist_ok=True)
+    # Which models the client actually holds. The anniversary client streams
+    # creature models on demand, so a dungeon the player never visited can
+    # be missing a few (Razorfen Downs' skeletons, the Scarlet graveyard's
+    # spirits). Rather than leave a boss out, such a creature borrows the
+    # nearest model the same dungeon does have, by name keyword.
+    ok_models = {}
+    for entry in entries:
+        disp = displays.get(entry)
+        row = cdi.rows.get(disp) if disp else None
+        if not row:
+            continue
+        fd = cmd.rows[row[1]][2]
+        if fd in ok_models:
+            continue
+        try:
+            ok_models[fd] = M2Model(s.read_fdid(fd), lambda *a: None, s.read_fdid).name
+        except (CascError, KeyError, ValueError, struct.error):
+            pass
+    avail = {}
+    for fd, nm in ok_models.items():
+        avail.setdefault(nm, fd)
+
+    def standin(cname):
+        low = cname.lower()
+        for key, cands in MODEL_STANDINS:
+            if key in low:
+                for c in cands:
+                    if c in avail:
+                        return avail[c]
+        return None
+
     manifest = {}
     for entry in entries:
         name = names.get(entry, "?")
@@ -408,6 +514,16 @@ def build(s, dungeon_id, cfg, stats_only=False):
         model_fdid = cmd.rows[row[1]][2]
         scale = f32(row[4]) or 1.0
         extra_id = row[7]
+        if model_fdid not in ok_models:
+            alt = standin(name)
+            if alt is None:
+                print(f"{entry} {name}: model {model_fdid} not in the local client, "
+                      "no stand-in, skipped")
+                continue
+            print(f"{entry} {name}: model {model_fdid} not in the local client -> "
+                  f"stand-in {ok_models[alt]}")
+            model_fdid = alt
+            extra_id = None       # its own textures, not the missing model's bake
         variations = row[25] if isinstance(row[25], list) else []
         def anim_resolver(seq_id, variation, afid):
             fd = afid.get((seq_id, variation))
