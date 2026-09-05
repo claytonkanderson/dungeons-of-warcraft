@@ -2,12 +2,9 @@
 
 *Diablo II × World of Warcraft — a loot-frenzy FPS*
 
-<!-- gameplay video: replace with the recorded clip
-     (GitHub renders an .mp4 dropped into an issue/PR comment; paste that
-     URL here, or link a YouTube upload) -->
-> **Gameplay video:** _coming soon_
+[![Gameplay video](https://img.youtube.com/vi/rSDzyG9yryg/maxresdefault.jpg)](https://www.youtube.com/watch?v=rSDzyG9yryg)
 
-![The dungeon ladder](docs/img/main-menu.jpg)
+*▶ [Watch the gameplay video](https://www.youtube.com/watch?v=rSDzyG9yryg)*
 
 ## What is it?
 
@@ -76,8 +73,7 @@ the game's folder contains `Data\` and a `.build.info` file naming
    (5–10 minutes, about 600 MB, no internet needed). Windows SmartScreen
    may warn that the file is unsigned: choose *More info → Run anyway*.
 
-<!-- TODO: docs/img/setup.jpg — a screenshot of the setup window with both
-     paths filled in and the progress bar part-way -->
+![The setup window mid-build](docs/img/setup.png)
 
 ### 4. Play
 
@@ -89,7 +85,7 @@ Run `DungeonsOfWarcraft.exe`, create a character, pick Ragefire Chasm, go.
 | | |
 |---|---|
 | ![Character sheet](docs/img/character-sheet.jpg) | ![Inventory](docs/img/inventory.jpg) |
-| ![Ragefire Chasm](docs/img/ragefire.jpg) | |
+| ![Ragefire Chasm](docs/img/ragefire.jpg) | ![The dungeon ladder](docs/img/main-menu.jpg) |
 
 </details>
 

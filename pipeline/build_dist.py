@@ -79,10 +79,11 @@ def build_builder():
     OUT.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as work:
         cmd = [sys.executable, "-m", "PyInstaller", "--onefile", "--noconfirm",
-               # the player-facing name: double-click for the picker window.
-               # Kept a console build (not --windowed) so build progress and
-               # any early error stay visible even if the window can't open.
-               "--name", "setup",
+               # the player-facing name: double-click for the setup window.
+               # A windowed build, so no console pops up beside it; a run
+               # from a terminal attaches to that terminal instead (see
+               # attach_console in builder.py) and the log file has the rest.
+               "--name", "setup", "--windowed",
                "--distpath", OUT, "--workpath", work,
                "--specpath", work,
                # the pipeline is loaded from sys.path at runtime, so it has to
@@ -101,7 +102,7 @@ def build_builder():
                # the picker GUI; tkinter's own hook pulls in the Tcl/Tk runtime
                "--hidden-import", "tkinter",
                "--hidden-import", "tkinter.filedialog",
-               "--hidden-import", "tkinter.scrolledtext"]
+               "--hidden-import", "tkinter.ttk"]
         for py in sorted(HERE.glob("*.py")):
             if py.name in ("builder.py", "build_dist.py"):
                 continue

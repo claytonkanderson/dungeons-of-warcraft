@@ -713,7 +713,29 @@ def run_gui():
     return True
 
 
+def attach_console():
+    """The frozen setup.exe is a windowed build (no console of its own), so a
+    double-click shows only the window. Run from a terminal with arguments,
+    it attaches to that terminal so its output goes where the user is
+    looking. Without one (or on a non-Windows host) stdout stays whatever
+    it is; the log file receives everything either way."""
+    if os.name != "nt" or not getattr(sys, "frozen", False):
+        return
+    if sys.stdout is not None and sys.stderr is not None:
+        return
+    try:
+        import ctypes
+        if ctypes.windll.kernel32.AttachConsole(-1):
+            sys.stdout = open("CONOUT$", "w", encoding="utf-8", buffering=1)
+            sys.stderr = sys.stdout
+            print()     # step past the shell prompt already on that line
+    except Exception:
+        pass
+
+
 def main():
+    if len(sys.argv) > 1:
+        attach_console()
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--d2", default="",
