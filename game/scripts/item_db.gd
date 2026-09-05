@@ -9,6 +9,17 @@ var ASSETS: String = Paths.root()
 # are rolled as if this many were present: dungeons are a fraction of a D2
 # act's monster count, so single-player NoDrop would leave floors bare.
 const DROP_PLAYERS := 3
+# Potions come up far more often in D2's classes than a first-person run
+# wants to pick up; only one in this many potion drops actually lands.
+const POTION_KEEP_ONE_IN := 3
+# Bosses are the payoff of a fast looter: the class is rolled again until at
+# least this much gear has come out (bounded), so a dungeon boss is a pile
+# and the final boss a heap, whichever act class they happen to use.
+const MIN_GEAR := {"boss": 3, "final": 8}
+const MAX_BOSS_ROLLS := 6
+# Overall drop volume: each thing that would have dropped is kept with this
+# probability, after every roll, so the quality mix is untouched.
+const DROP_KEEP := 0.8
 
 var items := {}
 var treasure := {}
@@ -149,6 +160,8 @@ func roll(tc: String, mlvl := 1, depth := 0) -> Array:
 			out.append({"code": "gold",
 					"gold": maxi(1, int(randi_range(1, 8 * mlvl + 8) * mult))})
 		elif items.has(code):
+			if _is_potion(code) and randi() % POTION_KEEP_ONE_IN != 0:
+				return out
 			out.append({"code": code, "gold": 0})
 		return out
 	var rows: Array = entry.get("items", [])
@@ -188,6 +201,39 @@ func roll(tc: String, mlvl := 1, depth := 0) -> Array:
 				out.append_array(roll(str(r[0]), mlvl, depth + 1))
 				break
 	return out
+
+
+func drops_for(mlvl: int, kind: String, archetype := "melee") -> Array:
+	## Everything one kill leaves on the floor: the treasure class for this
+	## level and kind rolled through (bosses repeatedly, see MIN_GEAR), each
+	## base put through the quality roll with the class's magic-find bonus
+	## and D2's magic floor for champions and bosses.
+	## -> [{code, gold, inst}]; inst is {} for a plain item or gold
+	var gen := get_node("/root/ItemGen")
+	var tc := tc_for(mlvl, kind, archetype)
+	var bonus := quality_bonus(tc, kind)
+	var minq := "magic" if kind in ["boss", "final", "champion"] else ""
+	var want := int(MIN_GEAR.get(kind, 0))
+	var out: Array = []
+	var gear := 0
+	for attempt in range(MAX_BOSS_ROLLS):
+		for res in roll(tc, mlvl):
+			var d := {"code": str(res["code"]), "gold": int(res["gold"]), "inst": {}}
+			if d["gold"] == 0:
+				d["inst"] = gen.roll_item(d["code"], mlvl, bonus, minq)
+				if gen._equippable(gen.type_chain(str(item(d["code"]).get("type", "")))):
+					gear += 1
+			out.append(d)
+		if gear >= want:
+			break
+	return out.filter(func(_d): return randf() < DROP_KEEP)
+
+
+func _is_potion(code: String) -> bool:
+	## healing, mana, rejuvenation, and the antidote/thawing/stamina flasks
+	var chain: Dictionary = get_node("/root/ItemGen").type_chain(
+			str(item(code).get("type", "")))
+	return chain.has("poti") or chain.has("hpot") or chain.has("mpot") 			or chain.has("rpot") or chain.has("spot") or chain.has("apot") 			or chain.has("tpot")
 
 
 # ---------------------------------------------------------------------------

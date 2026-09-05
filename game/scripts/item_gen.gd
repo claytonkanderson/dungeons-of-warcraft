@@ -12,7 +12,9 @@ extends Node
 
 var ASSETS: String = Paths.root()
 
-const RARITY_BOOST := 3.0
+# A fast looter, not a D2 ladder grind: the chance of each quality is
+# multiplied over D2's own ItemRatio result. (D2's own numbers are 1.)
+const QUALITY_BOOST := {"unique": 20.0, "set": 15.0, "rare": 5.0}
 # magic find diminishes for the better qualities (D2's 250/500/600 rule)
 const MF_DIMINISH := {"unique": 250.0, "set": 500.0, "rare": 600.0}
 const QUALITY_RANK := {"": 0, "normal": 0, "magic": 1, "rare": 2, "set": 3, "unique": 4}
@@ -57,9 +59,13 @@ func _ensure_loaded() -> void:
 	rarenames = _load_json("items/rarenames.json", {})
 	itemtypes = _load_json("items/itemtypes.json", {})
 	itemratio = _load_json("items/itemratio.json", [])
-	# keep only uniques/sets whose base item exists
+	# keep only uniques/sets whose base item exists; the quest uniques
+	# (Horadric Staff, Khalim's pieces, the Hell Forge Hammer, the Viper
+	# amulet, Staff of Kings) and the unfinished Darkfear have no level and
+	# never drop
 	uniques = uniques.filter(func(u): return u.get("enabled", true) \
-			and db.items.has(str(u.get("code", ""))))
+			and db.items.has(str(u.get("code", ""))) \
+			and str(u.get("lvl", "")).to_int() > 0)
 	setitems = setitems.filter(func(s): return db.items.has(str(s.get("code", ""))))
 	print("ItemGen: %d uniques, %d set items, %d/%d affixes, %d ratio rows" % [
 		uniques.size(), setitems.size(),
@@ -192,8 +198,7 @@ func _roll_quality(qlvl: int, ilvl: int, chain: Dictionary, bonus: Dictionary) -
 			mf = mf * d / (mf + d)
 		chance = int(chance * 100.0 / (100.0 + mf))
 		chance = maxi(chance, floor_v)
-		if q[0] != "magic":
-			chance = int(chance / RARITY_BOOST)
+		chance = int(chance / float(QUALITY_BOOST.get(q[0], 1.0)))
 		if randi() % maxi(1, chance) < 128:
 			return q[0]
 	return "normal"

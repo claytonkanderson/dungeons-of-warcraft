@@ -6,7 +6,8 @@ extends Node
 var DIR: String = Paths.asset("sounds")
 
 var meta: Dictionary = {}
-var _cache: Dictionary = {}        # sound key -> AudioStreamWAV (or null)
+var _cache: Dictionary = {}
+var loads := 0                  # cache misses (disk decodes), for the perf probe        # sound key -> AudioStreamWAV (or null)
 var _last_frame: Dictionary = {}   # sound key -> last played frame (throttle)
 var _plays := 0                    # debug: total sounds started
 
@@ -29,6 +30,7 @@ func _stream(key: String) -> AudioStreamWAV:
 	if FileAccess.file_exists(path):
 		s = AudioStreamWAV.load_from_file(path)
 	_cache[key] = s
+	loads += 1
 	return s
 
 

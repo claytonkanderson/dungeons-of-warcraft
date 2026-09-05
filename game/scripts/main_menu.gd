@@ -101,16 +101,29 @@ func _skin(button: Button, name: String, frames: int, pressed_frame: int) -> boo
 	var idle := _frame_tex(name, 0, frames)
 	if idle == null:
 		return false
-	var box := StyleBoxTexture.new()
-	box.texture = idle
+	var box := _frame_box(idle)
 	button.add_theme_stylebox_override("normal", box)
 	button.add_theme_stylebox_override("hover", box)
 	button.add_theme_stylebox_override("disabled", box)
 	button.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	var down := StyleBoxTexture.new()
-	down.texture = _frame_tex(name, pressed_frame, frames)
-	button.add_theme_stylebox_override("pressed", down)
+	button.add_theme_stylebox_override("pressed",
+			_frame_box(_frame_tex(name, pressed_frame, frames)))
 	return true
+
+
+static func _frame_box(frame: AtlasTexture) -> StyleBoxTexture:
+	## A StyleBoxTexture draws its texture's whole atlas unless told the
+	## region: given the AtlasTexture straight, the entire sheet was squeezed
+	## into the button and the one-pixel side borders vanished. The sheet
+	## plus the frame's region, with the border kept at its own width.
+	var box := StyleBoxTexture.new()
+	box.texture = frame.atlas
+	box.region_rect = frame.region
+	box.texture_margin_left = 4
+	box.texture_margin_right = 4
+	box.texture_margin_top = 4
+	box.texture_margin_bottom = 4
+	return box
 
 
 func _button(text: String, px: int, cb: Callable) -> Button:
@@ -191,9 +204,11 @@ func _build() -> void:
 	chead.position = Vector2(CHAR_PANEL.position.x, 150)
 	chead.size.x = CHAR_PANEL.size.x
 	add_child(chead)
+	# wide enough for a full 256 px row plus the vertical scrollbar beside
+	# it; at 266 the bar sat over the rows' right border and hid it
 	var cscroll := ScrollContainer.new()
-	cscroll.position = Vector2(296, 180)
-	cscroll.size = Vector2(266, 360)
+	cscroll.position = Vector2(292, 180)
+	cscroll.size = Vector2(274, 360)
 	cscroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	add_child(cscroll)
 	_char_box = VBoxContainer.new()

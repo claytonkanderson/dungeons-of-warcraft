@@ -136,13 +136,29 @@ func _inst_mod(inst: Dictionary, code: String) -> int:
 	return total
 
 
+func _has_code(inst: Dictionary, code: String) -> bool:
+	for p in inst.get("props", []):
+		if p.has("affix"):
+			for q in p.get("props", []):
+				if str(q.get("code", "")) == code:
+					return true
+		elif str(p.get("code", "")) == code:
+			return true
+	return false
+
+
 func _base_lines(it: Dictionary, inst: Dictionary) -> void:
 	## White base-stat lines: Defense on armor, Damage on weapons, req level.
+	var chain: Dictionary = get_node("/root/ItemGen").type_chain(str(it.get("type", "")))
+	if chain.has("char"):
+		_line("Keep in Inventory to Gain Bonus", Color(0.75, 0.75, 0.75))
 	var ed := _inst_mod(inst, "dmg%")
-	var mn2 := str(it.get("2handmindam", "")).to_int()
-	var mx2 := str(it.get("2handmaxdam", "")).to_int()
-	var mn1 := str(it.get("mindam", "")).to_int()
-	var mx1 := str(it.get("maxdam", "")).to_int()
+	# ethereal: half again the base damage and defence
+	var ethm := 3 if _has_code(inst, "ethereal") else 2
+	var mn2 := str(it.get("2handmindam", "")).to_int() * ethm / 2
+	var mx2 := str(it.get("2handmaxdam", "")).to_int() * ethm / 2
+	var mn1 := str(it.get("mindam", "")).to_int() * ethm / 2
+	var mx1 := str(it.get("maxdam", "")).to_int() * ethm / 2
 	var dmin := _inst_mod(inst, "dmg-min")
 	var dmax := _inst_mod(inst, "dmg-max")
 	if mx2 > 0:
@@ -156,7 +172,7 @@ func _base_lines(it: Dictionary, inst: Dictionary) -> void:
 	var mxac := str(it.get("maxac", "")).to_int()
 	if mxac > 0:
 		var base_ac := int(inst.get("base_ac",
-				(str(it.get("minac", "")).to_int() + mxac) / 2))
+				(str(it.get("minac", "")).to_int() + mxac) / 2)) * ethm / 2
 		var acp := _inst_mod(inst, "ac%")
 		var def := base_ac * (100 + acp) / 100 + _inst_mod(inst, "ac")
 		_line("Defense: %d" % def, Color.WHITE)

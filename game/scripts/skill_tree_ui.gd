@@ -18,6 +18,7 @@ const SOCKET_PITCH_Y := 68.2
 # the spare socket bottom-right (Normal Attack) and the chrome's top box,
 # where D2 shows the unspent skill points
 const ATTACK_RECT := Rect2(172, 386, 31, 31)
+const THROW_RECT := Rect2(133, 386, 31, 31)   # left of it: Throw (javelins)
 const POINTS_BOX := Rect2(250, 61, 49, 25)
 # tab plates in the chrome column: 87x99 at x 228, y 111 / 219 / 327
 const TAB_X := 228.0
@@ -178,24 +179,28 @@ func _rebuild() -> void:
 	# hotkey, same gestures as any learned skill
 	var atk_sheet = db.load_sheet("ui/skilliconpanel")
 	if atk_sheet != null:
-		_icon(atk_sheet, 2, ATTACK_RECT)
-		_hotkey_badge("Attack", ATTACK_RECT)
-		var ab := _button(ATTACK_RECT)
-		ab.mouse_entered.connect(func():
-			_hover_skill = "Attack"
-			_show_tip("Normal Attack\nctrl+click: LMB   right-click: RMB\nF1-F5: bind hotkey",
-					ATTACK_RECT))
-		ab.mouse_exited.connect(_hide_tip)
-		ab.gui_input.connect(func(ev):
-			if not (ev is InputEventMouseButton and ev.pressed):
-				return
-			var p: Player = get_tree().get_first_node_in_group("player")
-			if p == null:
-				return
-			if ev.button_index == MOUSE_BUTTON_LEFT and ev.ctrl_pressed:
-				p.action_skill[0] = "Attack"
-			elif ev.button_index == MOUSE_BUTTON_RIGHT:
-				p.action_skill[1] = "Attack")
+		for basic in [["Attack", 2, ATTACK_RECT, "Normal Attack"],
+				["Throw", 6, THROW_RECT, "Throw (javelins)"]]:
+			var bname: String = basic[0]
+			var brect: Rect2 = basic[2]
+			_icon(atk_sheet, int(basic[1]), brect)
+			_hotkey_badge(bname, brect)
+			var ab := _button(brect)
+			ab.mouse_entered.connect(func():
+				_hover_skill = bname
+				_show_tip(str(basic[3]) + "\nctrl+click: LMB   right-click: RMB\nF1-F5: bind hotkey",
+						brect))
+			ab.mouse_exited.connect(_hide_tip)
+			ab.gui_input.connect(func(ev):
+				if not (ev is InputEventMouseButton and ev.pressed):
+					return
+				var p: Player = get_tree().get_first_node_in_group("player")
+				if p == null:
+					return
+				if ev.button_index == MOUSE_BUTTON_LEFT and ev.ctrl_pressed:
+					p.action_skill[0] = bname
+				elif ev.button_index == MOUSE_BUTTON_RIGHT:
+					p.action_skill[1] = bname)
 
 	for s in _amazon_skills_on_page(tab + 1):
 		var rect := _socket(s.col, s.row)
@@ -276,7 +281,7 @@ func _input(e: InputEvent) -> void:
 		elif e.keycode == KEY_3: tab = 2; _rebuild(); get_viewport().set_input_as_handled()
 		elif e.keycode >= KEY_F1 and e.keycode <= KEY_F5:
 			# D2-style: bind the hovered, learned skill to this key
-			if _hover_skill != "" and (_hover_skill == "Attack"
+			if _hover_skill != "" and (_hover_skill in ["Attack", "Throw"]
 					or gs.skill_level(_hover_skill) > 0):
 				gs.hotkeys["F%d" % (e.keycode - KEY_F1 + 1)] = _hover_skill
 				get_node("/root/Sfx").event_ui("button")

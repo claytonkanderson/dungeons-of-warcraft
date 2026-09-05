@@ -12,6 +12,7 @@ const FLAGS := {
 	"--combat-test": "run the scripted bow fight, then quit",
 	"--ui-test": "capture the UI panels, then quit",
 	"--fps-probe": "report frame timing, then quit",
+	"--perf-test": "diagnostic: look-around, sprint tour and crowd scaling frame times, quit",
 	"--walk-test": "pace the Deadmines cove and report footing",
 	"--stair-test": "climb the entrance stairs with/without the stepper, report",
 	"--dungeon=": "<id>       load this dungeon instead of the saved one",
@@ -20,6 +21,9 @@ const FLAGS := {
 	"--menu-shot=": "<file>   capture the main menu, then quit",
 	"--what-here": "diagnostic: list placements whose bounds enclose the spawn, quit",
 	"--loot-test": "diagnostic: simulate drops per monster level and kind, quit",
+	"--loot-run": "diagnostic: expected loot from clearing the first four dungeons, quit",
+	"--mob-shot=": "<entry>    diagnostic: capture a creature alive and dead, quit",
+	"--mob-name=": "<name>     with --mob-shot: match by name instead",
 	"--item-test": "diagnostic: equip known item properties, print what they do, quit",
 	"--two-sided": "diagnostic: draw WMO faces from both sides",
 	"--no-doodads": "diagnostic: skip the WMO doodad sets",
@@ -42,7 +46,12 @@ static func hide_window() -> void:
 	## minimized window is not driven by vsync, so capture sites draw frames
 	## with RenderingServer.force_draw() instead of awaiting frame_post_draw.
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_NO_FOCUS, true)
-	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_MINIMIZED)
+	# a minimized window is not rendered, which is fine for captures (they
+	# force their own draws) but useless for anything that waits on real
+	# frames: the perf probe and the combat test keep their off-desktop
+	# window open instead (launch those through offdesk.bat / perf.bat)
+	if not has("--perf-test") and not has("--combat-test"):
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_MINIMIZED)
 
 
 static func toggle_fullscreen() -> void:

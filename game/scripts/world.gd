@@ -291,7 +291,43 @@ func _ready() -> void:
 		await _ui_test()
 		get_tree().quit()
 	elif OS.get_cmdline_user_args().has("--item-test"):
-		_item_test()
+		await _item_test()
+		get_tree().quit()
+	elif Cli.value("--mob-shot=") != "":
+		# stand in front of the first creature of this entry, capture it, kill
+		# it, capture what remains
+		var want := Cli.value("--mob-shot=").to_int()
+		var target_mob: WowCreature = null
+		for mob in monsters:
+			if mob is WowCreature and int(mob.stats.get("entry", mob.get_meta("entry", -1))) == want:
+				target_mob = mob
+				break
+		if target_mob == null:
+			for mob in monsters:
+				if mob is WowCreature and mob.cname == Cli.value("--mob-name=", "?"):
+					target_mob = mob
+					break
+		if target_mob == null:
+			print("MOB-SHOT: entry %d not found" % want)
+		else:
+			var dir_out := Basis(Vector3.UP, target_mob.rotation.y) * Vector3(0, 0, -1)
+			player.global_position = target_mob.global_position + dir_out * 5.0 + Vector3(0, 0.5, 0)
+			player.yaw = atan2(-(target_mob.global_position - player.global_position).x,
+					-(target_mob.global_position - player.global_position).z)
+			player.pitch = -0.15
+			target_mob.passive = true
+			var dirn := ProjectSettings.globalize_path("res://../shots")
+			await _ui_shot(dirn + "/mob_alive.png")
+			target_mob.take_damage(1.0e6)
+			await get_tree().create_timer(2.0).timeout
+			await _ui_shot(dirn + "/mob_dead.png")
+			await get_tree().create_timer(4.0).timeout
+			await _ui_shot(dirn + "/mob_gone.png")
+			print("MOB-SHOT done: %s corpse still in tree: %s" % [
+					Cli.value("--mob-name=", "?"), is_instance_valid(target_mob)])
+		get_tree().quit()
+	elif OS.get_cmdline_user_args().has("--loot-run"):
+		_loot_run()
 		get_tree().quit()
 	elif OS.get_cmdline_user_args().has("--loot-test"):
 		_loot_test()
@@ -394,6 +430,9 @@ func _ready() -> void:
 						player.global_position.z, player.is_on_floor()])
 		print("walk test done: y=%.1f freefall_frames=%d" %
 				[player.global_position.y, lost])
+		get_tree().quit()
+	elif OS.get_cmdline_user_args().has("--perf-test"):
+		await _perf_test()
 		get_tree().quit()
 	elif OS.get_cmdline_user_args().has("--fps-probe"):
 		print("audio devices: ", AudioServer.get_output_device_list(),
@@ -802,6 +841,7 @@ func _spawn_creatures(entries: Array) -> void:
 		# overrides); the entry map is only a fallback for older manifests
 		mob.voice = str(info.get("voice", VOICE_MAP.get(int(c["entry"]), "")))
 		mob.impact_kind = "heavy" if int(c["entry"]) in HEAVY_HITTERS else "sword"
+		mob.set_meta("entry", int(c["entry"]))
 		mob.target = player
 		mob.died.connect(_on_monster_died)
 		monsters.append(mob)
@@ -830,7 +870,7 @@ func spawn_enemy_missile(origin: Vector3, dir: Vector3, mob: WowCreature) -> voi
 	node.facing = atan2(dir.x, dir.z)
 	var dmg := randf_range(float(mob.stats.get("A1MinD", 5)),
 			float(mob.stats.get("A1MaxD", 10)))
-	enemy_missiles.append({"node": node, "vel": dir * mob.ranged_vel,
+	enemy_missiles.append({"node": node, "vel": dir * mob.ranged_vel * mob.missile_speed_factor(),
 			"life": 2.6, "dmg": dmg, "etype": mob.ranged_etype,
 			"ar": float(mob.stats.get("A1TH", 40)),
 			"mlvl": mob.mlevel, "explode": mob.ranged_explode})
@@ -849,12 +889,21 @@ func _update_enemy_missiles(dt: float) -> void:
 			var chance := GameState.chance_to_hit(m["ar"],
 					gs.player_defense() + float(gs.mods.get("ac-miss", 0)),
 					int(m["mlvl"]), gs.level)
-			if randf() < chance and randf() >= gs.avoid_chance():
+			if randf() < chance and randf() >= gs.avoid_chance() \
+					and randf() < gs.block_chance():
+				# blocked: D2 shields stop missiles as well as blows
+				get_node("/root/Sfx").event("blade_impact", node.global_position)
+				player.on_block()
+			elif randf() < chance and randf() >= gs.avoid_chance():
 				get_node("/root/Sfx").event("player_gethit", node.global_position, 0.4)
 				var et := str(m["etype"])
+				if et == "cold":
+					player.chill(2.0)
 				if gs.take_damage(m["dmg"], et if et != "" else "phys", true) \
 						and player.has_method("die"):
 					player.die()
+				else:
+					player.on_hurt(float(m["dmg"]))
 			m["life"] = 0.0
 		if m["life"] <= 0.0:
 			if str(m.get("explode", "")) != "":
@@ -878,6 +927,7 @@ func _skill_impact(a: Dictionary, pos: Vector3) -> void:
 		"Exploding Arrow": radius = 2.5
 		"Immolation Arrow": radius = 3.0
 		"Freezing Arrow": radius = 3.0
+		"Plague Javelin": radius = 3.5
 	if radius <= 0.0:
 		return
 	for mob in monsters:
@@ -887,33 +937,92 @@ func _skill_impact(a: Dictionary, pos: Vector3) -> void:
 			continue
 		if sk == "Freezing Arrow":
 			mob.slow(2.0 + 0.4 * lvl, 0.25)
-			mob.take_damage((4.0 + 3.0 * lvl) * GameState.DMG_MULT / 5.0)
+			mob.take_damage((4.0 + 3.0 * lvl) * GameState.DMG_MULT / 5.0
+					* gs.skill_elem_mult("cold"), "cold")
+		elif sk == "Plague Javelin":
+			var pd := _skill_elemental(gs, sk, lvl)
+			mob.burn(randf_range(pd.x, pd.y) / 4.0, 4.0)
 		else:
-			mob.take_damage((3.0 + 4.0 * lvl) * GameState.DMG_MULT / 5.0)
+			mob.take_damage((3.0 + 4.0 * lvl) * GameState.DMG_MULT / 5.0
+					* gs.skill_elem_mult("fire"), "fire")
 			if sk == "Immolation Arrow":
-				mob.burn(4.0 * lvl * GameState.DMG_MULT / 5.0, 3.0)
+				mob.burn(4.0 * lvl * GameState.DMG_MULT / 5.0
+						* gs.skill_elem_mult("fire"), 3.0, "fire")
 
 
-func _hit_monster(mob: WowCreature, ranged: bool, extra: float) -> void:
+func _hit_monster(mob: WowCreature, ranged: bool, extra: float, thrown := false,
+		extra_type := "") -> void:
 	## One player blow landing: physical + item elemental damage, crushing
 	## blow, open wounds, cold slow and poison from the gear, and the life and
-	## mana the blow leeches back. extra: a skill's own elemental damage.
+	## mana the blow leeches back. extra: a skill's own elemental damage, of
+	## extra_type. Each type is resisted by the creature on its own.
 	var gs := get_node("/root/GameState")
-	var h: Dictionary = gs.roll_player_hit(ranged, str(mob.stats.get("ctype", "")))
-	var total: float = float(h["phys"]) + extra
+	var h: Dictionary = gs.roll_player_hit(ranged, str(mob.stats.get("ctype", "")), thrown)
+	var parts := {"phys": float(h["phys"])}
 	for el in h["elem"]:
-		total += float(h["elem"][el])
+		parts[el] = float(parts.get(el, 0.0)) + float(h["elem"][el])
+	if extra > 0.0:
+		var et := extra_type if extra_type != "" else "mag"
+		parts[et] = float(parts.get(et, 0.0)) + extra
 	if float(h["cold_len"]) > 0.0:
 		mob.slow(float(h["cold_len"]), 0.5)
 	if float(h["pois_total"]) > 0.0:
 		mob.burn(float(h["pois_total"]) / maxf(0.5, float(h["pois_len"])), float(h["pois_len"]))
 	if h["openwounds"]:
-		mob.burn(float(h["ow_dps"]), 8.0)
+		# bleeding is physical: no resistance applies
+		mob.burn(float(h["ow_dps"]), 8.0, "phys")
 	if h["crush"]:
 		# D2 halves crushing blow against bosses
-		total += mob.hp * float(h["crush_frac"]) * (0.5 if mob.is_boss else 1.0)
+		parts["phys"] += mob.hp * float(h["crush_frac"]) * (0.5 if mob.is_boss else 1.0)
+	for et in parts:
+		parts[et] = float(parts[et]) * _melee_mult
+	if h["noheal"]:
+		mob.noheal = true
+	if float(h["slow_pct"]) > 0.0:
+		mob.slow(3.0, clampf(1.0 - float(h["slow_pct"]) / 100.0, 0.25, 0.9))
+	if float(h["freeze"]) > 0.0:
+		mob.freeze(float(h["freeze"]))
+	if h["knock"]:
+		mob.knockback(mob.global_position - player.global_position)
 	gs.on_hit_dealt(h)
-	mob.take_damage(total)
+	mob.take_hit(parts)
+
+
+var _melee_mult := 1.0            # Impale: one heavy blow
+const THROW_SKILLS := ["Poison Javelin", "Plague Javelin", "Lightning Bolt", "Lightning Fury"]
+const CAST_SKILLS := ["Inner Sight", "Slow Missiles"]
+
+
+func _skill_elemental(gs, skill: String, lvl: int) -> Vector2:
+	## the skill's own elemental damage at this level, from the D2 table
+	var srow: Dictionary = gs.skill_row(skill)
+	var lo := float(str(srow.get("EMin", "0")).to_int()) \
+			+ float(str(srow.get("EMinLev1", "0")).to_int()) * (lvl - 1)
+	var hi := float(str(srow.get("EMax", "0")).to_int()) \
+			+ float(str(srow.get("EMaxLev1", "0")).to_int()) * (lvl - 1)
+	var mult: float = gs.skill_elem_mult(str(srow.get("EType", "")).strip_edges())
+	return Vector2(lo, maxf(lo, hi)) * GameState.DMG_MULT * mult
+
+
+func _chain_lightning(from: Vector3, exclude: Node, count: int, dmg: Vector2) -> void:
+	## bolts jump to the nearest other creatures within 8 m
+	var cands := []
+	for mob in monsters:
+		if mob is WowCreature and mob != exclude and mob.state != WowCreature.State.DEAD \
+				and mob.global_position.distance_to(from) < 8.0:
+			cands.append(mob)
+	cands.sort_custom(func(a, b):
+		return a.global_position.distance_to(from) < b.global_position.distance_to(from))
+	for i in range(mini(count, cands.size())):
+		var m: WowCreature = cands[i]
+		m.take_damage(randf_range(dmg.x, dmg.y), "ltng")
+		var bolt := BillboardAnim.new()
+		add_child(bolt)
+		bolt.play("missiles/lightningbolt", false, "center")
+		bolt.global_position = m.global_position + Vector3(0, 1.0, 0)
+		bolt.finished.connect(bolt.queue_free)
+	if cands.size() > 0:
+		get_node("/root/Sfx").event("fire_impact", from, 0.6)
 
 
 func _melee_params() -> Vector2:
@@ -976,6 +1085,46 @@ func _on_fire(slot: int, origin: Vector3, dir: Vector3) -> void:
 				friendlies.erase(f)
 		friendlies.append(Ally.spawn(self, at, kind, lvl))
 		return
+	# Inner Sight / Slow Missiles: cast with any weapon on everything in range
+	if skill in CAST_SKILLS:
+		var ccost: float = gs.mana_cost(skill)
+		if gs.mana < ccost:
+			return
+		gs.mana -= ccost
+		var clvl: int = maxi(1, gs.skill_level(skill))
+		var radius := 12.0 + float(clvl)
+		var dur := 8.0 + 4.0 * float(clvl)
+		var hit_n := 0
+		for mob in monsters:
+			if mob is WowCreature and mob.state != WowCreature.State.DEAD \
+					and mob.global_position.distance_to(player.global_position) < radius:
+				if skill == "Inner Sight":
+					mob.reveal(dur)
+				else:
+					mob.slow_missiles(dur)
+				hit_n += 1
+		get_node("/root/Sfx").event_ui("button")
+		if hud_node != null:
+			hud_node.show_area("%s: %d" % [skill, hit_n], Color(0.7, 0.8, 1.0), 1.5)
+		return
+	# Throw: the plain javelin throw, no mana, the weapon's own throw damage
+	if skill == "Throw":
+		if gs.is_javelin():
+			_launch_arrow(gs, "Throw", origin, dir)
+			return
+		skill = "Attack"
+	# the javelin throws: a missile that carries the skill's element
+	if skill in THROW_SKILLS:
+		if not gs.is_javelin():
+			skill = "Attack"
+		else:
+			var tcost: float = gs.mana_cost(skill)
+			if gs.mana < tcost:
+				skill = "Attack"
+			else:
+				gs.mana -= tcost
+				_launch_arrow(gs, skill, origin, dir)
+				return
 	if player.melee:
 		var mcost: float = gs.mana_cost(skill)
 		var mskill := skill
@@ -995,14 +1144,18 @@ func _on_fire(slot: int, origin: Vector3, dir: Vector3) -> void:
 					if mob is WowCreature and mob.state != WowCreature.State.DEAD \
 							and mob.global_position.distance_to(
 								player.global_position) < 4.0:
-						mob.take_damage((3.0 + 3.0 * mlvl) * GameState.DMG_MULT / 5.0)
-			"Poison Javelin", "Plague Javelin":
+						mob.take_damage((3.0 + 3.0 * mlvl) * GameState.DMG_MULT / 5.0
+								* gs.skill_elem_mult("ltng"), "ltng")
+			"Impale":
+				# one heavy blow (+300% and 25% a level in D2), slow to recover
+				_melee_mult = 4.0 + 0.25 * float(mlvl - 1)
 				_melee_swing(origin, dir)
-				for mob in monsters:
-					if mob is WowCreature and mob.state != WowCreature.State.DEAD \
-							and mob.global_position.distance_to(
-								player.global_position) < 5.0:
-						mob.burn((2.0 + 2.0 * mlvl) * GameState.DMG_MULT / 5.0, 4.0)
+				_melee_mult = 1.0
+				player.attack_time = player._attack_len * 1.6
+			"Lightning Strike":
+				_melee_swing(origin, dir)
+				_chain_lightning(player.global_position + dir * 2.0, null,
+						1 + mlvl, _skill_elemental(gs, "Lightning Strike", mlvl))
 			_:
 				_melee_swing(origin, dir)
 		return
@@ -1076,8 +1229,13 @@ func _launch_arrow(gs, skill: String, origin: Vector3, d2: Vector3) -> void:
 		explode = "icearrowexplode"
 	var etype := str(srow.get("EType", "")).strip_edges()
 	var escale := 1.0 + 0.5 * (lvl - 1)
-	var edmg := Vector2(float(str(srow.get("EMin", "0")).to_int()),
-			float(str(srow.get("EMax", "0")).to_int())) * escale
+	var edmg: Vector2 = Vector2(float(str(srow.get("EMin", "0")).to_int()),
+			float(str(srow.get("EMax", "0")).to_int())) * escale \
+			* gs.skill_elem_mult(etype)
+	if skill in ["Poison Javelin", "Plague Javelin", "Throw"]:
+		cel = "javelin"
+	elif skill in ["Lightning Bolt", "Lightning Fury"]:
+		cel = "lightningbolt"
 	var arrow := BillboardAnim.new()
 	add_child(arrow)
 	arrow.play("missiles/" + cel, true, "center")
@@ -1085,7 +1243,8 @@ func _launch_arrow(gs, skill: String, origin: Vector3, d2: Vector3) -> void:
 	arrow.facing = atan2(d2.x, d2.z)
 	arrows.append({"node": arrow, "vel": d2 * ARROW_SPEED, "life": 3.0,
 			"skill": skill, "edmg": edmg, "etype": etype, "explode": explode,
-			"homing": skill == "Guided Arrow"})
+			"homing": skill == "Guided Arrow",
+			"thrown": skill == "Throw" or skill in THROW_SKILLS})
 	get_node("/root/Sfx").event(
 		"xbow_fire" if player.weapon_class == "xbw" else "bow_fire", origin)
 
@@ -1150,8 +1309,17 @@ func _physics_process(dt: float) -> void:
 					var factor := 0.25 if sk in ["Ice Arrow", "Freezing Arrow"] else 0.4
 					col.slow(2.0 + 0.5 * gs.skill_level(sk), factor)
 				if sk == "Immolation Arrow":
-					col.burn(6.0 * gs.skill_level(sk) * GameState.DMG_MULT / 5.0, 3.0)
-				_hit_monster(col, true, extra)
+					col.burn(6.0 * gs.skill_level(sk) * GameState.DMG_MULT / 5.0
+							* gs.skill_elem_mult("fire"), 3.0, "fire")
+				if a.get("etype", "") == "pois" and extra > 0.0:
+					# poison is damage over time, not a burst
+					col.burn(extra / 4.0, 4.0)
+					extra = 0.0
+				_hit_monster(col, true, extra, bool(a.get("thrown", false)),
+						str(a.get("etype", "")))
+				if sk == "Lightning Fury":
+					_chain_lightning(hit["position"], col, 2 + gs.skill_level(sk) / 2,
+							_skill_elemental(gs, sk, maxi(1, gs.skill_level(sk))))
 				get_node("/root/Sfx").event("arrow_impact", hit["position"])
 				_skill_impact(a, hit["position"])
 				if randf() < gs.pierce_chance():
@@ -1187,17 +1355,14 @@ func _on_monster_died(dead: WowCreature) -> void:
 	var kind := str(dead.stats.get("kind", "boss" if dead.is_boss else "normal"))
 	if dead.is_final_boss:
 		kind = "final"
-	var tc: String = db.tc_for(dead.mlevel, kind, str(dead.stats.get("archetype", "melee")))
-	var bonus: Dictionary = db.quality_bonus(tc, kind)
-	var minq := "magic" if kind in ["boss", "final", "champion"] else ""
-	for res in db.roll(tc, dead.mlevel):
+	for res in db.drops_for(dead.mlevel, kind, str(dead.stats.get("archetype", "melee"))):
 		var gi := GroundItem.new()
 		add_child(gi)
 		if int(res["gold"]) > 0:
 			var amount: int = int(res["gold"]) * (100 + int(gs.mods.get("gold%", 0))) / 100
 			gi.drop("gold", maxi(1, amount))
 		else:
-			var inst: Dictionary = gen.roll_item(str(res["code"]), dead.mlevel, bonus, minq)
+			var inst: Dictionary = res["inst"]
 			if inst.is_empty():
 				gi.drop(res["code"], 0)
 			else:
@@ -1228,6 +1393,7 @@ func _item_test() -> void:
 	var gs := get_node("/root/GameState")
 	var gen := get_node("/root/ItemGen")
 	var txt := get_node("/root/ItemText")
+	print("ITEM-TEST starter charm: +%d%% experience from the inventory" % int(gs.mods.get("addxp", 0)))
 	gs.level = 12
 	var before := {"hp_max": gs.hp_max, "mana_max": gs.mana_max,
 			"dmg": gs.weapon_damage(), "ias": gs.attack_speed_factor(),
@@ -1266,13 +1432,80 @@ func _item_test() -> void:
 		{"code": "skill", "param": "7", "min": "3", "max": "3"},
 		{"code": "fireskill", "param": "", "min": "1", "max": "1"},
 		{"code": "magicarrow", "param": "", "min": "5", "max": "5"},
+		# the small rows: mastery, pierce, cast rate, hit recovery, prevent
+		# heal, the mis-cased light radius, ethereal
+		{"code": "extra-fire", "param": "", "min": "30", "max": "30"},
+		{"code": "pierce-fire", "param": "", "min": "40", "max": "40"},
+		{"code": "cast2", "param": "", "min": "20", "max": "20"},
+		{"code": "balance2", "param": "", "min": "30", "max": "30"},
+		{"code": "noheal", "param": "", "min": "1", "max": "1"},
+		{"code": "Light", "param": "", "min": "3", "max": "3"},
+		{"code": "ethereal", "param": "", "min": "", "max": ""},
 	]
 	var inst := {"code": "sbw", "quality": "unique", "name": "Test Bow",
 			"base_name": "Short Bow", "props": gen._roll_vals(props),
 			"color": "ffffff", "reqlvl": 1}
 	gs.skills["Fire Arrow"] = 1
 	gs.equipped["weap"] = {"code": "sbw", "inst": inst}
+	var shield := {"code": "tow", "quality": "magic", "name": "Test Shield",
+			"base_name": "Tower Shield", "color": "ffffff", "reqlvl": 1,
+			"base_ac": 30,
+			"props": gen._roll_vals([
+				{"code": "block", "param": "", "min": "20", "max": "20"},
+				{"code": "block2", "param": "", "min": "30", "max": "30"},
+				{"code": "ac%", "param": "", "min": "50", "max": "50"}])}
+	var no_shield: float = gs.block_chance()
+	var def0: float = gs.player_defense()
+	gs.equipped["shie"] = {"code": "tow", "inst": shield}
 	gs._recalc()
+	print("ITEM-TEST block chance: quiver %.0f%% -> tower shield +20%% block %.0f%%  recovery %.2fs (30%% fbr)" % [
+			no_shield * 100.0, gs.block_chance() * 100.0, gs.block_recovery()])
+	# the javelin tree and the two casts, fired once each for runtime errors
+	gs.equipped["weap"] = {"code": "jav", "inst": {}}
+	player.refresh_attack_style()
+	for sk in ["Poison Javelin", "Lightning Bolt", "Plague Javelin", "Lightning Fury",
+			"Inner Sight", "Slow Missiles", "Impale", "Lightning Strike", "Jab"]:
+		gs.skills[sk] = 3
+		gs.mana = 100.0
+		player.action_skill[0] = sk
+		_on_fire(0, player.global_position + Vector3(0, 1.5, 0), Vector3(0, 0, -1))
+		print("ITEM-TEST %s fired: javelin=%s arrows in flight %d" % [sk, gs.is_javelin(), arrows.size()])
+	# the overhead slash, three points along the swing
+	var shots := ProjectSettings.globalize_path("res://../shots")
+	gs.equipment_changed.emit()          # the javelin in hand, not the bow
+	player.melee = true
+	player.set_physics_process(false)    # hold the swing at each phase
+	for e in [0.15, 0.5, 0.85]:
+		player.attack_time = player._attack_len * (1.0 - e)
+		await _ui_shot(shots + "/ui_swing_%d.png" % int(e * 100))
+	player.set_physics_process(true)
+	player.attack_time = 0.0
+	player.action_skill[0] = "Throw"
+	gs.mana = 0.0
+	_on_fire(0, player.global_position + Vector3(0, 1.5, 0), Vector3(0, 0, -1))
+	print("ITEM-TEST Throw with a javelin and no mana: arrows in flight %d" % arrows.size())
+	# and once each at the nearest creature, so the impact paths run
+	var nearest: WowCreature = null
+	for mob in monsters:
+		if mob is WowCreature and mob.state != WowCreature.State.DEAD and (nearest == null
+				or mob.global_position.distance_to(player.global_position)
+				< nearest.global_position.distance_to(player.global_position)):
+			nearest = mob
+	if nearest != null:
+		var hp0: float = nearest.hp
+		for sk in ["Poison Javelin", "Plague Javelin", "Lightning Fury", "Lightning Bolt"]:
+			gs.mana = 100.0
+			player.action_skill[0] = sk
+			var o := player.global_position + Vector3(0, 1.5, 0)
+			_on_fire(0, o, (nearest.global_position + Vector3(0, 0.9, 0) - o).normalized())
+		await get_tree().create_timer(3.0).timeout
+		print("ITEM-TEST throws at %s: hp %.0f -> %.0f, arrows left %d" % [
+				nearest.cname, hp0, nearest.hp, arrows.size()])
+	gs.equipped["weap"] = {"code": "sbw", "inst": inst}
+	player.refresh_attack_style()
+	# the shield in the off-hand, on screen
+	gs.equipment_changed.emit()
+	await _ui_shot(ProjectSettings.globalize_path("res://../shots") + "/ui_offhand.png")
 	print("ITEM-TEST lines:")
 	for pair in txt.lines_with_codes(inst):
 		print("   %s  %s" % ["ok " if gs.applies(str(pair[1])) else "dim", pair[0]])
@@ -1294,6 +1527,181 @@ func _item_test() -> void:
 	hp0 = gs.hp
 	gs.take_damage(20.0, "phys")
 	print("ITEM-TEST 20 physical in -> %.1f taken (-3 flat, -10%%)" % (hp0 - gs.hp))
+	print("ITEM-TEST defense %.1f -> %.1f (tower shield base 30, +50%% enhanced)" % [
+			def0, gs.player_defense()])
+	print("ITEM-TEST fire skill damage x%.2f   cast speed x%.2f   hit recovery %.2fs   prevents heal %s   ethereal weapon %s" % [
+			gs.skill_elem_mult("fire"), gs.cast_speed_factor(), gs.hit_recovery(),
+			str(gs.prevents_heal()), str(gs.eth_weapon)])
+	# monster resistances: the Molten Elemental is fire-immune and cold-weak
+	for mob in monsters:
+		if mob is WowCreature and mob.cname == "Molten Elemental":
+			var pierce: float = gs.mods.get("pierce-fire", 0)
+			gs.mods["pierce-fire"] = 0.0
+			var r0: float = mob.effective_resist("fire")
+			gs.mods["pierce-fire"] = pierce
+			var mhp: float = mob.hp
+			mob.take_damage(10.0, "fire")
+			var fire_taken: float = mhp - mob.hp
+			mhp = mob.hp
+			mob.take_damage(10.0, "cold")
+			print("ITEM-TEST Molten Elemental res %s: fire %.0f%% -> %.0f%% with -%.0f%% pierce; 10 fire -> %.1f taken, 10 cold -> %.1f taken" % [
+					str(mob.res), r0, mob.effective_resist("fire"), pierce,
+					fire_taken, mhp - mob.hp])
+			break
+
+
+func _pct(samples: Array) -> Dictionary:
+	var s := samples.duplicate()
+	s.sort()
+	if s.is_empty():
+		return {"n": 0, "avg": 0.0, "p50": 0.0, "p95": 0.0, "p99": 0.0, "max": 0.0}
+	var sum := 0.0
+	for v in s:
+		sum += v
+	return {"n": s.size(), "avg": sum / s.size(),
+			"p50": s[int(s.size() * 0.5)], "p95": s[int(s.size() * 0.95)],
+			"p99": s[mini(s.size() - 1, int(s.size() * 0.99))], "max": s[s.size() - 1]}
+
+
+func _perf_test() -> void:
+	## Frame-time probe in three parts: two laps of a look-around at the
+	## spawn (first-sight costs vs. warmed), a sprint through the dungeon's
+	## creature clusters with every spike attributed (chasing creatures,
+	## objects entering the frame, sound decodes), and a crowd test that
+	## drags N creatures onto the Amazon and holds them there.
+	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+	Engine.max_fps = 0
+	var gs := get_node("/root/GameState")
+	var sfx := get_node("/root/Sfx")
+	var wsfx := get_node("/root/WowSfx")
+	gs.hp_max = 1.0e6
+	gs.hp = 1.0e6
+	for i in range(30):
+		await get_tree().process_frame
+	print("PERF %s: %d creatures, %d nodes" % [gs.current_dungeon, monsters.size(),
+			int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT))])
+
+	# ---- look-around, twice
+	for lap in range(2):
+		var samples := []
+		var t := 0.0
+		while t < 4.0:
+			var dt := get_process_delta_time()
+			player.yaw += TAU * dt / 4.0
+			t += dt
+			samples.append(dt * 1000.0)
+			await get_tree().process_frame
+		var p := _pct(samples)
+		print("PERF look lap %d: avg %.1f ms  p50 %.1f  p95 %.1f  p99 %.1f  max %.1f  (%d frames)" % [
+				lap + 1, p.avg, p.p50, p.p95, p.p99, p.max, p.n])
+
+	# ---- sprint tour: greedy nearest-cluster route through the spawns
+	var cells := {}
+	for mob in monsters:
+		if mob is WowCreature and mob.state != WowCreature.State.DEAD:
+			var k := Vector2i(int(floor(mob.global_position.x / 12.0)), int(floor(mob.global_position.z / 12.0)))
+			if not cells.has(k):
+				cells[k] = mob.global_position
+	var route := []
+	var here: Vector3 = player.global_position
+	var pool := cells.values()
+	while not pool.is_empty() and route.size() < 25:
+		var best_i := 0
+		for i in range(pool.size()):
+			if (pool[i] as Vector3).distance_to(here) < (pool[best_i] as Vector3).distance_to(here):
+				best_i = i
+		here = pool[best_i]
+		route.append(here)
+		pool.remove_at(best_i)
+	var frames := []           # [t, ms, chasing, objects, drawcalls, loads]
+	var t2 := 0.0
+	var wi := 0
+	var loads0: int = sfx.loads + wsfx.loads
+	while wi < route.size() and t2 < 75.0:
+		var dt := get_process_delta_time()
+		var wp: Vector3 = route[wi]
+		var to := wp - player.global_position
+		if to.length() < 1.5:
+			wi += 1
+		else:
+			var step := to.normalized() * minf(8.4 * dt, to.length())
+			player.global_position += step
+			player.velocity = Vector3.ZERO
+			player.yaw = atan2(-step.x, -step.z)
+		var chasing := 0
+		for mob in monsters:
+			if mob is WowCreature and mob.state in [WowCreature.State.CHASE, WowCreature.State.ATTACK]:
+				chasing += 1
+		frames.append([t2, dt * 1000.0, chasing,
+				int(Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME)),
+				int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)),
+				sfx.loads + wsfx.loads - loads0])
+		t2 += dt
+		await get_tree().process_frame
+	var ms := []
+	for f in frames:
+		ms.append(f[1])
+	var p := _pct(ms)
+	var over33 := 0
+	var over66 := 0
+	for v in ms:
+		if v > 33.0:
+			over33 += 1
+		if v > 66.0:
+			over66 += 1
+	print("PERF sprint: %d waypoints, %.0f s, %d frames  avg %.1f ms  p50 %.1f  p95 %.1f  p99 %.1f  max %.1f  spikes >33ms %d  >66ms %d  sound decodes %d" % [
+			route.size(), t2, p.n, p.avg, p.p50, p.p95, p.p99, p.max, over33, over66,
+			sfx.loads + wsfx.loads - loads0])
+	# the worst frames with what changed on them
+	var order := range(frames.size())
+	order.sort_custom(func(a, b): return frames[a][1] > frames[b][1])
+	for k in range(mini(8, order.size())):
+		var i: int = order[k]
+		var prev: Array = frames[maxi(0, i - 1)]
+		var f: Array = frames[i]
+		print("PERF   spike t=%5.1fs %6.1f ms  chasing %2d (%+d)  objects %5d (%+d)  drawcalls %4d  decodes this frame %d" % [
+				f[0], f[1], f[2], f[2] - prev[2], f[3], f[3] - prev[3], f[4], f[5] - prev[5]])
+	# frame time by how many creatures are chasing
+	var bins := {"0": [], "1-5": [], "6-10": [], "11-20": [], "21+": []}
+	for f in frames:
+		var c: int = f[2]
+		var key := "0" if c == 0 else ("1-5" if c <= 5 else ("6-10" if c <= 10 else ("11-20" if c <= 20 else "21+")))
+		bins[key].append(f[1])
+	for key in bins:
+		if not bins[key].is_empty():
+			var bp := _pct(bins[key])
+			print("PERF   chasing %-5s: %4d frames  avg %.1f ms  p95 %.1f" % [key, bp.n, bp.avg, bp.p95])
+
+	# ---- crowd: N creatures pulled onto the Amazon and held there
+	for n in [0, 10, 20, 40]:
+		var alive := []
+		for mob in monsters:
+			if mob is WowCreature and mob.state != WowCreature.State.DEAD:
+				alive.append(mob)
+		alive.sort_custom(func(a, b):
+			return a.global_position.distance_to(player.global_position) < b.global_position.distance_to(player.global_position))
+		for i in range(mini(n, alive.size())):
+			var m: WowCreature = alive[i]
+			var a := TAU * i / maxi(1, n)
+			m.global_position = player.global_position + Vector3(cos(a) * 5.0, 0.5, sin(a) * 5.0)
+			m.target = player
+			m.state = WowCreature.State.CHASE
+		var samples := []
+		var phys := []
+		var draws := []
+		var t3 := 0.0
+		while t3 < 3.0:
+			var dt := get_process_delta_time()
+			t3 += dt
+			samples.append(dt * 1000.0)
+			phys.append(Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0)
+			draws.append(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME))
+			await get_tree().process_frame
+		var cp := _pct(samples)
+		var pp := _pct(phys)
+		var dp := _pct(draws)
+		print("PERF crowd n=%2d (%2d placed): avg %.1f ms  p95 %.1f  max %.1f   physics avg %.2f ms  drawcalls avg %.0f" % [
+				n, mini(n, alive.size()), cp.avg, cp.p95, cp.max, pp.avg, dp.avg])
 
 
 func _loot_test() -> void:
@@ -1334,6 +1742,66 @@ func _loot_test() -> void:
 					100.0 * q["normal"] / maxi(1, gear), 100.0 * q["magic"] / maxi(1, gear),
 					100.0 * q["rare"] / maxi(1, gear), 100.0 * q["set"] / maxi(1, gear),
 					100.0 * q["unique"] / maxi(1, gear), " | ".join(sample)])
+
+
+func _loot_run() -> void:
+	## A full clear of the first four dungeons, every spawned creature
+	## killed once, repeated RUNS times: the expected rares, sets and uniques
+	## per dungeon (item level is the monster's, so the character's level
+	## does not enter; magic find is whatever is worn, nothing for --fresh).
+	var db := get_node("/root/ItemDB")
+	var gen := get_node("/root/ItemGen")
+	const RUNS := 20
+	var grand := {"kills": 0, "drops": 0.0, "gear": 0.0, "rare": 0.0, "set": 0.0, "unique": 0.0}
+	for did in ["ragefire-chasm", "wailing-caverns", "deadmines", "shadowfang-keep"]:
+		var base := _assets_dir().path_join("wow/%s" % did)
+		var placements := _load_json(base.path_join("placements.json"))
+		var cinfo := _load_json(base.path_join("creatures/creatures.json"))
+		var spawns: Array = placements.get("creatures", [])
+		var tally := {"drops": 0, "gear": 0, "rare": 0, "set": 0, "unique": 0}
+		var kills := 0
+		var names := {}
+		for run in range(RUNS):
+			for c in spawns:
+				var key := str(int(c["entry"]))
+				if not cinfo.has(key):
+					continue
+				var st: Dictionary = cinfo[key].get("stats", {})
+				if bool(st.get("passive", false)):
+					continue
+				if run == 0:
+					kills += 1
+				var kind := str(st.get("kind", "normal"))
+				if bool(st.get("final_boss", false)):
+					kind = "final"
+				for res in db.drops_for(int(st.get("Level", 1)), kind,
+						str(st.get("archetype", "melee"))):
+					tally["drops"] += 1
+					var inst: Dictionary = res["inst"]
+					if int(res["gold"]) > 0:
+						continue
+					var it: Dictionary = db.item(str(res["code"]))
+					if not gen._equippable(gen.type_chain(str(it.get("type", "")))):
+						continue
+					tally["gear"] += 1
+					var qual := str(inst.get("quality", "normal"))
+					if tally.has(qual):
+						tally[qual] += 1
+					if qual in ["set", "unique"] and run == 0:
+						names[str(inst.get("name", ""))] = int(names.get(str(inst.get("name", "")), 0)) + 1
+		print("LOOT-RUN %-16s kills %3d  per clear: drops %5.0f  gear %4.0f  rare %5.1f  set %4.1f  unique %4.1f" % [
+				did, kills, float(tally["drops"]) / RUNS, float(tally["gear"]) / RUNS,
+				float(tally["rare"]) / RUNS, float(tally["set"]) / RUNS,
+				float(tally["unique"]) / RUNS])
+		var sample := []
+		for n in names:
+			sample.append("%s x%d" % [n, names[n]] if names[n] > 1 else n)
+		print("LOOT-RUN   one clear's sets/uniques: %s" % ", ".join(sample))
+		grand["kills"] += kills
+		for k in ["drops", "gear", "rare", "set", "unique"]:
+			grand[k] += float(tally[k]) / RUNS
+	print("LOOT-RUN TOTAL kills %d  per full clear of four: drops %.0f  gear %.0f  rare %.1f  set %.1f  unique %.1f" % [
+			grand["kills"], grand["drops"], grand["gear"], grand["rare"], grand["set"], grand["unique"]])
 
 
 func _pickup_nearest() -> void:

@@ -32,8 +32,9 @@ func _ready() -> void:
 	var top := ch
 	var bottom := 0
 	for code in range(256):
-		var c := char(code)
-		if not ((c >= "A" and c <= "Z") or (c >= "0" and c <= "9")):
+		# capitals 65-90 and digits 48-57, by code: char(0) would build a
+		# string holding NUL, which the engine reports as a parsing error
+		if not ((code >= 65 and code <= 90) or (code >= 48 and code <= 57)):
 			continue
 		var gx := (code % 16) * cw
 		var gy := (code / 16) * ch

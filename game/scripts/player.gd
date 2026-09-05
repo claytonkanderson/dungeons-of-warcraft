@@ -33,6 +33,33 @@ var attack_release := 0.0       # time from attack start until the arrow leaves
 var _pending_slot := -1
 var _attack_len := 0.55
 var _ias := 1.0                  # attack speed factor of the swing in flight
+var _block_t := 0.0              # shield arm busy after a block (no attacks)
+var _chill_t := 0.0              # hit by cold: half speed until it wears off
+var _stun_t := 0.0               # hit recovery: a solid blow stops the swing
+# the skills that are cast rather than swung: "+N% Faster Cast Rate" is their
+# speed, attack speed everyone else's
+const CAST_LIKE := ["Inner Sight", "Slow Missiles", "Decoy", "Dopplezon", "Valkyrie"]
+
+
+func on_hurt(dmg: float) -> void:
+	## D2 hit recovery: a blow of a twelfth of max life or more staggers the
+	## character, who cannot start an attack and crawls until it passes
+	var gs := get_node("/root/GameState")
+	if dmg >= gs.hp_max / 12.0:
+		_stun_t = maxf(_stun_t, gs.hit_recovery())
+
+
+func chill(duration: float) -> void:
+	## Cold hits chill the Amazon; "Half Freeze Duration" halves it and
+	## "Cannot Be Frozen" ignores it
+	var gs := get_node("/root/GameState")
+	if int(gs.mods.get("nofreeze", 0)) > 0:
+		return
+	if int(gs.mods.get("half-freeze", 0)) > 0:
+		duration *= 0.5
+	_chill_t = maxf(_chill_t, duration)
+const KEY_TURN := 2.4            # rad/s with the arrow keys
+const KEY_PITCH := 1.6
 var _safe: Array[Vector3] = []
 # footstep surface, set per-dungeon from placements.json (stone/wood/dirt)
 var surface := "stone"
@@ -117,6 +144,12 @@ func _process(_dt: float) -> void:
 			_accum = Vector2.ZERO
 		# rotation applied per rendered frame (not per physics tick) so the
 		# camera stays smooth when the frame rate drifts off 60
+		# arrow keys as a mouse fallback: left/right turn, up/down pitch
+		var turn := float(Input.is_key_pressed(KEY_RIGHT)) - float(Input.is_key_pressed(KEY_LEFT))
+		var tilt := float(Input.is_key_pressed(KEY_UP)) - float(Input.is_key_pressed(KEY_DOWN))
+		if turn != 0.0 or tilt != 0.0:
+			yaw -= turn * KEY_TURN * _dt
+			pitch = clampf(pitch + tilt * KEY_PITCH * _dt, -PITCH_LIMIT, PITCH_LIMIT)
 		rotation.y = yaw
 		if cam != null:
 			cam.rotation = Vector3(pitch, 0, 0)
@@ -160,6 +193,13 @@ func _input(e: InputEvent) -> void:
 			_accum += e.relative + _warp_comp
 		_warp_comp = Vector2.ZERO
 		return
+	# K and L fire the left and right actions from the keyboard, so the mouse
+	# is optional together with the arrow-key look
+	if e is InputEventKey and e.pressed and not e.echo 			and e.keycode in [KEY_K, KEY_L]:
+		if ui_locked or not look_enabled:
+			return
+		_start_attack(0 if e.keycode == KEY_K else 1)
+		return
 	if e is InputEventMouseButton and e.pressed:
 		if _refocus_swallow:
 			_refocus_swallow = false
@@ -192,11 +232,21 @@ func die() -> void:
 		hud.show_area("You have died...", Color(0.85, 0.12, 0.12), 4.5)
 
 
+func on_block() -> void:
+	## A blow the shield stopped: the arm is busy for the recovery time
+	_block_t = get_node("/root/GameState").block_recovery()
+	if hud != null:
+		hud.block_flash()
+
+
 func _start_attack(slot: int) -> void:
-	if attack_time > 0.0:
+	if attack_time > 0.0 or _block_t > 0.0 or _stun_t > 0.0:
 		return
-	# "+N% Increased Attack Speed" shortens the whole swing, release included
-	_ias = get_node("/root/GameState").attack_speed_factor()
+	# "+N% Increased Attack Speed" shortens the whole swing, release included;
+	# a cast is timed by "+N% Faster Cast Rate" instead
+	var gs := get_node("/root/GameState")
+	_ias = gs.cast_speed_factor() if str(action_skill[slot]) in CAST_LIKE \
+			else gs.attack_speed_factor()
 	attack_time = _attack_len / _ias
 	_pending_slot = slot
 
@@ -210,6 +260,10 @@ func _fire(slot: int) -> void:
 
 
 func _physics_process(dt: float) -> void:
+	if _block_t > 0.0:
+		_block_t -= dt
+	if _stun_t > 0.0:
+		_stun_t -= dt
 	if attack_time > 0.0:
 		var before := attack_time
 		attack_time -= dt
@@ -232,6 +286,11 @@ func _physics_process(dt: float) -> void:
 	# "+N% Faster Run/Walk", "+N Maximum Stamina", "Heal Stamina +N%",
 	# "Slower Stamina Drain N%"
 	var speed: float = (RUN if want_run else WALK) * gs.run_speed_factor()
+	if _chill_t > 0.0:
+		_chill_t -= dt
+		speed *= 0.5
+	if _stun_t > 0.0:
+		speed *= 0.35
 	if want_run and input != Vector2.ZERO:
 		var drain := 1.0 - clampf(float(gs.mods.get("stamdrain", 0)) / 100.0, 0.0, 0.9)
 		stamina = max(0.0, stamina - STAMINA_DRAIN * drain * dt)

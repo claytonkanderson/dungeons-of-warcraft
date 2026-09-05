@@ -154,11 +154,13 @@ func show_character(equipped: Dictionary) -> void:
 					Vector2i(int(origin[0]) + int(offs[0]),
 							int(origin[1]) + int(offs[1])))
 		_frames.append(ImageTexture.create_from_image(out))
-	# whole-pixel scale, largest that still fits: a two-hander is a much
-	# wider canvas than a bow and must not spill out of the panel
-	px_scale = 1
-	if _canvas.x > 0 and _canvas.y > 0:
-		px_scale = clampi(int(minf(size.x / _canvas.x, size.y / _canvas.y)), 1, 6)
+	# One whole-pixel scale for every outfit. It used to be the largest that
+	# fit the canvas, and a raised javelin or two-hander makes the canvas
+	# much taller than a bow does, so the same Amazon shrank a whole pixel
+	# step when she changed weapons. The body is the same height in all of
+	# them; anything a long weapon adds beyond the panel is clipped.
+	px_scale = 3
+	clip_contents = true
 	queue_redraw()
 
 

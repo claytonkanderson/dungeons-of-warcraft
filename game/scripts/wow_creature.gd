@@ -54,6 +54,14 @@ var _slow_t := 0.0
 var _slow_factor := 0.4
 var _burn_dps := 0.0
 var _burn_t := 0.0
+var res := {}                # elemental resistances in percent; 100 = immune
+var noheal := false          # "Prevents Monster Heal" has landed on it
+var _since_hit := 99.0       # seconds since the last damage, for regeneration
+
+# D2 monsters slowly regenerate; here a creature left alone for a while heals
+# a share of its life each second, which is what "Prevents Monster Heal" stops
+const REGEN_DELAY := 5.0
+const REGEN_FRAC := 0.03
 
 @onready var gs := get_node("/root/GameState")
 
@@ -63,6 +71,7 @@ func setup(display_name: String, info: Dictionary, anim_player: AnimationPlayer,
 	cname = display_name
 	anim = anim_player
 	stats = info.get("stats", {})
+	res = stats.get("res", {}) if stats.get("res", {}) is Dictionary else {}
 	hp = randf_range(float(stats.get("minHP", 10)), float(stats.get("maxHP", 10)))
 	hp_max = hp
 	defense = float(stats.get("AC", 10))
@@ -136,21 +145,110 @@ func slow(duration: float, factor := 0.4) -> void:
 		anim.speed_scale = 0.45   # chilled: the whole body drags
 
 
-func burn(dps: float, duration: float) -> void:
+var _freeze_t := 0.0             # frozen solid: no movement, no attacks
+var _reveal_t := 0.0             # Inner Sight: lit up, seen through anything
+var _slowmis_t := 0.0            # Slow Missiles: its missiles crawl
+var _reveal_light: OmniLight3D
+
+
+func freeze(duration: float) -> void:
+	## "Freezes target": stopped dead for the duration. Bosses cannot be
+	## frozen in D2, only chilled — they get a hard slow instead.
+	if is_boss:
+		slow(duration, 0.25)
+		return
+	_freeze_t = maxf(_freeze_t, duration)
+	if anim != null:
+		anim.speed_scale = 0.0
+
+
+func knockback(dir: Vector3, distance := 0.8) -> void:
+	## shoved along dir, stopping at walls
+	var flat := Vector3(dir.x, 0.0, dir.z).normalized()
+	move_and_collide(flat * distance)
+
+
+func reveal(duration: float) -> void:
+	## Inner Sight: the creature carries a light and is visible through walls
+	_reveal_t = maxf(_reveal_t, duration)
+	if _reveal_light == null:
+		_reveal_light = OmniLight3D.new()
+		_reveal_light.light_color = Color(1.0, 0.45, 0.35)
+		_reveal_light.light_energy = 2.5
+		_reveal_light.omni_range = 6.0
+		_reveal_light.position = Vector3(0, 1.5, 0)
+		add_child(_reveal_light)
+	_reveal_light.visible = true
+
+
+func slow_missiles(duration: float) -> void:
+	_slowmis_t = maxf(_slowmis_t, duration)
+
+
+func missile_speed_factor() -> float:
+	return 0.67 if _slowmis_t > 0.0 else 1.0
+
+
+func burn(dps: float, duration: float, etype := "pois") -> void:
+	## damage over time; the resistance is taken off once, up front
+	dps *= 1.0 - effective_resist(etype) / 100.0
+	if dps <= 0.0:
+		return
 	_burn_dps = maxf(_burn_dps, dps)
 	_burn_t = maxf(_burn_t, duration)
 
 
+func effective_resist(etype: String) -> float:
+	## This creature's resistance to one element after the character's
+	## "-N% to Enemy <element> Resistance"; D2 lets an immunity give way to
+	## only a fifth of the pierce.
+	var key: String = {"fire": "fire", "cold": "cold", "ltng": "ltng",
+			"lightning": "ltng", "pois": "pois", "poison": "pois",
+			"mag": "mag", "magic": "mag"}.get(etype, "")
+	if key == "":
+		return 0.0
+	var r := float(res.get(key, 0))
+	var pierce: float = gs.enemy_res_pierce(key)
+	r -= pierce / 5.0 if r >= 100.0 else pierce
+	return clampf(r, -100.0, 100.0)
+
+
+func take_hit(parts: Dictionary) -> void:
+	## One blow made of several damage types ("phys", "fire", ...), each
+	## resisted on its own, landed as one.
+	var total := 0.0
+	for et in parts:
+		var d := float(parts[et])
+		if str(et) != "phys":
+			d *= 1.0 - effective_resist(str(et)) / 100.0
+		total += maxf(0.0, d)
+	take_damage(total)
+
+
 func _move_speed() -> float:
+	if _freeze_t > 0.0:
+		return 0.0
 	return speed * (_slow_factor if _slow_t > 0.0 else 1.0)
 
 
-func take_damage(dmg: float) -> void:
+# Corpses are cleared after a while so a busy corridor does not fill with
+# bodies (and their physics) for the rest of the run.
+const CORPSE_SECONDS := 30.0
+var _corpse_t := -1.0
+
+
+func take_damage(dmg: float, etype := "phys") -> void:
 	if state == State.DEAD:
 		return
+	if etype != "phys":
+		dmg *= 1.0 - effective_resist(etype) / 100.0
+	if dmg <= 0.0:
+		return
+	_since_hit = 0.0
 	hp -= dmg
 	if hp <= 0.0:
 		state = State.DEAD
+		_corpse_t = CORPSE_SECONDS
 		if anim != null:
 			anim.speed_scale = 1.0
 		_play("death", 0.1)
@@ -173,6 +271,8 @@ func take_damage(dmg: float) -> void:
 
 
 func _start_attack(casting: bool) -> void:
+	if _freeze_t > 0.0:
+		return
 	state = State.ATTACK
 	var role := "cast" if casting else "attack"
 	get_node("/root/WowSfx").voice(voice, "attack", global_position, 0.35)
@@ -219,10 +319,22 @@ func _strike() -> void:
 	if randf() < chance:
 		if randf() < gs.dodge_chance():
 			return
+		if randf() < gs.block_chance():
+			# the shield takes it: a clang, the arm busy for a moment, no damage
+			get_node("/root/Sfx").event("blade_impact", target.global_position)
+			if target.has_method("on_block"):
+				target.on_block()
+			return
 		get_node("/root/WowSfx").impact(impact_kind, target.global_position, 0.9)
 		get_node("/root/Sfx").event("player_gethit", target.global_position, 0.5)
 		if gs.take_damage(dmg) and target.has_method("die"):
 			target.die()
+		elif target.has_method("on_hurt"):
+			target.on_hurt(dmg)
+		# "Attacker Takes Damage of N" / "Attacker Takes Lightning Damage"
+		var thorns := float(gs.mods.get("thorns", 0)) + float(gs.mods.get("light-thorns", 0))
+		if thorns > 0.0:
+			take_damage(thorns)
 
 
 func _update_los(dt: float) -> void:
@@ -249,6 +361,29 @@ func _face(dir: Vector3, dt: float) -> void:
 
 func _physics_process(dt: float) -> void:
 	if state == State.DEAD:
+		if _corpse_t > 0.0:
+			_corpse_t -= dt
+			if _corpse_t <= 0.0:
+				if world != null and "monsters" in world:
+					world.monsters.erase(self)
+				queue_free()
+		return
+	_since_hit += dt
+	if hp < hp_max and not noheal and _since_hit > REGEN_DELAY:
+		hp = minf(hp_max, hp + hp_max * REGEN_FRAC * dt)
+	if _reveal_t > 0.0:
+		_reveal_t -= dt
+		if _reveal_t <= 0.0 and _reveal_light != null:
+			_reveal_light.visible = false
+	if _slowmis_t > 0.0:
+		_slowmis_t -= dt
+	if _freeze_t > 0.0:
+		_freeze_t -= dt
+		if _freeze_t <= 0.0 and anim != null:
+			anim.speed_scale = 0.45 if _slow_t > 0.0 else 1.0
+		velocity.x = 0.0
+		velocity.z = 0.0
+		move_and_slide()
 		return
 	if _slow_t > 0.0:
 		_slow_t -= dt

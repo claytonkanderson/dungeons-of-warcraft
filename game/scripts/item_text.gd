@@ -34,6 +34,8 @@ const CLASS_NAMES := {"ama": "Amazon", "sor": "Sorceress", "nec": "Necromancer",
 
 func prop_line(code: String, val: int, param := "", val_max := -1) -> String:
 	_ensure()
+	if code == "Light":
+		code = "light"     # a mis-cased code in the unique tables
 	if val_max < 0:
 		val_max = val
 	# "+N (Based on Character Level)": the table's param is N*8 per level

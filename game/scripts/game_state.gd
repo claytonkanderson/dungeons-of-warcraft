@@ -30,6 +30,8 @@ func _ready() -> void:
 	exp_table = gd.get("experience", [])
 	if xp == 0 and level > 1 and level <= exp_table.size():
 		xp = int(str(exp_table[level - 1]))
+	# charms count from the inventory, so its changes re-aggregate too
+	inventory_changed.connect(_recalc)
 	_recalc()
 	hp = hp_max
 	mana = mana_max
@@ -49,6 +51,13 @@ func grant_starter_kit() -> void:
 			inst = {}
 		equipped[str(pair[0])] = {"code": pair[1], "inst": inst}
 	equipped["shie"] = {"code": "aqv", "inst": {}}
+	# a small charm of learning: +33% experience while it is carried
+	inv_try_add("cm1", {"code": "cm1", "quality": "magic",
+			"name": "Small Charm of Learning", "base_name": "Small Charm",
+			"color": ItemGen.COLOR_MAGIC.to_html(), "reqlvl": 1,
+			"props": [{"code": "addxp", "param": "", "min": "80", "max": "80", "val": 80}]})
+	# and a plain javelin, so the javelin tree can be tried from the start
+	inv_try_add("jav", {})
 	belt = [{"code": "hp2", "count": 3}, {"code": "mp2", "count": 2}, {}, {}]
 	gold = 250
 	_recalc()
@@ -117,6 +126,21 @@ const MOD_MAP := {
 	"swing1": "ias", "swing2": "ias", "swing3": "ias",
 	"move1": "frw", "move2": "frw", "move3": "frw",
 	"ease": "ease", "light": "light", "addxp": "addxp",
+	# blocking: chance, and the two faster-block-rate codes
+	"block": "block", "block2": "fbr", "block3": "fbr",
+	# on-hit states and reflected damage
+	"slow": "slow", "freeze": "freeze", "knock": "knock",
+	"half-freeze": "half-freeze", "nofreeze": "nofreeze",
+	"thorns": "thorns", "light-thorns": "light-thorns",
+	# elemental mastery and pierce, cast rate, hit recovery, prevent heal
+	"extra-fire": "extra-fire", "extra-cold": "extra-cold",
+	"extra-ltng": "extra-ltng", "extra-pois": "extra-pois",
+	"pierce-fire": "pierce-fire", "pierce-cold": "pierce-cold",
+	"pierce-ltng": "pierce-ltng", "pierce-pois": "pierce-pois",
+	"cast1": "fcr", "cast2": "fcr", "cast3": "fcr",
+	"balance1": "fhr", "balance2": "fhr", "balance3": "fhr",
+	"noheal": "noheal",
+	"Light": "light",             # a mis-cased code in the unique tables
 	# skills
 	"allskills": "allskills", "ama": "ama", "fireskill": "fireskill",
 	"magicarrow": "magicarrow", "explosivearrow": "explosivearrow",
@@ -155,7 +179,7 @@ func applies(code: String) -> bool:
 		for k in PER_LEVEL:
 			_applied_cache[k] = true
 		for k in ["dmg", "dmg-elem", "skill", "oskill", "skilltab",
-				"*hp", "*mana", "*vit", "*enr"]:
+				"*hp", "*mana", "*vit", "*enr", "ethereal"]:
 			_applied_cache[k] = true
 	return _applied_cache.has(code)
 
@@ -300,21 +324,55 @@ var tab_bonus := {}            # item +N to an Amazon skill page
 var oskills := {}              # item-granted skills (level), no points needed
 
 
+func _charm_instances() -> Array:
+	## Charms work from the inventory: every charm-type entry's instance.
+	var out := []
+	var gen := get_node("/root/ItemGen")
+	var db := get_node("/root/ItemDB")
+	for it in inv_items:
+		var inst: Dictionary = it.get("inst", {})
+		if inst.is_empty():
+			continue
+		var chain: Dictionary = gen.type_chain(
+				str(db.item(str(it.get("code", ""))).get("type", "")))
+		if chain.has("char"):
+			out.append(inst)
+	return out
+
+
 func _aggregate_mods() -> void:
 	mods = {}
 	skill_bonus = {}
 	tab_bonus = {}
 	oskills = {}
+	eth_weapon = false
+	var sources := []
 	for slot in equipped:
-		var inst: Dictionary = equipped[slot].get("inst", {})
+		sources.append(equipped[slot].get("inst", {}))
+	sources.append_array(_charm_instances())
+	var weapon_inst = equipped.get("weap", {}).get("inst", null)
+	for inst in sources:
 		var flat := []
 		for p in inst.get("props", []):
 			if p.has("affix"):
 				flat.append_array(p.get("props", []))
 			else:
 				flat.append(p)
+		var eth := false
+		var acp := 0.0
 		for p in flat:
 			_apply_prop(p)
+			match str(p.get("code", "")):
+				"ethereal": eth = true
+				"ac%": acp += float(p.get("val", str(p.get("min", "0")).to_int()))
+		# the piece's own defence: its rolled base, enhanced by its own "+N%
+		# Enhanced Defense" (which is why ac% is not applied globally), and
+		# half again for an ethereal item, which is the trade for its wear
+		var base_ac := float(inst.get("base_ac", 0))
+		if base_ac > 0.0:
+			_add_mod("ac", base_ac * (1.0 + acp / 100.0) * (1.5 if eth else 1.0))
+		if eth and weapon_inst != null and is_same(inst, weapon_inst):
+			eth_weapon = true
 	# D2 set bonuses: per-item aprops unlock at 2..5 pieces worn; set-wide
 	# partial bonuses stack per threshold; full bonus with the whole set
 	var counts := set_worn_counts()
@@ -373,6 +431,36 @@ func pierce_chance() -> float:
 	return minf(c + float(mods.get("pierce", 0)) / 100.0, 0.85)
 
 
+func shield_item() -> Dictionary:
+	## The base item in the off-hand slot when it is a shield (a quiver is
+	## not one), else {}.
+	var s: Dictionary = equipped.get("shie", {})
+	if s.is_empty():
+		return {}
+	var it: Dictionary = get_node("/root/ItemDB").item(str(s.get("code", "")))
+	var chain: Dictionary = get_node("/root/ItemGen").type_chain(str(it.get("type", "")))
+	return it if chain.has("shie") else {}
+
+
+func block_chance() -> float:
+	## D2: (shield block% + class block factor + item bonuses) * (dex - 15)
+	## / (2 * level), capped at 75%. No shield, no block.
+	var it := shield_item()
+	if it.is_empty():
+		return 0.0
+	var gd: Dictionary = get_node("/root/SpriteDB").gamedata()
+	var base := str(it.get("block", "0")).to_int() \
+			+ str(gd.get("charstats", {}).get("BlockFactor", "0")).to_int() \
+			+ int(mods.get("block", 0))
+	var c := float(base) * (float(total_stat("dex")) - 15.0) / (2.0 * float(level))
+	return clampf(c, 0.0, 75.0) / 100.0
+
+
+func block_recovery() -> float:
+	## Seconds the shield arm is busy after a block; faster block rate cuts it
+	return 0.45 / (1.0 + minf(200.0, float(mods.get("fbr", 0))) / 100.0)
+
+
 func attack_speed_factor() -> float:
 	## Increased attack speed: D2 tops out around +75% effective
 	return 1.0 + minf(75.0, float(mods.get("ias", 0))) / 100.0
@@ -397,8 +485,48 @@ func avoid_chance() -> float:      # vs missiles
 
 
 func player_defense() -> float:
-	return float(total_stat("dex")) * 0.25 \
-			+ float(mods.get("ac", 0)) * (1.0 + float(mods.get("ac%", 0)) / 100.0)
+	# "ac" already carries each piece's base with its own enhancement
+	return float(total_stat("dex")) * 0.25 + float(mods.get("ac", 0))
+
+
+var eth_weapon := false          # the wielded weapon is ethereal: +50% base
+
+
+func skill_elem_mult(etype: String) -> float:
+	## "+N% to Fire Skill Damage" and its kin: the skills' own elemental damage
+	var key: String = {"fire": "extra-fire", "cold": "extra-cold",
+			"ltng": "extra-ltng", "lightning": "extra-ltng",
+			"pois": "extra-pois", "poison": "extra-pois"}.get(etype, "")
+	if key == "":
+		return 1.0
+	return 1.0 + float(mods.get(key, 0)) / 100.0
+
+
+func enemy_res_pierce(etype: String) -> float:
+	## "-N% to Enemy Fire Resistance" and its kin
+	var key: String = {"fire": "pierce-fire", "cold": "pierce-cold",
+			"ltng": "pierce-ltng", "lightning": "pierce-ltng",
+			"pois": "pierce-pois", "poison": "pierce-pois"}.get(etype, "")
+	if key == "":
+		return 0.0
+	return float(mods.get(key, 0))
+
+
+func cast_speed_factor() -> float:
+	## "+N% Faster Cast Rate" quickens the spells the way attack speed
+	## quickens the blows
+	return 1.0 + minf(200.0, float(mods.get("fcr", 0))) / 100.0
+
+
+func hit_recovery() -> float:
+	## Seconds a solid blow (a twelfth of max life or more) staggers the
+	## character: the Amazon's 11 frames, shortened by "+N% Faster Hit Recovery"
+	return 0.44 / (1.0 + float(mods.get("fhr", 0)) / 100.0)
+
+
+func prevents_heal() -> bool:
+	## "Prevents Monster Heal"
+	return float(mods.get("noheal", 0)) > 0.0
 
 
 func weapon_class(code: String) -> String:
@@ -535,8 +663,9 @@ func allocate_stat(name: String) -> bool:
 const DMG_MULT := 1.5
 
 
-func weapon_damage() -> Vector2:
-	# equipped weapon base damage (2-hand columns cover bows), else bare 2-6
+func weapon_damage(thrown := false) -> Vector2:
+	# equipped weapon base damage (2-hand columns cover bows), else bare 2-6;
+	# a thrown javelin uses its throw columns rather than its stab
 	var mn := 2.0
 	var mx := 6.0
 	var w: Dictionary = equipped.get("weap", {})
@@ -544,12 +673,18 @@ func weapon_damage() -> Vector2:
 		var it: Dictionary = get_node("/root/ItemDB").item(str(w.get("code", "")))
 		var bmn := str(it.get("2handmindam", "")).to_int()
 		var bmx := str(it.get("2handmaxdam", "")).to_int()
-		if bmx == 0:
+		if thrown and str(it.get("maxmisdam", "")).to_int() > 0:
+			bmn = str(it.get("minmisdam", "")).to_int()
+			bmx = str(it.get("maxmisdam", "")).to_int()
+		elif bmx == 0:
 			bmn = str(it.get("mindam", "")).to_int()
 			bmx = str(it.get("maxdam", "")).to_int()
 		if bmx > 0:
 			mn = float(bmn)
 			mx = float(bmx)
+		if eth_weapon:
+			mn *= 1.5
+			mx *= 1.5
 	var ed := float(mods.get("dmg%", 0)) + float(total_stat("dex"))
 	mn = (mn * (1.0 + ed / 100.0) + float(mods.get("dmg-min", 0))
 			+ float(mods.get("dmg-norm-min", 0))) * DMG_MULT
@@ -558,12 +693,12 @@ func weapon_damage() -> Vector2:
 	return Vector2(mn, maxf(mn, mx))
 
 
-func roll_player_hit(ranged: bool, ctype := "") -> Dictionary:
+func roll_player_hit(ranged: bool, ctype := "", thrown := false) -> Dictionary:
 	## One blow's worth of numbers, D2 order: physical (critical strike, then
 	## deadly strike doubles it; +% vs undead/demons), elemental per element
 	## with cold length and poison duration, crushing blow, open wounds, and
 	## the life/mana the physical part leeches.
-	var wd := weapon_damage()
+	var wd := weapon_damage(thrown)
 	var phys := randf_range(wd.x, wd.y)
 	if randf() < crit_chance():
 		phys *= 2.0
@@ -598,7 +733,22 @@ func roll_player_hit(ranged: bool, ctype := "") -> Dictionary:
 		"ow_dps": (9.0 * level + 31.0) / 10.24 * DMG_MULT / 5.0,
 		"lifesteal": phys * float(mods.get("lifesteal", 0)) / 100.0,
 		"manasteal": phys * float(mods.get("manasteal", 0)) / 100.0,
+		# "Slows Target by N%", "Freezes Target +N", "Knockback"
+		"slow_pct": float(mods.get("slow", 0)),
+		"freeze": 1.0 + 0.5 * float(mods.get("freeze", 0)) if float(mods.get("freeze", 0)) > 0.0 else 0.0,
+		"knock": int(mods.get("knock", 0)) > 0,
+		"noheal": prevents_heal(),
 	}
+
+
+func is_javelin() -> bool:
+	## the equipped weapon is a javelin (the throw skills need one)
+	var w: Dictionary = equipped.get("weap", {})
+	if w.is_empty():
+		return false
+	var it: Dictionary = get_node("/root/ItemDB").item(str(w.get("code", "")))
+	var chain: Dictionary = get_node("/root/ItemGen").type_chain(str(it.get("type", "")))
+	return chain.has("jave") or chain.has("ajav")
 
 
 func on_hit_dealt(h: Dictionary) -> void:
@@ -851,7 +1001,7 @@ func skill_level(n: String) -> int:
 
 
 func mana_cost(n: String) -> float:
-	if n == "Attack":
+	if n in ["Attack", "Throw"]:
 		return 0.0
 	return float(str(skill_row(n).get("mana", "0")).to_int()) / 8.0
 
@@ -1030,8 +1180,29 @@ func complete_dungeon() -> bool:
 	return true
 
 
+# Bumped whenever the save layout changes in a way load_game cannot absorb by
+# defaults alone; _migrate_save brings older files up one step at a time.
+const SAVE_VERSION := 1
+
+
+func _migrate_save(d: Dictionary) -> Dictionary:
+	## Files written before the field existed are version 0 — the level-1
+	## start era and earlier; those characters keep the level they reached.
+	var v := int(d.get("version", 0))
+	if v > SAVE_VERSION:
+		printerr("save is version %d, newer than this build understands (%d)"
+				% [v, SAVE_VERSION])
+	if v < 1:
+		# 0 -> 1: the field itself is the change; every value still loads
+		# through its default
+		pass
+	d["version"] = SAVE_VERSION
+	return d
+
+
 func save_game(player) -> void:
 	var d := {
+		"version": SAVE_VERSION,
 		"name": char_name,
 		"level": level, "xp": xp, "skill_points": skill_points,
 		"stat": stat, "skills": skills, "gold": gold,
@@ -1064,6 +1235,7 @@ func load_game(player) -> bool:
 	f.close()
 	if d == null or d.is_empty():
 		return false
+	d = _migrate_save(d)
 	level = int(d.get("level", 1))
 	xp = int(d.get("xp", 0))
 	skill_points = int(d.get("skill_points", 0))

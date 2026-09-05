@@ -128,6 +128,13 @@ func _on_item_clicked(it) -> void:
 func _input(e: InputEvent) -> void:
 	if not open:
 		return
+	# right-click while carrying: put it back where it was
+	if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_RIGHT \
+			and carried != null:
+		carried = null
+		_refresh()
+		get_viewport().set_input_as_handled()
+		return
 	if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT \
 			and carried != null:
 		# the panel's local position is in screen pixels; the page is native
@@ -155,6 +162,7 @@ func _input(e: InputEvent) -> void:
 						if tooltip_card != null:
 							tooltip_card.hide_item()
 					_refresh()
+					get_viewport().set_input_as_handled()
 					return
 		var cell: Vector2 = local - GRID_ORIGIN
 		var gx := int(floor(cell.x / CELL))
@@ -163,3 +171,6 @@ func _input(e: InputEvent) -> void:
 				and gs.inv_move(carried, gx, gy):
 			carried = null
 			_refresh()
+			# the same click must not reach the item's new slot button, which
+			# picked it straight back up and left it "still selected"
+			get_viewport().set_input_as_handled()

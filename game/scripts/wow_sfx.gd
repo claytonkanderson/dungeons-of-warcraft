@@ -8,6 +8,7 @@ var DIR: String = Paths.asset("wow/audio")
 
 var manifest: Dictionary = {}
 var _cache: Dictionary = {}
+var loads := 0
 var _last: Dictionary = {}     # throttle: first-variant name -> last frame
 
 
@@ -31,6 +32,7 @@ func _stream(name: String) -> AudioStream:
 		elif name.ends_with(".wav"):
 			s = AudioStreamWAV.load_from_file(path)
 	_cache[name] = s
+	loads += 1
 	return s
 
 

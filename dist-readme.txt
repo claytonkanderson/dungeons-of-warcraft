@@ -70,6 +70,7 @@ THEN PLAY:
 CONTROLS
 
   WASD + mouse        move + look          LMB / RMB   the two D2 skills
+  arrow keys          look (no mouse)      K / L       same two skills (keys)
   Shift               run (stamina)        Space       jump
   T                   skill tree (click +1, ctrl+click bind LMB,
                       right-click bind RMB, hover + F1-F5 bind hotkey)

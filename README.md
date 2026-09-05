@@ -3,8 +3,10 @@
 *a Diablo / Warcraft hybrid mod*
 
 Vanilla World of Warcraft dungeons, played first-person as a Diablo II
-Amazon. Godot 4.7, with every asset generated on your own machine from your
-own two game installs — nothing from either game ships here.
+Amazon. Godot 4.7.2 (the version the project, `run_game.bat` and the
+distribution build are pinned to), with every asset generated on your own
+machine from your own two game installs — nothing from either game ships
+here.
 
 - **Environment** — real WoW instances: WMOs, hundreds of doodads and props,
   terrain, water and waterfalls, extracted through a pure-Python CASC
@@ -57,14 +59,18 @@ generates into `_build\` next to the executables — `_build\assets` (about
 600 MB, 10–20 minutes, no internet needed), plus `setup.log` and the
 remembered paths — after which
 `DungeonsOfWarcraft.exe` runs. From a source checkout, `run_game.bat`
-launches the Godot build directly against the repo's `assets/`.
+launches the Godot build directly against the repo's `assets/`; it and
+`pipeline/build_dist.py` expect Godot 4.7.2 (the winget install path, or
+`DOW_GODOT` pointing at the executable), and the dist script refuses any
+other version so the shipped game is always built with the engine the
+project was tested on.
 
 | | |
 |---|---|
-| WASD + mouse | move, look |
+| WASD + mouse | move, look (arrow keys also turn and pitch) |
 | Shift | run (stamina) |
 | Space | jump |
-| LMB / RMB | the two D2 action slots |
+| LMB / RMB (or K / L) | the two D2 action slots |
 | 1–4 | belt potions |
 | F1–F5 | swap the RMB skill |
 | T | skill tree — click to spend, ctrl-click binds LMB, right-click binds RMB, hover and press F1–F5 to bind a hotkey |
@@ -97,9 +103,12 @@ sheets, paperdoll layers, item catalog and sprites, uniques/sets/affixes,
 sound effects). The WoW stages open the CASC storage and build each
 configured dungeon, then the soundscape and the menu backdrops. Creature
 spawns and stats come from nine AzerothCore `.sql` tables. The rows the
-configured dungeons need ship in `pipeline/ac_data/` (regenerate with
-`pipeline/trim_ac.py` after adding a dungeon); `--refresh-ac` downloads the
-full current dumps instead, and `--ac` points at a local checkout. Both
+configured dungeons need ship in `pipeline/ac_data/` and are what every
+build reads by default (regenerate with `pipeline/trim_ac.py` after adding
+a dungeon). `--refresh-ac` is a developer action that downloads the full
+current dumps instead — an upstream schema change can break the loaders, so
+re-trim and rebuild before shipping — and `--ac` points at a local checkout.
+Both
 install paths are auto-detected (Battle.net's product database, the
 registry, the usual folders) when not given; `--detect` shows what is found.
 `--skip-d2` and `--skip-wow` run one half.

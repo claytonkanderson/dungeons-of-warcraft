@@ -33,6 +33,8 @@ const XP_FILL := Color(0.50, 0.0, 0.48)
 const XP_GLINT := Color(0.72, 0.25, 0.70)
 
 var bow: TextureRect
+var offhand: TextureRect         # shield in the left hand (quivers stay hidden)
+var _block_kick := 0.0
 var panel_ui: Control
 var _bob := 0.0
 var _kick := 0.0
@@ -129,6 +131,8 @@ class PanelControl:
 			var at: AtlasTexture = null
 			if skill == "Attack":
 				at = hud._icon_tex(2, "ui/skilliconpanel")
+			elif skill == "Throw":
+				at = hud._icon_tex(6, "ui/skilliconpanel")
 			else:
 				var sd: Dictionary = hud.get_node("/root/SpriteDB").gamedata() \
 						.get("skilldesc", {}).get(skill.to_lower(), {})
@@ -176,6 +180,13 @@ func _ready() -> void:
 	bow.rotation = -0.5
 	add_child(bow)
 
+	offhand = TextureRect.new()
+	offhand.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	offhand.scale = Vector2(4, 4)
+	offhand.flip_h = true
+	offhand.rotation = 0.35
+	add_child(offhand)
+
 	panel_ui = PanelControl.new()
 	panel_ui.hud = self
 	add_child(panel_ui)
@@ -195,6 +206,21 @@ func _update_viewmodel() -> void:
 	if tex == null:
 		tex = _tex_load("ui/viewmodel_bow.png")
 	bow.texture = tex
+	# the off-hand: whatever sits in the shield slot except a quiver, which
+	# has no visible presence in the left hand
+	var otex: Texture2D = null
+	var sh: Dictionary = gs.equipped.get("shie", {})
+	if not sh.is_empty():
+		var it: Dictionary = get_node("/root/ItemDB").item(str(sh.get("code", "")))
+		var chain: Dictionary = get_node("/root/ItemGen").type_chain(str(it.get("type", "")))
+		if not (chain.has("bowq") or chain.has("xboq")):
+			otex = get_node("/root/ItemDB").inv_texture(str(sh.get("code", "")))
+	offhand.texture = otex
+	offhand.visible = otex != null
+
+
+func block_flash() -> void:
+	_block_kick = 1.0
 
 
 func kick() -> void:
@@ -334,15 +360,44 @@ func _process(dt: float) -> void:
 				and pp._attack_len > 0.0:
 			sw = 1.0 - pp.attack_time / pp._attack_len
 		if sw >= 0.0:
-			# first-person melee: wind up high right, sweep across the view
-			var e := sw * sw * (3.0 - 2.0 * sw)
-			bow.rotation = lerpf(0.8, -2.1, e)
-			bow.position = Vector2(vp.x * (0.74 - 0.42 * e),
-					vp.y - 250.0 - sin(e * PI) * 90.0)
+			# first-person melee, continuous with the idle pose: from where the
+			# weapon rests, up over the shoulder (first 35% of the swing), then
+			# down through the middle of the view, then back to rest
+			var idle_pos := Vector2(vp.x * 0.62, vp.y - 260.0)
+			var idle_rot := -0.5
+			var raised_pos := Vector2(vp.x * 0.66, vp.y - 540.0)
+			var raised_rot := -1.15
+			var low_pos := Vector2(vp.x * 0.42, vp.y - 250.0)
+			var low_rot := 0.95
+			var rot: float
+			var pos: Vector2
+			if sw < 0.35:
+				var e := sw / 0.35
+				e = e * e * (3.0 - 2.0 * e)
+				rot = lerpf(idle_rot, raised_rot, e)
+				pos = idle_pos.lerp(raised_pos, e)
+			elif sw < 0.8:
+				var e := (sw - 0.35) / 0.45
+				e = e * e * (3.0 - 2.0 * e)
+				rot = lerpf(raised_rot, low_rot, e)
+				pos = raised_pos.lerp(low_pos, e)
+			else:
+				var e := (sw - 0.8) / 0.2
+				rot = lerpf(low_rot, idle_rot, e)
+				pos = low_pos.lerp(idle_pos, e)
+			bow.rotation = rot
+			bow.position = pos
 		else:
 			bow.rotation = -0.5
 			bow.position = Vector2(vp.x * 0.62 + sin(_bob) * 6.0,
 					vp.y - 260.0 + cos(_bob * 2.0) * 4.0 + _kick * 40.0)
+		if offhand != null and offhand.visible and offhand.texture != null:
+			# bobs opposite the weapon hand; a block raises it into the view
+			_block_kick = maxf(0.0, _block_kick - dt * 3.0)
+			# rotation pivots on the sprite's top-left, so the plate swings in
+			# from the left edge; kept clear of the panel and the view centre
+			offhand.position = Vector2(vp.x * 0.10 - sin(_bob) * 6.0,
+					vp.y - 430.0 + cos(_bob * 2.0 + PI) * 4.0 - _block_kick * 70.0)
 	# control panel: full width, riding on top of the xp strip
 	var s := vp.x / PANEL_W
 	panel_ui.size = Vector2(vp.x, PANEL_H * s)

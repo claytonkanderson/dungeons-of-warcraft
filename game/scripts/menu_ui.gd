@@ -46,7 +46,20 @@ func toggle() -> void:
 			world.hud_node._area_label.visible = false
 
 
-func _frame_tex(sheet_name: String, frame: int) -> Texture2D:
+func _frame_box(frame: AtlasTexture) -> StyleBoxTexture:
+	## The sheet plus the frame's region (a StyleBoxTexture given an
+	## AtlasTexture draws the whole atlas), border kept at its own width
+	var box := StyleBoxTexture.new()
+	box.texture = frame.atlas
+	box.region_rect = frame.region
+	box.texture_margin_left = 4
+	box.texture_margin_right = 4
+	box.texture_margin_top = 4
+	box.texture_margin_bottom = 4
+	return box
+
+
+func _frame_tex(sheet_name: String, frame: int) -> AtlasTexture:
 	var sheet = get_node("/root/SpriteDB").load_sheet(sheet_name)
 	if sheet == null:
 		return null
@@ -75,16 +88,13 @@ func _button(text: String, cb: Callable) -> Button:
 	b.add_theme_color_override("font_pressed_color", Color(1, 1, 0.7))
 	b.custom_minimum_size = BUTTON_SIZE
 	b.focus_mode = Control.FOCUS_NONE
-	var idle := _frame_tex("ui/menubutton",0)
+	var idle := _frame_tex("ui/menubutton", 0)
 	if idle != null:
-		var up := StyleBoxTexture.new()
-		up.texture = idle
+		var up := _frame_box(idle)
 		b.add_theme_stylebox_override("normal", up)
 		b.add_theme_stylebox_override("hover", up)
 		b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-		var down := StyleBoxTexture.new()
-		down.texture = _frame_tex("ui/menubutton",2)
-		b.add_theme_stylebox_override("pressed", down)
+		b.add_theme_stylebox_override("pressed", _frame_box(_frame_tex("ui/menubutton", 2)))
 	b.pressed.connect(func():
 		get_node("/root/Sfx").event_ui("button")
 		cb.call())
