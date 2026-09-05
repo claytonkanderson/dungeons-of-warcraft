@@ -471,10 +471,12 @@ func _ui_test() -> void:
 		if gs.skill_points > 0:
 			gs.allocate(sk)
 	await _ui_shot(shots + "/ui_hud.png")
+	gs.stat_points = 5
 	char_ui.toggle()
 	_sync_ui()
 	await _ui_shot(shots + "/ui_char.png")
 	char_ui.toggle()
+	gs.stat_points = 0
 	inv_ui.toggle()
 	_sync_ui()
 	await _ui_shot(shots + "/ui_inv.png")

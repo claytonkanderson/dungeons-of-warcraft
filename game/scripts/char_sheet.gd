@@ -29,6 +29,14 @@ const RIGHT_VALUE := Rect2(271, 0, 40, 17)     # y set per row
 const RES_LABEL_X := 174.0
 const STATPTS_LABEL := Rect2(20, 390, 100, 17)
 const STATPTS_BOX := Rect2(128, 389, 32, 32)
+const PLUS_PX := 24.0                       # the plate's size on the 320-wide page
+
+
+static func _frame(sheet, i: int) -> AtlasTexture:
+	var at := AtlasTexture.new()
+	at.atlas = sheet.texture
+	at.region = Rect2(i * sheet.cell.x, 0, sheet.cell.x, sheet.cell.y)
+	return at
 
 var open := false
 var panel: D2Panel
@@ -55,15 +63,17 @@ func toggle() -> void:
 		_refresh()
 
 
-# D2 draws this page's text with its small font. Our exported font16 scaled to
-# 11 px in page space is the same pixel density the old 1.5x layout had (16
-# screen px over a 1.5x page) and is what fits the measured boxes.
-const TEXT_PX := 11
+# D2 draws this page with font8 (bold small caps, 14 px cell), at its own
+# size: "Dexterity" is 57 px in it and fits the 65 px caption box, where
+# font16 would need 75. Nothing is shrunk; the page's own scale is the
+# only resampling.
+const FONT := "font8"
+const TEXT_PX := 14
 
 
 func _field(rect: Rect2, text: String, color := WHITE, px := TEXT_PX,
 		align := HORIZONTAL_ALIGNMENT_CENTER, fit := true) -> D2Field:
-	var f := D2Field.new(rect, px, color, align, fit)
+	var f := D2Field.new(rect, px, color, align, fit, FONT)
 	panel.content.add_child(f)
 	f.set_value(text)
 	_nodes.append(f)
@@ -114,7 +124,10 @@ func _refresh() -> void:
 			["Poison Resistance", "res-pois", 404.0, Color(0.3, 1, 0.3)]]
 	for r in resists:
 		var y: float = r[2]
-		_label(Rect2(RES_LABEL_X, y, 96, 17), str(r[0]), r[3])
+		# the resistance captions are the one place the small font still
+		# overruns its box (D2 wraps them onto two lines); shrink to fit
+		_field(Rect2(RES_LABEL_X, y, 96, 17), str(r[0]), r[3], TEXT_PX,
+				HORIZONTAL_ALIGNMENT_CENTER, true)
 		var v: int = int(gs.mods.get(str(r[1]), 0)) + int(gs.mods.get("res-all", 0))
 		_field(Rect2(RIGHT_VALUE.position.x, y, RIGHT_VALUE.size.x, 17), "%d%%" % v)
 	# stat point allocation: remaining count in the small bottom box, a +
@@ -122,14 +135,23 @@ func _refresh() -> void:
 	if gs.stat_points > 0:
 		_label(STATPTS_LABEL, "Stat Points", Color(1, 0.3, 0.3))
 		_field(STATPTS_BOX, str(gs.stat_points))
+		# D2's red plate with the white cross (level.dc6: up, pressed), the
+		# same button the control panel lights; the sheet comes out of the
+		# palette darker than the game shows it, so it is lifted to match
+		var db := get_node("/root/SpriteDB")
+		var sheet = db.load_sheet("ui/levelplus")
 		for r in STAT_ROWS:
-			var pb := Button.new()
-			pb.text = "+"
-			pb.flat = true
-			pb.add_theme_font_size_override("font_size", 14)
-			pb.add_theme_color_override("font_color", Color(0.95, 0.85, 0.5))
-			pb.position = Vector2(STAT_VALUE_X + STAT_VALUE_W + 3.0, float(r[2]) - 1.0)
-			pb.size = Vector2(20, 20)
+			var pb := TextureButton.new()
+			if sheet != null:
+				pb.texture_normal = _frame(sheet, 0)
+				pb.texture_pressed = _frame(sheet, 1)
+				pb.texture_hover = _frame(sheet, 0)
+				pb.modulate = Color(1.35, 1.25, 1.2)
+			pb.position = Vector2(STAT_VALUE_X + STAT_VALUE_W + 4.0,
+					float(r[2]) + ROW_H * 0.5 - PLUS_PX * 0.5)
+			pb.size = Vector2(PLUS_PX, PLUS_PX)
+			pb.ignore_texture_size = true
+			pb.stretch_mode = TextureButton.STRETCH_SCALE
 			pb.focus_mode = Control.FOCUS_NONE
 			var key := str(r[1])
 			pb.pressed.connect(func():

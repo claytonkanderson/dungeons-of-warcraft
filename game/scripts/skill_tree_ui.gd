@@ -59,7 +59,7 @@ func _ready() -> void:
 	_chrome.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.content.add_child(_chrome)
 	tooltip = Label.new()
-	tooltip.add_theme_font_size_override("font_size", 15)
+	get_node("/root/D2Font").style(tooltip, 16)
 	tooltip.add_theme_color_override("font_color", Color(1, 1, 1))
 	tooltip.add_theme_color_override("font_outline_color", Color(0, 0, 0))
 	tooltip.add_theme_constant_override("outline_size", 5)
@@ -125,8 +125,9 @@ func _icon(sheet, frame: int, rect: Rect2, tint := Color(1, 1, 1)) -> TextureRec
 	return tr
 
 
-func _text(rect: Rect2, s: String, color: Color, px := 16, fit := false) -> D2Field:
-	var f := D2Field.new(rect, px, color, HORIZONTAL_ALIGNMENT_CENTER, fit)
+func _text(rect: Rect2, s: String, color: Color, px := 14, fit := false) -> D2Field:
+	## the page's small numbers and captions: font8 at its native 14 px
+	var f := D2Field.new(rect, mini(px, 14), color, HORIZONTAL_ALIGNMENT_CENTER, fit, "font8")
 	_add(f)
 	f.set_value(s)
 	return f

@@ -8,14 +8,17 @@ var _px := 16
 var _min_px := 8
 var _fit := true
 var _rect: Rect2
+var _font := "font16"
 
 
 func _init(rect: Rect2, px := 16, color := Color(1, 1, 1),
-		align := HORIZONTAL_ALIGNMENT_CENTER, fit := true) -> void:
+		align := HORIZONTAL_ALIGNMENT_CENTER, fit := true, font_name := "font16") -> void:
 	## fit: shrink and clip to the box (values). Labels pass false — a
 	## caption like "Attack Rating" is drawn at full size over the art, as
-	## D2 does, and must never be cut to "Attack Rat".
+	## D2 does, and must never be cut to "Attack Rat". font_name: which D2
+	## face; px should be its native size (D2Font.size_of) unless fitting.
 	_rect = rect
+	_font = font_name
 	position = rect.position
 	size = rect.size
 	_px = px
@@ -33,11 +36,11 @@ func set_value(t: String) -> void:
 	text = t
 	var d2font := get_node("/root/D2Font")
 	var px := _px
-	d2font.style(self, px)
+	d2font.style(self, px, _font)
 	if _fit:
 		while px > _min_px and _text_width() > size.x - 2.0:
 			px -= 1
-			d2font.style(self, px)
+			d2font.style(self, px, _font)
 	_place(px)
 
 
@@ -46,8 +49,8 @@ func _place(px: int) -> void:
 	## alignment the glyph cell's top row is the label's top edge, so the ink
 	## centre sits ink_center() cell rows down, scaled to this size.
 	var d2font := get_node("/root/D2Font")
-	var s := float(px) / float(d2font.size)
-	position.y = _rect.position.y + _rect.size.y * 0.5 - d2font.ink_center() * s
+	var s := float(px) / float(d2font.size_of(_font))
+	position.y = _rect.position.y + _rect.size.y * 0.5 - d2font.ink_center_of(_font) * s
 
 
 func _text_width() -> float:

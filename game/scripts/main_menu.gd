@@ -67,7 +67,7 @@ func _ready() -> void:
 func _label(text: String, px: int, color := GOLD) -> Label:
 	var l := Label.new()
 	l.text = text
-	get_node("/root/D2Font").style(l, px)
+	get_node("/root/D2Font").style_near(l, px)
 	l.add_theme_color_override("font_color", color)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	return l
@@ -129,7 +129,7 @@ static func _frame_box(frame: AtlasTexture) -> StyleBoxTexture:
 func _button(text: String, px: int, cb: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
-	get_node("/root/D2Font").style(b, px)
+	get_node("/root/D2Font").style_near(b, px)
 	b.add_theme_color_override("font_color", Color(0.85, 0.78, 0.55))
 	b.add_theme_color_override("font_hover_color", Color(1, 1, 0.7))
 	b.add_theme_color_override("font_disabled_color", Color(0.4, 0.37, 0.3))
@@ -200,7 +200,7 @@ func _build() -> void:
 
 	# ---- characters (middle) ----
 	_panel(CHAR_PANEL)
-	var chead := _label("CHARACTERS", 20, WHITE)
+	var chead := _label("CHARACTERS", 24, WHITE)
 	chead.position = Vector2(CHAR_PANEL.position.x, 150)
 	chead.size.x = CHAR_PANEL.size.x
 	add_child(chead)
@@ -232,7 +232,7 @@ func _build() -> void:
 
 	# ---- dungeons (right) ----
 	_panel(DUNG_PANEL)
-	var dhead := _label("DUNGEONS", 20, WHITE)
+	var dhead := _label("DUNGEONS", 24, WHITE)
 	dhead.position = Vector2(DUNG_PANEL.position.x, 150)
 	dhead.size.x = DUNG_PANEL.size.x
 	add_child(dhead)

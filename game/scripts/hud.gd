@@ -101,9 +101,14 @@ class PanelControl:
 			var bpos := Vector2(HUD.BELT_X + bi * HUD.BELT_PITCH, HUD.BELT_Y) * s
 			draw_texture_rect(ptex, Rect2(bpos, HUD.BELT_SIZE * s), false)
 			var cnt := str(int(slot.get("count", 1)))
-			var font := ThemeDB.fallback_font
-			draw_string(font, bpos + Vector2(18, 12) * s, cnt,
-					HORIZONTAL_ALIGNMENT_LEFT, -1, maxi(1, int(10 * s)), Color(1, 1, 1))
+			# the potion count in D2's small panel font, on the strip's scale
+			var d2f := get_node("/root/D2Font")
+			var font: Font = d2f.font_of("font8")
+			if font == null:
+				font = ThemeDB.fallback_font
+			draw_string(font, bpos + Vector2(17, 13) * s, cnt,
+					HORIZONTAL_ALIGNMENT_LEFT, -1, maxi(1, int(d2f.size_of("font8") * s)),
+					Color(1, 1, 1))
 		# experience bar in the strip below the panel: progress to next level
 		var lvl_i: int = gs.level
 		var xfrac := 1.0
@@ -235,7 +240,8 @@ var _item_labels := []
 func show_area(name: String, color := Color(0.9, 0.82, 0.6), dur := 3.0) -> void:
 	if _area_label == null:
 		_area_label = Label.new()
-		_area_label.add_theme_font_size_override("font_size", 42)
+		# the zone title in D2's large face
+		get_node("/root/D2Font").style_near(_area_label, 42)
 		_area_label.add_theme_color_override("font_outline_color", Color(0, 0, 0))
 		_area_label.add_theme_constant_override("outline_size", 8)
 		add_child(_area_label)
@@ -253,7 +259,7 @@ func show_interact(what: String) -> void:
 	## straight past, and a shut door gives no hint that it will open at all.
 	if _use_label == null:
 		_use_label = Label.new()
-		_use_label.add_theme_font_size_override("font_size", 18)
+		get_node("/root/D2Font").style_near(_use_label, 18)
 		_use_label.add_theme_color_override("font_color", Color(0.85, 0.72, 0.35))
 		_use_label.add_theme_color_override("font_outline_color", Color(0, 0, 0))
 		_use_label.add_theme_constant_override("outline_size", 6)
@@ -313,7 +319,8 @@ func hide_target() -> void:
 func show_item_labels(items: Array, cam: Camera3D) -> void:
 	while _item_labels.size() < items.size():
 		var l := Label.new()
-		l.add_theme_font_size_override("font_size", 15)
+		# ground item names: font16, as D2's floor labels
+		get_node("/root/D2Font").style(l, 16)
 		l.add_theme_color_override("font_outline_color", Color(0, 0, 0))
 		l.add_theme_constant_override("outline_size", 5)
 		add_child(l)

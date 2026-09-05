@@ -34,7 +34,7 @@ def build():
     export_monsters.build()
     export_items.build()
     export_affixes.build()
-    export_statdisplay.export_font("font16")
+    export_statdisplay.export_fonts()
     export_statdisplay.export_statdisplay()
     export_sounds.build()
     export_setbonus.main()

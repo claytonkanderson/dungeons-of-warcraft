@@ -72,7 +72,7 @@ func _frame_tex(sheet_name: String, frame: int) -> AtlasTexture:
 func _label(text: String, px := 20, color := GOLD) -> Label:
 	var l := Label.new()
 	l.text = text
-	get_node("/root/D2Font").style(l, px)
+	get_node("/root/D2Font").style_near(l, px)
 	l.add_theme_color_override("font_color", color)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	return l
@@ -82,7 +82,7 @@ func _button(text: String, cb: Callable) -> Button:
 	## D2's wide blank button (WideButtonBlank.dc6): plate up, plate down.
 	var b := Button.new()
 	b.text = text
-	get_node("/root/D2Font").style(b, 16)
+	get_node("/root/D2Font").style_near(b, 16)
 	b.add_theme_color_override("font_color", GOLD)
 	b.add_theme_color_override("font_hover_color", Color(1, 1, 0.7))
 	b.add_theme_color_override("font_pressed_color", Color(1, 1, 0.7))

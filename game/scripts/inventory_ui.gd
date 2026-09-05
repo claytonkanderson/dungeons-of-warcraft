@@ -47,7 +47,9 @@ func _ready() -> void:
 	panel = D2Panel.new("ui/invchar_1.png")
 	panel.visible = false
 	add_child(panel)
-	gold_field = D2Field.new(GOLD_RECT, 16, Color(0.95, 0.85, 0.4))
+	# the gold count in D2's small panel font, at its native size
+	gold_field = D2Field.new(GOLD_RECT, 14, Color(0.95, 0.85, 0.4),
+			HORIZONTAL_ALIGNMENT_CENTER, true, "font8")
 	panel.content.add_child(gold_field)
 	gs.inventory_changed.connect(_refresh)
 	gs.equipment_changed.connect(_refresh)

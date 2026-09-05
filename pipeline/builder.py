@@ -52,10 +52,12 @@ BESIDE_EXE = (Path(sys.executable).resolve().parent if getattr(sys, "frozen", Fa
 BUILD_DIR = (BESIDE_EXE / "_build" if getattr(sys, "frozen", False)
              else BESIDE_EXE)
 
-# Every AzerothCore table the build reads. Keep this in step with the
-# `AC / "<name>.sql"` reads in build_dungeon.py, build_creatures.py and
-# dungeon_common.py — a missing entry only shows up on a machine without a
-# local AzerothCore checkout, which is every machine but the author's.
+# Every AzerothCore table the build reads. The trimmed copies in
+# pipeline/ac_data (vendored, bundled into setup.exe) are what a build
+# normally reads; keep this list in step with the `AC / "<name>.sql"` reads
+# in build_dungeon.py, build_creatures.py and dungeon_common.py, and with
+# trim_ac.py, which produces those copies — a table missing from either
+# only shows up as a failed build on a player's machine.
 AC_FILES = [
     "creature.sql", "creature_template.sql", "creature_template_model.sql",
     "creature_equip_template.sql", "item_template.sql",
@@ -64,6 +66,23 @@ AC_FILES = [
 ]
 AC_URL = ("https://raw.githubusercontent.com/azerothcore/azerothcore-wotlk/"
           "master/data/sql/base/db_world/")
+
+
+# Build progress: every stage announces itself here, so the setup window
+# can show a bar instead of the stream of detail (which still goes to the
+# log). `total` is set by run_build from the stages it is about to run.
+_progress = {"done": 0, "total": 0, "cb": None}
+
+
+def stage(label):
+    _progress["done"] += 1
+    done, total = _progress["done"], max(_progress["total"], _progress["done"])
+    print(f"\n--- [{done}/{total}] {label} ---")
+    if _progress["cb"]:
+        try:
+            _progress["cb"](label, done, total)
+        except Exception:
+            pass
 
 
 def fail(msg):
@@ -352,19 +371,22 @@ def run_d2_stages():
             export_monsters.build())),
         ("item catalog + art", export_items.build),
         ("uniques / sets / affixes", export_affixes.build),
-        ("item stat text + font", lambda: (
-            export_statdisplay.export_font("font16"),
+        ("item stat text + fonts", lambda: (
+            export_statdisplay.export_fonts(),
             export_statdisplay.export_statdisplay())),
         ("D2 sound effects", export_sounds.build),
     ]
     for label, fn in stages:
         t0 = time.time()
-        print(f"\n--- D2: {label} ---")
+        stage(f"Diablo II: {label}")
         fn()
         print(f"    ({time.time() - t0:.0f}s)")
     import export_setbonus
-    print("\n--- D2: set bonuses ---")
+    stage("Diablo II: set bonuses")
     export_setbonus.main()
+
+
+D2_STAGE_COUNT = 11      # the stages above plus set bonuses
 
 
 def run_wow_stages(only=""):
@@ -377,19 +399,25 @@ def run_wow_stages(only=""):
     import build_backdrops
     from casc import Storage
     from dungeon_config import DUNGEONS
-    print("\n--- WoW: opening local game storage ---")
+    stage("World of Warcraft: opening the local game storage")
     s = Storage()
     for did, cfg in DUNGEONS.items():
         if only and did != only:
             continue
         t0 = time.time()
-        print(f"\n--- WoW: {did} ---")
+        stage("World of Warcraft: " + did.replace("-", " ").title())
         build_dungeon.build(s, did, cfg)
         print(f"    ({time.time() - t0:.0f}s)")
-    print("\n--- WoW: menu backdrops ---")
+    stage("World of Warcraft: menu backdrops")
     build_backdrops.build(s)
-    print("\n--- WoW: soundscape ---")
+    stage("World of Warcraft: soundscape")
     build_audio.main()
+
+
+def wow_stage_count(only=""):
+    sys.path.insert(0, str(HERE))
+    from dungeon_config import DUNGEONS
+    return 1 + (1 if only else len(DUNGEONS)) + 2
 
 
 def run_build(d2, wow, out="", ac="", skip_d2=False, skip_wow=False,
@@ -423,6 +451,9 @@ def run_build(d2, wow, out="", ac="", skip_d2=False, skip_wow=False,
     os.environ["DOW_ASSETS"] = str(out_dir)
     os.environ["DOW_AC_DIR"] = str(ac_dir)
 
+    _progress["done"] = 0
+    _progress["total"] = (0 if skip_d2 else D2_STAGE_COUNT) \
+        + (0 if skip_wow else wow_stage_count(only_dungeon))
     t0 = time.time()
     if not skip_d2:
         run_d2_stages()
@@ -442,7 +473,7 @@ def run_gui():
         import queue
         import threading
         import tkinter as tk
-        from tkinter import filedialog, scrolledtext
+        from tkinter import filedialog, ttk
     except Exception:
         return False
 
@@ -458,7 +489,7 @@ def run_gui():
     except Exception:
         return False       # no display (headless) — fall back to CLI usage
     root.title("Dungeons of Warcraft — Setup")
-    root.minsize(700, 540)
+    root.minsize(700, 360)
 
     state = {"d2": prefs.get("d2", ""), "wow": prefs.get("wow", ""),
              "running": False}
@@ -556,17 +587,37 @@ def run_gui():
              text="Assets will be built in:  %s" % (BUILD_DIR / "assets")).pack(
         fill="x", pady=(8, 0))
 
-    log = scrolledtext.ScrolledText(root, height=14, state="disabled",
-                                    font=("Consolas", 9))
-    log.pack(fill="both", expand=True, padx=12, pady=(6, 4))
+    # the build shows as one bar and one line — the stream of detail goes
+    # to setup.log, which is what to send if something goes wrong
+    prog = tk.Frame(root, padx=12)
+    prog.pack(fill="x", pady=(6, 0))
+    build_lbl = tk.Label(prog, anchor="w", justify="left", fg="#333",
+                         wraplength=660)
+    build_lbl.pack(fill="x")
+    pbar = ttk.Progressbar(prog, orient="horizontal", mode="determinate",
+                           maximum=1, value=0)
+    pbar.pack(fill="x", pady=(4, 2))
+    stage_lbl = tk.Label(prog, anchor="w", fg="#666")
+    stage_lbl.pack(fill="x")
+    log_path = BUILD_DIR / "setup.log"
 
     bar = tk.Frame(root, padx=12, pady=8)
     bar.pack(fill="x")
-    status_lbl = tk.Label(bar, text="", anchor="w")
+    status_lbl = tk.Label(bar, text="", anchor="w", wraplength=440,
+                          justify="left")
     status_lbl.pack(side="left")
     build_btn = tk.Button(bar, text="Build assets")
     build_btn.pack(side="right")
     tk.Button(bar, text="Detect installs", command=detect_both).pack(
+        side="right", padx=(0, 8))
+
+    def open_log():
+        try:
+            os.startfile(log_path)
+        except Exception:
+            status_lbl.config(text=f"Log: {log_path}", fg="#333")
+
+    tk.Button(bar, text="Open log", command=open_log).pack(
         side="right", padx=(0, 8))
 
     q = queue.Queue()
@@ -594,6 +645,8 @@ def run_gui():
     def worker(d2, wow):
         old_out, old_err = sys.stdout, sys.stderr
         sys.stdout = sys.stderr = _Tee(old_out)
+        _progress["cb"] = lambda label, done, total: q.put(
+            ("__stage__", label, done, total))
         ok = True
         try:
             run_build(d2, wow)
@@ -603,6 +656,7 @@ def run_gui():
             print(f"\nERROR: {e}")
             ok = False
         finally:
+            _progress["cb"] = None
             sys.stdout, sys.stderr = old_out, old_err
             q.put(("__done__", ok))
 
@@ -614,7 +668,11 @@ def run_gui():
         d2, wow = game_root(d2_var.get()), game_root(wow_var.get())
         state["running"] = True
         build_btn.config(state="disabled")
-        status_lbl.config(text="Building… this takes 10–20 minutes.", fg="#333")
+        build_lbl.config(text="Building game at %s\nfrom %s\nand %s"
+                         % (BUILD_DIR / "assets", d2, wow))
+        stage_lbl.config(text="Starting…")
+        pbar.config(value=0, maximum=1)
+        status_lbl.config(text="This takes 5–10 minutes.", fg="#333")
         threading.Thread(target=worker, args=(d2, wow), daemon=True).start()
 
     build_btn.config(command=start_build)
@@ -623,19 +681,28 @@ def run_gui():
         try:
             while True:
                 item = q.get_nowait()
+                if isinstance(item, tuple) and item and item[0] == "__stage__":
+                    _, label, done, total = item
+                    pbar.config(maximum=total, value=done - 1)
+                    stage_lbl.config(text=f"{done} of {total}: {label}")
+                    continue
                 if isinstance(item, tuple) and item and item[0] == "__done__":
                     state["running"] = False
                     ok = item[1]
+                    if ok:
+                        pbar.config(value=pbar["maximum"])
+                        stage_lbl.config(text="Finished.")
                     status_lbl.config(
                         text=("Done — close this and run DungeonsOfWarcraft.exe"
-                              if ok else "Build failed — see the log above."),
+                              if ok else "Build failed — see setup.log "
+                              "(the Open log button)."),
                         fg=("#177245" if ok else "#a11"))
                     refresh()
                     continue
-                log.config(state="normal")
-                log.insert("end", str(item))
-                log.see("end")
-                log.config(state="disabled")
+                # the detail goes to the log; only an error is shown here
+                text = str(item)
+                if "ERROR:" in text:
+                    stage_lbl.config(text=text.strip()[:200], fg="#a11")
         except queue.Empty:
             pass
         root.after(80, drain)
