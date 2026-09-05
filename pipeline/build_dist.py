@@ -33,6 +33,7 @@ GODOT = Path(os.environ.get("DOW_GODOT", os.path.expandvars(
     r"\GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe"
     r"\Godot_v4.7.2-stable_win64_console.exe")))
 
+GODOT_VERSION = "4.7.2"     # the engine the project is pinned to
 PRESET = "Windows"          # must match the name in game/export_presets.cfg
 
 DOCS = [("dist-readme.txt", "README.txt"),
@@ -60,6 +61,15 @@ def build_exe():
     check_no_asset_link()
     if not GODOT.exists():
         sys.exit(f"Godot not found at {GODOT}; set DOW_GODOT")
+    # the shipped game is built with the engine the project was tested on;
+    # a different minor version imports the scenes differently enough to
+    # be a release of its own
+    got = subprocess.run([str(GODOT), "--version"], capture_output=True,
+                         text=True).stdout.strip().splitlines()
+    got = got[-1] if got else ""
+    if not got.startswith(GODOT_VERSION):
+        sys.exit(f"Godot {GODOT_VERSION} is required, found {got!r} at "
+                 f"{GODOT}; set DOW_GODOT to a {GODOT_VERSION} build")
     OUT.mkdir(parents=True, exist_ok=True)
     run([GODOT, "--headless", "--path", ROOT / "game",
          "--export-release", PRESET, OUT / "DungeonsOfWarcraft.exe"])

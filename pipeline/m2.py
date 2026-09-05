@@ -156,6 +156,19 @@ class M2Model:
                 "pos": struct.unpack_from("<3f", md, a + 8),
             })
 
+        # per-batch visibility: M2Color {colour track, alpha track} and the
+        # texture-weight tracks, both fixed16 alpha. Models that swap between
+        # two geometries mid-clip (the earth elemental's standing rocks and
+        # its collapsed pile) keep every submesh in geoset 0 and hide the
+        # inactive one through these, so an export that ignores them draws
+        # both at once.
+        n, o = _arr(md, 0x48)
+        self.colors = [Track(md, o + i * 40 + 20) for i in range(n)]
+        n, o = _arr(md, 0x58)
+        self.tex_weights = [Track(md, o + i * 20) for i in range(n)]
+        n, o = _arr(md, 0x90)
+        self.transparency_lookup =             list(struct.unpack_from(f"<{n}H", md, o)) if n else []
+
         n, o = _arr(md, 0x70)  # {flags u16, blend u16}
         self.materials = [struct.unpack_from("<HH", md, o + i * 4) for i in range(n)]
         n, o = _arr(md, 0x80)
@@ -296,10 +309,12 @@ class Skin:
         for i in range(n):
             b = o + i * 24
             (_fl, _pp, shader, section, geoset, color, material, layer,
-             ntex, texcombo) = struct.unpack_from("<BbHHHhHHHH", data, b)
+             ntex, texcombo, _uvcombo, weightcombo) =                 struct.unpack_from("<BbHHHhHHHHHH", data, b)
             self.batches.append({
                 "section": section,
                 "material": material,
                 "layer": layer,
                 "tex_combo": texcombo,
+                "color": color,              # -1: none
+                "weight_combo": weightcombo,  # -> transparency_lookup
             })

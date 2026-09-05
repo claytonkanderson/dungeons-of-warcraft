@@ -15,7 +15,15 @@ General Public License, version 3.0 — <https://www.gnu.org/licenses/agpl-3.0.h
 This notice and that licence apply to the files in this directory. The rest
 of Dungeons of Warcraft is licensed separately (see the repository LICENSE).
 
-Regenerate after adding a dungeon, or to pick up upstream changes:
+These rows are what every build reads by default, players' included, so
+the schema the loaders were checked against is frozen here. Refreshing is a
+developer action: upstream renames or drops columns now and then, and a
+build from a fresh dump can fail (or, worse, read the wrong column) until
+the loaders are checked again. To regenerate after adding a dungeon, or to
+pick up upstream changes:
 
     python pipeline/builder.py --refresh-ac --d2 ... --wow ...   # or point --ac at a checkout
     python pipeline/trim_ac.py --ac _build/assets/_accache
+
+then rebuild a dungeon from the trimmed rows and check the creature stats
+it prints before committing the new files.

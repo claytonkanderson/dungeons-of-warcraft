@@ -204,8 +204,10 @@ def export_glb(model, skin, textures, out_path, seq_filter=None,
     materials_out = []
     images, gl_textures = [], []
 
-    def build_primitives(mdl, skn, texs, skinned, geoset_filter=None):
-        """Returns a glTF primitives list for one model+skin."""
+    def build_primitives(mdl, skn, texs, skinned, geoset_filter=None,
+                         out_batches=None):
+        """Returns a glTF primitives list for one model+skin. out_batches,
+        when given, collects the skin batches that were exported."""
         n_vert = len(mdl.vertices)
         pos, norm, uv = [], [], []
         joints, weights = bytearray(), bytearray()
@@ -244,6 +246,8 @@ def export_glb(model, skin, textures, out_path, seq_filter=None,
             if b["layer"] > 0 and b["section"] in seen_layer0:
                 continue  # skip overlay layers; base layer already drawn
             seen_layer0.add(b["section"])
+            if out_batches is not None:
+                out_batches.append(b)
             ids = global_idx[sm["index_start"]:
                              sm["index_start"] + sm["index_count"]]
             idx_blob = b"".join(struct.pack("<H", i) for i in ids)
@@ -283,8 +287,9 @@ def export_glb(model, skin, textures, out_path, seq_filter=None,
                           "material": len(materials_out) - 1})
         return prims
 
+    main_batches = []
     primitives = build_primitives(model, skin, textures, True,
-                                  allowed_geosets)
+                                  allowed_geosets, main_batches)
 
     # ------------------------------------------------------------- bones
     n_bones = len(model.bones)
@@ -328,6 +333,122 @@ def export_glb(model, skin, textures, out_path, seq_filter=None,
                       "mesh": len(meshes_out) - 1,
                       "translation": list(local)})
         nodes[bone].setdefault("children", []).append(len(nodes) - 1)
+
+    # ------------------------------------------- batch visibility -> bones
+    # A batch can be faded out per clip through its M2Color alpha and
+    # texture-weight tracks; models that swap geometry mid-clip rely on it
+    # (the earth elemental keeps its standing rocks and its collapsed pile
+    # in geoset 0, and shows only one of them at a time). glTF has no
+    # per-primitive visibility, so a bone every visible batch has let go of
+    # is scaled to nothing instead, which collapses its vertices to a point.
+    HIDDEN = 1e-4
+
+    def alpha_keys(track, di):
+        t, v = track.keys(model, di, "h", 1)
+        if track.gseq >= 0 and t:
+            t, v = [t[0]], [v[0]]
+        return [(a, max(0.0, b[0] / 32767.0)) for a, b in zip(t, v)]
+
+    def sample(keys, ms, default=1.0):
+        if not keys:
+            return default
+        if ms <= keys[0][0]:
+            return keys[0][1]
+        for (t0, a0), (t1, a1) in zip(keys, keys[1:]):
+            if ms <= t1:
+                return a0 if t1 == t0 else a0 + (a1 - a0) * (ms - t0) / (t1 - t0)
+        return keys[-1][1]
+
+    def batch_visible(b, di):
+        """-> [(ms, bool)] step keys, or None when the batch never fades."""
+        tracks = []
+        ci = b.get("color", -1)
+        if 0 <= ci < len(model.colors):
+            tracks.append(alpha_keys(model.colors[ci], di))
+        wc = b.get("weight_combo", 0)
+        if wc < len(model.transparency_lookup):
+            wi = model.transparency_lookup[wc]
+            if 0 <= wi < len(model.tex_weights):
+                tracks.append(alpha_keys(model.tex_weights[wi], di))
+        tracks = [k for k in tracks if k]
+        if not tracks:
+            return None
+
+        def vis(ms):
+            a = 1.0
+            for k in tracks:
+                a *= sample(k, ms)
+            return a >= 0.5
+
+        times = sorted({t for k in tracks for t, _ in k})
+        out = [(times[0], vis(times[0]))]
+        for t0, t1 in zip(times, times[1:]):
+            v1 = vis(t1)
+            if v1 != out[-1][1]:
+                lo, hi = t0, t1   # bisect the crossing to the millisecond
+                while hi - lo > 1:
+                    mid = (lo + hi) // 2
+                    if vis(mid) == v1:
+                        hi = mid
+                    else:
+                        lo = mid
+                out.append((hi, v1))
+        if all(v for _, v in out):
+            return None
+        return out
+
+    skin_gidx = [skin.vertices[i] for i in skin.indices]
+    bone_batches = [set() for _ in model.bones]
+    for bidx, b in enumerate(main_batches):
+        sm = skin.submeshes[b["section"]]
+        span = skin_gidx[sm["index_start"]:sm["index_start"] + sm["index_count"]]
+        for vi in set(span):
+            v = model.vertices[vi]
+            for k in range(4):
+                if v[3 + k]:
+                    bone_batches[v[7 + k]].add(bidx)
+    children = [[] for _ in model.bones]
+    for i, b in enumerate(model.bones):
+        if b.parent >= 0:
+            children[b.parent].append(i)
+
+    def batches_under(i):
+        # a bone scaled away takes its children with it, so it may only go
+        # when nothing hanging below it is still on show
+        acc_set = set(bone_batches[i])
+        for c in children[i]:
+            acc_set |= batches_under(c)
+        return acc_set
+
+    bone_scope = [batches_under(i) for i in range(len(model.bones))]
+
+    def bone_visible(bi, di):
+        """-> [(ms, bool)] or None when the bone is never hidden."""
+        if not bone_scope[bi]:
+            return None
+        lists = []
+        for bidx in bone_scope[bi]:
+            keys = batch_visible(main_batches[bidx], di)
+            if keys is None:
+                return None
+            lists.append(keys)
+        times = sorted({t for k in lists for t, _ in k})
+
+        def step(keys, ms):
+            val = keys[0][1]
+            for t, v in keys:
+                if t <= ms:
+                    val = v
+            return val
+
+        out = []
+        for t in times:
+            v = any(step(k, t) for k in lists)
+            if not out or out[-1][1] != v:
+                out.append((t, v))
+        if all(v for _, v in out):
+            return None
+        return out
 
     # -------------------------------------------------------- animations
     animations = []
@@ -399,10 +520,32 @@ def export_glb(model, skin, textures, out_path, seq_filter=None,
             times, vals = bone.scale.keys(model, di, "f", 3)
             if times and bone.scale.gseq >= 0:
                 times, vals = [times[0]], [vals[0]]
-            if times:
-                ts = [t / 1000 for t in times]
-                vs = [(v[1], v[2], v[0]) for v in vals]
-                channel(bi, "scale", ts, vs, "VEC3")
+            skeys = [(t, (v[1], v[2], v[0])) for t, v in zip(times, vals)]
+            hide = bone_visible(bi, di)
+            if hide:
+                # merge the visibility steps into the scale track: a key
+                # just before each switch holds the old state, so the
+                # linear sampler steps rather than ramps
+                merged = {t: None for t, _ in skeys}
+                for t, _ in hide:
+                    merged[t] = None
+                    if t > 0:
+                        merged[t - 1] = None
+                skeys2 = []
+                for t in sorted(merged):
+                    sc = tuple(sample([(k, val[j]) for k, val in skeys], t)
+                               for j in range(3)) if skeys else (1, 1, 1)
+                    shown = hide[0][1]
+                    for ht, hv in hide:
+                        if ht <= t:
+                            shown = hv
+                    if not shown:
+                        sc = (HIDDEN, HIDDEN, HIDDEN)
+                    skeys2.append((t, sc))
+                skeys = skeys2
+            if skeys:
+                channel(bi, "scale", [t / 1000 for t, _ in skeys],
+                        [v for _, v in skeys], "VEC3")
             else:
                 channel(bi, "scale", [0.0], [(1, 1, 1)], "VEC3")
 

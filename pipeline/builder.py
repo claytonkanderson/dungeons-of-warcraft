@@ -16,8 +16,11 @@ build. Given paths, it builds headlessly from the command line:
 
 Spawn/stat data comes from the open-source AzerothCore project (AGPL). The
 rows the configured dungeons need ship inside setup (pipeline/ac_data,
-made by trim_ac.py), so a build needs no internet; --refresh-ac downloads
-the full current dumps instead, and --ac points at a local checkout.
+made by trim_ac.py), so a build needs no internet and always reads a
+schema the loaders were checked against. --refresh-ac (developers only)
+downloads the full current dumps instead — an upstream schema change can
+then break the column lookups, so re-trim with trim_ac.py and rebuild
+before shipping; --ac points at a local checkout.
 
 Both install paths are found automatically where possible (the Battle.net
 product database, the registry, the usual folders); the window pre-fills
@@ -657,8 +660,10 @@ def main():
                     help="local AzerothCore db_world dir (default: the trimmed "
                          "data bundled with setup)")
     ap.add_argument("--refresh-ac", action="store_true",
-                    help="download the current AzerothCore dumps instead of "
-                         "using the bundled rows")
+                    help="developer: download the current AzerothCore dumps "
+                         "instead of the bundled rows (a schema change "
+                         "upstream can break the build; re-trim with "
+                         "trim_ac.py and rebuild before shipping)")
     ap.add_argument("--detect", action="store_true",
                     help="print the installs found automatically, then exit")
     ap.add_argument("--skip-d2", action="store_true",
@@ -716,7 +721,10 @@ def main():
         print(f"Diablo II:         {d2 or 'not found'}")
         print(f"World of Warcraft: {wow or 'not found'}")
         return
-    if not args.d2 and not args.wow:
+    # the window only for a bare double-click; any flag at all (a dungeon
+    # to rebuild, --skip-d2 ...) means a scripted run, which must never
+    # block on a window
+    if len(sys.argv) == 1:
         if run_gui():
             return
     # command line: whatever was not given is looked for
