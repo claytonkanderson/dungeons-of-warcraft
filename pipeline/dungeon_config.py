@@ -101,10 +101,40 @@ DUNGEONS = {
         ambience=["razorfenkraul", "razorfen", "barrens"],
         footstep="dirt",
     ),
-    "scarlet-monastery": dict(
-        map_name="monasteryinstances", ac_map=189, target_level=40,
-        bosses=["Interrogator Vishas", "Bloodmage Thalnos", "Houndmaster Loksey",
-                "Arcanist Doan", "Herod", "High Inquisitor Fairbanks",
+    # Scarlet Monastery is four instances in WoW, four buildings stood apart
+    # on one map, each with its own entrance trigger. `wing` names the
+    # trigger ("Scarlet Monastery - <Wing> (Entrance)"); the build keeps the
+    # building on that entrance's side of the map and everything near it.
+    # The four together span one dungeon's worth of levels (34-40), so each
+    # wing's XP budget (xp_span) is its share rather than the usual five.
+    "scarlet-monastery-graveyard": dict(
+        map_name="monasteryinstances", ac_map=189, wing="Graveyard",
+        target_level=36, xp_span=2,
+        bosses=["Interrogator Vishas", "Bloodmage Thalnos"],
+        final_boss="Bloodmage Thalnos",
+        ambience=["scarletmonastery", "monastery", "tirisfal"],
+        footstep="stone",
+    ),
+    "scarlet-monastery-library": dict(
+        map_name="monasteryinstances", ac_map=189, wing="Library",
+        target_level=37, xp_span=1,
+        bosses=["Houndmaster Loksey", "Arcanist Doan"],
+        final_boss="Arcanist Doan",
+        ambience=["scarletmonastery", "monastery", "tirisfal"],
+        footstep="stone",
+    ),
+    "scarlet-monastery-armory": dict(
+        map_name="monasteryinstances", ac_map=189, wing="Armory",
+        target_level=39, xp_span=2,
+        bosses=["Herod"],
+        final_boss="Herod",
+        ambience=["scarletmonastery", "monastery", "tirisfal"],
+        footstep="stone",
+    ),
+    "scarlet-monastery-cathedral": dict(
+        map_name="monasteryinstances", ac_map=189, wing="Cathedral",
+        target_level=40, xp_span=1,
+        bosses=["High Inquisitor Fairbanks", "Scarlet Commander Mograine",
                 "High Inquisitor Whitemane"],
         final_boss="High Inquisitor Whitemane",
         ambience=["scarletmonastery", "monastery", "tirisfal"],

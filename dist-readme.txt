@@ -85,8 +85,8 @@ CURRENT LIMITATIONS
   - Ten of the twenty dungeons are built: Ragefire Chasm, Wailing
     Caverns (good luck - there's no map), The Deadmines, Shadowfang Keep,
     Blackfathom Deeps, The Stockade, Gnomeregan, Razorfen Kraul, Scarlet
-    Monastery and Razorfen Downs. The rest are listed and arrive as they
-    get built.
+    Monastery (all four wings) and Razorfen Downs. The rest are listed and
+    arrive as they get built.
   - Windows only, keyboard and mouse only (no controller support).
 
 NOTES

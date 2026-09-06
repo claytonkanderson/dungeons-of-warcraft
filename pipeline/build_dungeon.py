@@ -24,7 +24,8 @@ from extract_deadmines import extract_wmo
 import build_creatures
 import build_terrain
 from dungeon_common import (find_wdt, load_spawns, entrance, wmo_placements,
-                            pick_main, calibrate, Transform, world_from_file)
+                            pick_main, calibrate, Transform, world_from_file,
+                            wing_keep)
 from dungeon_config import DUNGEONS
 
 # WoW scatters barrels and crates by the hundred as filler. Dropped in from
@@ -317,13 +318,26 @@ def build(s, did, cfg):
     if not wdt:
         print("!! WDT not found, aborting")
         return False
-    spawns = load_spawns(cfg["ac_map"])
+    wing = cfg.get("wing")
+    spawns = load_spawns(cfg["ac_map"], wing)
     placements, obj_fdids, flags = wmo_placements(s, wdt)
     if not placements:
         print("!! no WMO placements, aborting")
         return False
     print(f"{len(placements)} WMO placements, {len(spawns)} spawns, "
           f"wdt flags {flags:#x}")
+    # a wing of a multi-instance map: keep the building on the wing's side
+    # of the map (nearest-entrance, as for the spawns) and everything the
+    # map carries near it; the other wings drop out here and their doodad
+    # sets, gameobjects, props and tiles follow through the same predicate
+    keep = wing_keep(cfg["ac_map"], wing) if wing else (lambda x, y: True)
+    if wing:
+        placements = {uid: p for uid, p in placements.items()
+                      if keep(*world_from_file(*p["pos"])[:2])}
+        print(f"wing {wing}: {len(placements)} WMO placement(s)")
+        if not placements:
+            print("!! no WMO placement on the wing's side of the map")
+            return False
     main_uid, roots = pick_main(s, placements)
     cal = calibrate(s, spawns, placements, main_uid, roots)
     print(f"calibration: {cal['hits']}/{cal['total']} spawns inside "
@@ -412,6 +426,8 @@ def build(s, did, cfg):
                     continue
             needed.add(fdid)
             w = world_from_file(px, py, pz)
+            if not keep(w[0], w[1]):
+                continue
             out["props"].append({
                 "fdid": fdid, "pos": t.to_gl(*w),
                 "yaw": t.yaw_of(ryd), "scale": sc / 1024.0,
@@ -435,6 +451,8 @@ def build(s, did, cfg):
             encoding="utf-8").splitlines():
         if sp_pat.match(line):
             f = line.strip("(),;").split(",")
+            if not keep(float(f[7]), float(f[8])):
+                continue
             go_spawns.append((int(f[1]), float(f[7]), float(f[8]),
                               float(f[9]), float(f[10])))
     if go_spawns:
@@ -492,7 +510,7 @@ def build(s, did, cfg):
     out["door_rules"] = cfg.get("doors", {})
 
     # entrance
-    ent = entrance(cfg["ac_map"])
+    ent = entrance(cfg["ac_map"], wing)
     if ent:
         ex, ey, ez, eo = ent
         out["spawn"] = {"pos": t.to_gl(ex, ey, ez),
@@ -675,7 +693,17 @@ def build(s, did, cfg):
     build_creatures.build(s, did, cfg)
 
     # ---- terrain (ADT maps only) ----
-    build_terrain.build_for(s, wdt, t.to_gl, out_dir / "terrain")
+    tile_keep = None
+    if wing:
+        # the ground around the wing's own building: its side of the map,
+        # and within a tile's length of the building's placement
+        wx, wy = world_from_file(*placements[main_uid]["pos"])[:2]
+        reach = build_terrain.TILE
+
+        def tile_keep(x, y):
+            return keep(x, y) and math.hypot(x - wx, y - wy) < reach
+    build_terrain.build_for(s, wdt, t.to_gl, out_dir / "terrain",
+                            tile_keep=tile_keep)
 
     # ---- ambience ----
     audio_dir = OUT / "audio"

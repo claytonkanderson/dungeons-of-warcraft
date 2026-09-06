@@ -175,6 +175,11 @@ def build():
         json.dump(treasure, f)
     print('treasure.json: %d classes (from %s)' % (len(treasure), src))
 
+    ratio = build_itemratio()
+    with open(os.path.join(outdir, 'itemratio.json'), 'w') as f:
+        json.dump(ratio, f)
+    print('itemratio.json: %d rows' % len(ratio))
+
     flippies = sorted({it['flippyfile'].lower()
                        for it in items.values() if it.get('flippyfile')})
     invs = sorted({it['invfile'].lower()

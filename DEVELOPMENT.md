@@ -93,8 +93,15 @@ AzerothCore map id, the target character level, the boss names, and any
 door or lever rules. Then re-trim the AzerothCore rows (above), run
 `build_dungeon.py --dungeon <id>`, and add the ladder entry in
 `game/scripts/dungeons.gd`. The builder reports unmatched boss names and
-spawn-calibration warnings; a map with several wings (Scarlet Monastery)
-warns and is fine.
+spawn-calibration warnings.
+
+A map that holds several instances as separate buildings (Scarlet
+Monastery) is one config entry per wing, each naming its entrance trigger
+with `wing="Graveyard"` and so on. The build keeps the building on that
+entrance's side of the map, and the spawns, gameobjects, props and
+terrain tiles nearest it; the calibration hit rate should be near 100%
+for every wing. `xp_span` sets how many levels a clear is worth (five by
+default) so the wings together budget one dungeon's worth.
 
 Creature models the local client lacks get a stand-in from
 `MODEL_STANDINS` in `build_creatures.py`; the build lists any it skipped.

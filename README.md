@@ -27,8 +27,8 @@ content in a different way than usual.
 - **Ten of the twenty dungeons** on the ladder are built: Ragefire Chasm,
   Wailing Caverns (good luck — there's no map), The Deadmines, Shadowfang
   Keep, Blackfathom Deeps, The Stockade, Gnomeregan, Razorfen Kraul,
-  Scarlet Monastery and Razorfen Downs. The rest are listed and arrive as
-  they get built.
+  Scarlet Monastery (all four wings) and Razorfen Downs. The rest are
+  listed and arrive as they get built.
 - Windows only, keyboard and mouse only (no controller support).
 
 ## How do I install it?

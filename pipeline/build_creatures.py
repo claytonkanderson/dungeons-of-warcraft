@@ -207,7 +207,9 @@ def xp_target(cfg):
     gd = json.loads((ASSETS / "gamedata.json").read_text())
     e = gd["experience"]
     hi = int(cfg["target_level"])
-    lo = max(1, hi - 5)
+    # xp_span: how many levels a full clear is worth (5 by default; a wing
+    # of a split dungeon carries its share of the whole)
+    lo = max(1, hi - int(cfg.get("xp_span", 5)))
     return int(str(e[hi - 1])) - int(str(e[lo - 1]))
 
 
@@ -386,7 +388,7 @@ def load_stats(entries, spawns, cfg):
 
 
 def build(s, dungeon_id, cfg, stats_only=False):
-    spawns = load_spawns(cfg["ac_map"])
+    spawns = load_spawns(cfg["ac_map"], cfg.get("wing"))
     entries = sorted({sp["entry"] for sp in spawns})
     print(f"{dungeon_id}: {len(spawns)} spawns, {len(entries)} unique entries")
     stats = load_stats(entries, spawns, cfg)

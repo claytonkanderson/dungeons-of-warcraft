@@ -218,6 +218,13 @@ func _ready() -> void:
 			gs.current_dungeon = did
 	_shot_dir = Cli.value("--shots=")
 	_at_override = Cli.vec3("--at=", Vector3.INF)
+	if OS.get_cmdline_user_args().has("--loot-test"):
+		# pure table work: no world needed, so it runs before the build
+		if Cli.offscreen():
+			Cli.hide_window()
+		_loot_test()
+		get_tree().quit()
+		return
 	wow_dir = _assets_dir().path_join("wow/%s" % gs.current_dungeon)
 
 	# loading screen: the dungeon's backdrop and name while the world builds.
@@ -328,9 +335,6 @@ func _ready() -> void:
 		get_tree().quit()
 	elif OS.get_cmdline_user_args().has("--loot-run"):
 		_loot_run()
-		get_tree().quit()
-	elif OS.get_cmdline_user_args().has("--loot-test"):
-		_loot_test()
 		get_tree().quit()
 	elif OS.get_cmdline_user_args().has("--what-here"):
 		# which placed models' world bounds enclose the camera: the engine's
@@ -1711,24 +1715,22 @@ func _loot_test() -> void:
 	## treasure class used, drops per kill, and the quality mix of gear.
 	var db := get_node("/root/ItemDB")
 	var gen := get_node("/root/ItemGen")
-	const N := 3000
+	const N := 200
 	for mlvl in [2, 4, 8, 12, 15, 18, 22]:
 		for kind in ["normal", "champion", "boss", "final"]:
 			var tc: String = db.tc_for(mlvl, kind, "melee")
-			var bonus: Dictionary = db.quality_bonus(tc, kind)
-			var minq := "magic" if kind != "normal" else ""
 			var drops := 0
 			var gold := 0
 			var gear := 0
 			var q := {"normal": 0, "magic": 0, "rare": 0, "set": 0, "unique": 0}
 			var sample := []
 			for i in range(N):
-				for res in db.roll(tc, mlvl):
+				for res in db.drops_for(mlvl, kind, "melee"):
 					drops += 1
 					if int(res["gold"]) > 0:
 						gold += 1
 						continue
-					var inst: Dictionary = gen.roll_item(str(res["code"]), mlvl, bonus, minq)
+					var inst: Dictionary = res["inst"]
 					var it: Dictionary = db.item(str(res["code"]))
 					if not gen._equippable(gen.type_chain(str(it.get("type", "")))):
 						continue
@@ -1740,10 +1742,9 @@ func _loot_test() -> void:
 								inst.get("base_name", ""), int(inst.get("reqlvl", 0))])
 			print("LOOT mlvl %2d %-8s %-22s drops/kill %.2f  gold %.2f  gear/kill %.2f  "
 					% [mlvl, kind, tc, float(drops) / N, float(gold) / N, float(gear) / N]
-					+ "quality n/m/r/s/u %.0f%% %.0f%% %.1f%% %.1f%% %.1f%%  %s" % [
-					100.0 * q["normal"] / maxi(1, gear), 100.0 * q["magic"] / maxi(1, gear),
-					100.0 * q["rare"] / maxi(1, gear), 100.0 * q["set"] / maxi(1, gear),
-					100.0 * q["unique"] / maxi(1, gear), " | ".join(sample)])
+					+ "per kill r/s/u %.2f %.2f %.2f  %s" % [
+					float(q["rare"]) / N, float(q["set"]) / N, float(q["unique"]) / N,
+					" | ".join(sample)])
 
 
 func _loot_run() -> void:

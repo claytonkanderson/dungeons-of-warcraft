@@ -20,6 +20,20 @@ const MAX_BOSS_ROLLS := 6
 # Overall drop volume: each thing that would have dropped is kept with this
 # probability, after every roll, so the quality mix is untouched.
 const DROP_KEEP := 0.8
+# The design targets, as expected counts per kill on top of the class roll
+# (which keeps supplying the potions, gold and magic gear): a boss leaves
+# 2-3 sets or uniques and 2 rares, a final boss a little more, and any other
+# kill turns up a set or unique about one time in ten. A fractional count
+# is its whole part plus one more with the fraction's probability.
+const REWARDS := {
+	"boss": {"special": 2.5, "rare": 2.0},
+	"final": {"special": 3.0, "rare": 2.0},
+	"champion": {"special": 0.1},
+	"normal": {"special": 0.1},
+}
+# Boss classes carry no gold row; a boss leaves one pile, scaled like the
+# richest class leaf (gld,mul=1280).
+const BOSS_GOLD_MUL := 5.0
 
 var items := {}
 var treasure := {}
@@ -226,7 +240,35 @@ func drops_for(mlvl: int, kind: String, archetype := "melee") -> Array:
 			out.append(d)
 		if gear >= want:
 			break
-	return out.filter(func(_d): return randf() < DROP_KEEP)
+	out = out.filter(func(_d): return randf() < DROP_KEEP)
+	# the guaranteed rewards, never thinned
+	var rw: Dictionary = REWARDS.get(kind, {})
+	for i in range(_count(float(rw.get("special", 0.0)))):
+		var inst: Dictionary = gen.roll_special(mlvl)
+		if not inst.is_empty():
+			out.append({"code": str(inst["code"]), "gold": 0, "inst": inst})
+	for i in range(_count(float(rw.get("rare", 0.0)))):
+		var inst: Dictionary = gen.roll_rare(mlvl)
+		if not inst.is_empty():
+			out.append({"code": str(inst["code"]), "gold": 0, "inst": inst})
+	if kind in ["boss", "final"] and not out.any(func(d): return int(d["gold"]) > 0):
+		out.append({"code": "gold", "inst": {},
+				"gold": maxi(1, int(randi_range(1, 8 * mlvl + 8) * BOSS_GOLD_MUL))})
+	# one pile of gold at most: every gold row the classes rolled is summed
+	# into it, so the floor is not littered with coins
+	var total_gold := 0
+	for d in out:
+		total_gold += int(d["gold"])
+	if total_gold > 0:
+		out = out.filter(func(d): return int(d["gold"]) == 0)
+		out.append({"code": "gold", "gold": total_gold, "inst": {}})
+	return out
+
+
+static func _count(expected: float) -> int:
+	## An integer draw whose mean is `expected`.
+	var whole := int(floor(expected))
+	return whole + (1 if randf() < expected - whole else 0)
 
 
 func _is_potion(code: String) -> bool:

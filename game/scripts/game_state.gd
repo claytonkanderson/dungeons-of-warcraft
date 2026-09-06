@@ -1182,7 +1182,11 @@ func complete_dungeon() -> bool:
 
 # Bumped whenever the save layout changes in a way load_game cannot absorb by
 # defaults alone; _migrate_save brings older files up one step at a time.
-const SAVE_VERSION := 1
+const SAVE_VERSION := 2
+
+# 1 -> 2: Scarlet Monastery became its four wings
+const SM_WINGS := ["scarlet-monastery-graveyard", "scarlet-monastery-library",
+		"scarlet-monastery-armory", "scarlet-monastery-cathedral"]
 
 
 func _migrate_save(d: Dictionary) -> Dictionary:
@@ -1196,6 +1200,19 @@ func _migrate_save(d: Dictionary) -> Dictionary:
 		# 0 -> 1: the field itself is the change; every value still loads
 		# through its default
 		pass
+	if v < 2:
+		# 1 -> 2: the one Scarlet Monastery entry is now four wings. A clear
+		# of the whole counts for all four; a character standing in it
+		# starts over at the Graveyard.
+		var done: Array = d.get("dungeons_done", [])
+		if done.has("scarlet-monastery"):
+			done.erase("scarlet-monastery")
+			for w in SM_WINGS:
+				if not done.has(w):
+					done.append(w)
+			d["dungeons_done"] = done
+		if str(d.get("current_dungeon", "")) == "scarlet-monastery":
+			d["current_dungeon"] = SM_WINGS[0]
 	d["version"] = SAVE_VERSION
 	return d
 

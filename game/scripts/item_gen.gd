@@ -135,9 +135,8 @@ func maybe_magic(code: String, ilvl: int) -> Dictionary:
 	return roll_item(code, ilvl)
 
 
-func roll_drop(ilvl: int) -> Dictionary:
-	## A guaranteed magic-or-better piece of gear the level allows (test
-	## fixtures and the odd scripted reward).
+func _equip_base(ilvl: int) -> String:
+	## A random equippable base the level allows ("" when none).
 	_ensure_loaded()
 	if _equip_pool.is_empty():
 		for c in db.items:
@@ -151,8 +150,54 @@ func roll_drop(ilvl: int) -> Dictionary:
 	if pool.is_empty():
 		pool = _equip_pool
 	if pool.is_empty():
-		return {}
-	return roll_item(str(pool[randi() % pool.size()]), ilvl, {}, "magic")
+		return ""
+	return str(pool[randi() % pool.size()])
+
+
+func roll_drop(ilvl: int) -> Dictionary:
+	## A guaranteed magic-or-better piece of gear the level allows (test
+	## fixtures and the odd scripted reward).
+	var code := _equip_base(ilvl)
+	return roll_item(code, ilvl, {}, "magic") if code != "" else {}
+
+
+func roll_rare(ilvl: int) -> Dictionary:
+	## A guaranteed rare on a base the level allows.
+	var code := _equip_base(ilvl)
+	return roll_item(code, ilvl, {}, "rare") if code != "" else {}
+
+
+# A guaranteed set or unique is drawn from those within this many levels
+# below the monster, so a level-40 boss hands out level-30s gear rather
+# than Act 1 leftovers; the whole list is the fallback.
+const SPECIAL_WINDOW := 12
+
+
+var _special_pools := {}   # ilvl -> the candidates roll_special draws from
+
+
+func roll_special(ilvl: int) -> Dictionary:
+	## A guaranteed set item or unique the level allows: one entry drawn
+	## uniformly from both lists, so the mix follows how many of each exist.
+	_ensure_loaded()
+	if not _special_pools.has(ilvl):
+		var cands := []
+		for u in uniques:
+			cands.append([u, "unique"])
+		for st in setitems:
+			cands.append([st, "set"])
+		var ok := cands.filter(func(c):
+			return str(c[0].get("lvl", "1")).to_int() <= ilvl)
+		var near := ok.filter(func(c):
+			return str(c[0].get("lvl", "1")).to_int() > ilvl - SPECIAL_WINDOW)
+		_special_pools[ilvl] = near if not near.is_empty() else ok
+	var allowed: Array = _special_pools[ilvl]
+	if allowed.is_empty():
+		return roll_rare(ilvl)
+	var pick: Array = allowed[randi() % allowed.size()]
+	var code := str(pick[0].get("code", ""))
+	var inst := _make_unique(code, ilvl) if pick[1] == "unique" else _make_set(code, ilvl)
+	return inst if not inst.is_empty() else roll_rare(ilvl)
 
 
 # ---------------------------------------------------------------------------

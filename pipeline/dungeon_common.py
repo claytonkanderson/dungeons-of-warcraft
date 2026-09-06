@@ -86,7 +86,9 @@ def creature_names():
     return names
 
 
-def load_spawns(ac_map):
+def load_spawns(ac_map, wing=None):
+    """Creature spawns on the map; with `wing`, only that wing's (see
+    wing_keep)."""
     rows = []
     names = creature_names()
     dropped = {}
@@ -107,25 +109,65 @@ def load_spawns(ac_map):
     if dropped:
         print("non-dungeon spawns dropped: " + ", ".join(
             f"{n} x{c}" for n, c in sorted(dropped.items())))
+    if wing:
+        keep = wing_keep(ac_map, wing)
+        before = len(rows)
+        rows = [r for r in rows if keep(r["x"], r["y"])]
+        print(f"wing {wing}: {len(rows)} of {before} spawns")
     return rows
 
 
-def entrance(ac_map):
-    """areatrigger_teleport row targeting this map -> (x, y, z, o) or None."""
+def entrances(ac_map):
+    """Every areatrigger_teleport row targeting this map, in file order:
+    [(name, x, y, z, o)]. A map with several wings (Scarlet Monastery) has
+    one per wing, named "<Dungeon> - <Wing> (Entrance)"."""
     path = AC / "areatrigger_teleport.sql"
+    out = []
     if not path.exists():
-        return None
+        return out
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.startswith("("):
             continue
         # (ID, 'Name', target_map, x, y, z, o),
-        m = re.match(r"^\(\d+, ?'(?:[^'\\]|\\.)*', ?(\d+), ?"
+        m = re.match(r"^\(\d+, ?'((?:[^'\\]|\\.)*)', ?(\d+), ?"
                      r"(-?[\d.]+), ?(-?[\d.]+), ?(-?[\d.]+), ?(-?[\d.]+)",
                      line)
-        if m and int(m.group(1)) == ac_map:
-            return (float(m.group(2)), float(m.group(3)),
-                    float(m.group(4)), float(m.group(5)))
+        if m and int(m.group(2)) == ac_map:
+            out.append((m.group(1).replace("\\'", "'"),
+                        float(m.group(3)), float(m.group(4)),
+                        float(m.group(5)), float(m.group(6))))
+    return out
+
+
+def entrance(ac_map, wing=None):
+    """The map's entrance trigger -> (x, y, z, o) or None. With `wing`, the
+    trigger whose name carries the wing's; the first row otherwise."""
+    for name, x, y, z, o in entrances(ac_map):
+        if wing is None or wing.lower() in name.lower():
+            return (x, y, z, o)
     return None
+
+
+def wing_keep(ac_map, wing):
+    """A predicate keep(x, y) over server world coordinates: true when the
+    nearest of the map's entrance triggers is the wing's own. The wings of a
+    multi-instance map are separate buildings stood far apart on one map,
+    each with its own entrance trigger, so nearest-entrance partitions
+    everything on the map (creatures, gameobjects, props, tiles). The
+    calibration hit rate after the split is the check that it held."""
+    ents = entrances(ac_map)
+    mine = [e for e in ents if wing.lower() in e[0].lower()]
+    if len(mine) != 1:
+        raise SystemExit(
+            "wing %r matches %d entrance triggers on map %d: %s"
+            % (wing, len(mine), ac_map, ", ".join(e[0] for e in ents)))
+    wx, wy = mine[0][1], mine[0][2]
+    others = [(e[1], e[2]) for e in ents if e is not mine[0]]
+
+    def keep(x, y):
+        d = (x - wx) ** 2 + (y - wy) ** 2
+        return all(d <= (x - ox) ** 2 + (y - oy) ** 2 for ox, oy in others)
+    return keep
 
 
 def wmo_placements(s, wdt_fdid):

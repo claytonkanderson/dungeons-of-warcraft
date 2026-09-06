@@ -224,8 +224,11 @@ class GlbWriter:
         return len(glb)
 
 
-def build_for(s, wdt_fdid, to_gl, out_dir):
-    """Bake every ADT tile of one map. No-op for global-WMO maps."""
+def build_for(s, wdt_fdid, to_gl, out_dir, tile_keep=None):
+    """Bake every ADT tile of one map. No-op for global-WMO maps.
+    tile_keep(x, y): optional predicate over server world coordinates; a
+    tile is baked when any of its corners or its centre passes (a wing of
+    a multi-instance map bakes only the ground around its own building)."""
     wdt = s.read_fdid(wdt_fdid)
     c = chunks_of(wdt)
     if b"MAIN" not in c or b"MAID" not in c:
@@ -262,6 +265,15 @@ def build_for(s, wdt_fdid, to_gl, out_dir):
         if not int.from_bytes(main_c[ti * 8:ti * 8 + 4], "little") & 1:
             continue
         col, row = ti % 64, ti // 64
+        if tile_keep is not None:
+            # tile (col, row) spans world x (north) in [c - (row+1)T, c - row T]
+            # and y (west) in [c - (col+1)T, c - col T], c = MAP_CENTER
+            xs = (MAP_CENTER - (row + 1) * TILE, MAP_CENTER - row * TILE)
+            ys = (MAP_CENTER - (col + 1) * TILE, MAP_CENTER - col * TILE)
+            probes = [(x, y) for x in xs for y in ys] \
+                + [(sum(xs) / 2, sum(ys) / 2)]
+            if not any(tile_keep(x, y) for x, y in probes):
+                continue
         e = struct.unpack_from("<8I", maid, ti * 32)
         root = s.read_fdid(e[0])
         rc = top_chunks(root)
