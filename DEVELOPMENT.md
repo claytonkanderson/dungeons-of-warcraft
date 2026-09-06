@@ -6,6 +6,16 @@ test flags, the project layout and the release build.
 
 ## Prerequisites
 
+On a fresh Windows machine, `setup-dev.ps1` does all of this: it installs
+Godot 4.7.2 through winget, the Python packages, checks for both game
+installs and builds the assets.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File setup-dev.ps1
+```
+
+By hand:
+
 - **Godot 4.7.2**, exactly. The project, `run_game.bat` and the release
   script are pinned to it; `pipeline/build_dist.py` refuses any other
   version. The winget package installs it where the scripts expect
