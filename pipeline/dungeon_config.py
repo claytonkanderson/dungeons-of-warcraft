@@ -278,4 +278,24 @@ DUNGEONS = {
         ambience=["blackrockspire", "blackrock", "burningsteppes"],
         footstep="stone",
     ),
+    # the two raids, at the top of the ladder
+    "molten-core": dict(
+        map_name="moltencore", ac_map=409, target_level=82,
+        entrance="Window Entrance",
+        bosses=["Lucifron", "Magmadar", "Gehennas", "Garr", "Baron Geddon",
+                "Shazzrah", "Sulfuron Harbinger", "Golemagg the Incinerator"],
+        # Majordomo and Ragnaros are summoned by the rune event: no spawn rows
+        final_boss="Golemagg the Incinerator",
+        ambience=["moltencore", "blackrock", "lava"],
+        footstep="stone",
+    ),
+    "blackwing-lair": dict(
+        map_name="blackwinglair", ac_map=469, target_level=86,
+        bosses=["Razorgore the Untamed", "Vaelastrasz the Corrupt",
+                "Broodlord Lashlayer", "Firemaw", "Ebonroc", "Flamegor",
+                "Chromaggus"],
+        final_boss="Chromaggus",     # Nefarian is spawned by his own event
+        ambience=["blackwinglair", "blackrock", "lava"],
+        footstep="stone",
+    ),
 }

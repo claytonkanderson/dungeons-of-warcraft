@@ -84,7 +84,7 @@ CURRENT LIMITATIONS
   - Amazon only.
   - All twenty dungeons on the ladder are built, Ragefire Chasm to Upper
     Blackrock Spire, with Scarlet Monastery as four wings and Dire Maul
-    as three. Some creatures have no model in the Anniversary client and
+    as three, and the Molten Core and Blackwing Lair raids sit above them. Some creatures have no model in the Anniversary client and
     a few event-summoned bosses have no spawn; those stand out in play.
   - Windows only, keyboard and mouse only (no controller support).
 

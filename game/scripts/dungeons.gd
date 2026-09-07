@@ -30,6 +30,8 @@ const LIST := [
 	{"id": "scholomance", "name": "Scholomance", "levels": "69-72"},
 	{"id": "stratholme", "name": "Stratholme", "levels": "72-75"},
 	{"id": "upper-blackrock-spire", "name": "Upper Blackrock Spire", "levels": "75-78"},
+	{"id": "molten-core", "name": "Molten Core", "levels": "78-82"},
+	{"id": "blackwing-lair", "name": "Blackwing Lair", "levels": "82-86"},
 ]
 
 

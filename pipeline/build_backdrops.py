@@ -53,6 +53,8 @@ ART = {
     "scholomance": ["scholomance"],
     "stratholme": ["stratholme"],
     "upper-blackrock-spire": ["upperblackrockspire", "blackrockspire"],
+    "molten-core": ["moltencore"],
+    "blackwing-lair": ["blackwinglair"],
 }
 
 
