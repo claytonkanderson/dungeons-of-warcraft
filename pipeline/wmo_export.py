@@ -62,13 +62,36 @@ def export_wmo_glb(root, groups, textures, out_path, meta_path=None,
         # the stair landing's ceiling).
         mat["doubleSided"] = True
         materials_out.append(mat)
-    liquid_mat = len(materials_out)
-    materials_out.append({
-        "pbrMetallicRoughness": {"metallicFactor": 0.0,
-                                 "roughnessFactor": 1.0,
-                                 "baseColorFactor": [0.08, 0.26, 0.34, 0.55]},
-        "alphaMode": "BLEND", "doubleSided": True, "name": "wmo_liquid",
-        "extensions": {"KHR_materials_unlit": {}}})
+    # one material per liquid kind: Molten Core's pools are magma, not water
+    liquid_mats = {}
+    for kind, rgba in (("water", [0.08, 0.26, 0.34, 0.55]),
+                       ("magma", [0.95, 0.32, 0.04, 0.92]),
+                       ("slime", [0.25, 0.55, 0.10, 0.80])):
+        liquid_mats[kind] = len(materials_out)
+        materials_out.append({
+            "pbrMetallicRoughness": {"metallicFactor": 0.0,
+                                     "roughnessFactor": 1.0,
+                                     "baseColorFactor": rgba},
+            "alphaMode": "BLEND", "doubleSided": True,
+            "name": f"wmo_liquid_{kind}",
+            "extensions": {"KHR_materials_unlit": {}}})
+
+    def liquid_kind(g):
+        """water | magma | slime: from the group's LiquidType id when the
+        root uses the dbc ids, else from the MLIQ tiles' type nibble."""
+        if root.flags & 0x4:
+            t = g.liquid_type
+            if t in (3, 7, 11, 15, 17):
+                return "magma"
+            if t in (4, 8, 12, 19, 20, 21):
+                return "slime"
+            return "water"
+        counts = {}
+        for f in g.liquid["tiles"]:
+            if (f & 0x0F) != 0x0F:
+                counts[f & 3] = counts.get(f & 3, 0) + 1
+        k = max(counts, key=counts.get) if counts else 0
+        return {2: "magma", 3: "slime"}.get(k, "water")
 
     # ----- groups
     nodes, meshes, meta_groups = [], [], []
@@ -144,7 +167,8 @@ def export_wmo_glb(root, groups, textures, out_path, meta_path=None,
                                 34963), 5123, len(lids), "SCALAR")
                 meshes.append({"primitives": [{
                     "attributes": {"POSITION": a_lp}, "indices": a_li,
-                    "material": liquid_mat}], "name": f"liquid{gi}"})
+                    "material": liquid_mats[liquid_kind(g)]}],
+                    "name": f"liquid{gi}"})
                 nodes.append({"name": f"liquid{gi}",
                               "mesh": len(meshes) - 1})
         bb = info["bbox"]

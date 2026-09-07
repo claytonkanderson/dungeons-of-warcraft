@@ -112,6 +112,8 @@ class WMOGroup:
         self.bbox = struct.unpack_from("<6f", mogp, 12)
         (self.trans_batches, self.int_batches, self.ext_batches) = \
             struct.unpack_from("<3H", mogp, 40)
+        # groupLiquid: a LiquidType id when the root's flag 0x4 says so
+        self.liquid_type = struct.unpack_from("<I", mogp, 52)[0]
         sub = chunks_of(mogp[68:], multi=True)
 
         movt = sub.get(b"MOVT", [b""])[0]
