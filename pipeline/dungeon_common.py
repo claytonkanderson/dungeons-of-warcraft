@@ -258,7 +258,7 @@ def calibrate(s, spawns, placements, main_uid, roots):
         if global_wmo:
             if uid != main_uid:
                 continue
-            origin, ry = (0.0, 0.0, 0.0), 0.0
+            origin, ry = (0.0, 0.0, 0.0), ry_main   # its own turn (Dire Maul: 180)
         else:
             origin, ry = world_from_file(*p["pos"]), p["rot"][1]
         boxes = [g["bbox"] for g in root.group_names]
