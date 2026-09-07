@@ -280,7 +280,7 @@ DUNGEONS = {
     ),
     # the two raids, at the top of the ladder
     "molten-core": dict(
-        map_name="moltencore", ac_map=409, target_level=82,
+        map_name="moltencore", ac_map=409, target_level=84, xp_span=4,
         entrance="Window Entrance",
         bosses=["Lucifron", "Magmadar", "Gehennas", "Garr", "Baron Geddon",
                 "Shazzrah", "Sulfuron Harbinger", "Golemagg the Incinerator",
@@ -295,7 +295,7 @@ DUNGEONS = {
         footstep="stone",
     ),
     "zul-gurub": dict(
-        map_name="zul'gurub", ac_map=309, target_level=84, xp_span=2,
+        map_name="zul'gurub", ac_map=309, target_level=80, xp_span=2,
         # Gahz'ranka and the Edge of Madness four are event-summoned
         bosses=["High Priestess Jeklik", "High Priest Venoxis", "High Priestess Mar'li",
                 "Bloodlord Mandokir", "High Priest Thekal", "High Priestess Arlokk",
