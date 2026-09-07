@@ -294,8 +294,21 @@ DUNGEONS = {
         ambience=["moltencore", "blackrock", "lava"],
         footstep="stone",
     ),
+    "zul-gurub": dict(
+        map_name="zul'gurub", ac_map=309, target_level=84, xp_span=2,
+        # Gahz'ranka and the Edge of Madness four are event-summoned
+        bosses=["High Priestess Jeklik", "High Priest Venoxis", "High Priestess Mar'li",
+                "Bloodlord Mandokir", "High Priest Thekal", "High Priestess Arlokk",
+                "Jin'do the Hexxer", "Hakkar"],
+        final_boss="Hakkar",
+        # Arlokk is summoned by her gong: placed at the move-on-spawn point
+        # of boss_arlokk.cpp, on her altar
+        extra_spawns=[("High Priestess Arlokk", -11561.9, -1627.868, 41.29941, 0.0)],
+        ambience=["zulgurub", "stranglethorn", "jungle"],
+        footstep="stone",
+    ),
     "blackwing-lair": dict(
-        map_name="blackwinglair", ac_map=469, target_level=86,
+        map_name="blackwinglair", ac_map=469, target_level=88, xp_span=4,
         bosses=["Razorgore the Untamed", "Vaelastrasz the Corrupt",
                 "Broodlord Lashlayer", "Firemaw", "Ebonroc", "Flamegor",
                 "Chromaggus", "Nefarian"],
