@@ -159,3 +159,14 @@ class WMOGroup:
             material = moba[o + 23]
             self.batches.append({"start": start, "count": count,
                                  "material": material})
+        # count is a uint16 but a large group's batch can run past 65535
+        # indices (the Ruins of Ahn'Qiraj hive: 88536), where it wraps.
+        # Batches are laid out back to back, so the next batch's start (or
+        # the end of MOVI) is the extent; take it when it differs from
+        # count by a whole wrap
+        for i, b in enumerate(self.batches):
+            nxt = (self.batches[i + 1]["start"] if i + 1 < len(self.batches)
+                   else len(self.indices))
+            span = nxt - b["start"]
+            if span > b["count"] and (span - b["count"]) % 65536 == 0:
+                b["count"] = span
