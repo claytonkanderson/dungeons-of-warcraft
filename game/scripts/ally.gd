@@ -14,7 +14,8 @@ var world = null
 @onready var anim: BillboardAnim = $BillboardAnim
 
 
-static func spawn(world_node, at: Vector3, skind: String, lvl: int) -> Ally:
+static func spawn(world_node, at: Vector3, skind: String, sn: Dictionary) -> Ally:
+	## sn: the skill's numbers (GameState.skill_numbers): life, damage, time
 	var a := Ally.new()
 	a.kind = skind
 	a.world = world_node
@@ -30,13 +31,12 @@ static func spawn(world_node, at: Vector3, skind: String, lvl: int) -> Ally:
 	a.add_child(an)
 	world_node.add_child(a)
 	a.global_position = at + Vector3(0, 0.2, 0)
+	a.hp = float(sn.get("ally_life", a.hp))
+	a.lifetime = float(sn.get("ally_time", a.lifetime))
 	if skind == "valkyrie":
-		a.hp = 80.0 + 40.0 * lvl
-		a.damage = Vector2(4 + 4 * lvl, 10 + 6 * lvl)
+		a.damage = sn.get("ally_dmg", a.damage)
 		a.anim.play("monsters/valkyrie/valkyrie_nu_hth", true)
 	else:
-		a.hp = 30.0 + 15.0 * lvl
-		a.lifetime = 12.0 + 2.0 * lvl
 		a.anim.play("amazon/am_nu_bow", true)
 	return a
 

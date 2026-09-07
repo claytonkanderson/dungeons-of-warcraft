@@ -5,8 +5,8 @@ live entry point, called per dungeon; main() is a Deadmines-only probe.
 Coordinates ride the same empirically calibrated world -> main-WMO-local ->
 Godot transform as dungeon_common.py (calibration block reproduced).
 MCNK positions were probed to be server-space (x north, y west, z up), so
-they feed straight into that transform. Alpha maps are decided per layer
-(RLE-compressed flag, else 4096 = 8-bit, else 2048 = 4-bit). Shading is
+they feed straight into that transform. Alpha maps are 4-bit (2048 bytes)
+unless the map's MPHD flags say 8-bit; a layer flag marks RLE. Shading is
 baked from MCNR up-normals (slope darkening) since these tiles carry no
 vertex colors.
 """
@@ -115,8 +115,11 @@ def top_chunks(buf):
     return out
 
 
-def decode_alpha(mcal, offset, compressed):
-    """One 64x64 alpha map starting at `offset` in the MCAL blob."""
+def decode_alpha(mcal, offset, compressed, big):
+    """One 64x64 alpha map starting at `offset` in the MCAL blob. `big`:
+    the map's MPHD says its alpha maps are 8-bit (4096 bytes); otherwise
+    they are 4-bit (2048). It cannot be told from the blob's length: with
+    several layers, an offset well inside the blob is still a 4-bit map."""
     if compressed:
         out = bytearray()
         p = offset
@@ -132,7 +135,7 @@ def decode_alpha(mcal, offset, compressed):
                 p += n
         out = (out + bytes(4096))[:4096]
         return np.frombuffer(bytes(out), dtype=np.uint8).reshape(64, 64)
-    if len(mcal) - offset >= 4096:
+    if big:
         return np.frombuffer(mcal[offset:offset + 4096],
                              dtype=np.uint8).reshape(64, 64)
     # 2048-byte 4-bit
@@ -231,6 +234,8 @@ def build_for(s, wdt_fdid, to_gl, out_dir, tile_keep=None):
     a multi-instance map bakes only the ground around its own building)."""
     wdt = s.read_fdid(wdt_fdid)
     c = chunks_of(wdt)
+    mphd = struct.unpack_from("<I", c.get(b"MPHD", bytes(4)), 0)[0]
+    big_alpha = bool(mphd & 0x4) or bool(mphd & 0x80)   # 8-bit alpha maps
     if b"MAIN" not in c or b"MAID" not in c:
         print("terrain: no ADT tiles (global-WMO map), skipping")
         return
@@ -362,7 +367,7 @@ def build_for(s, wdt_fdid, to_gl, out_dir, tile_keep=None):
                 if out is None or li == 0:
                     out = samp.copy()
                 else:
-                    a = decode_alpha(mcal, aofs, bool(lflags & 0x200))
+                    a = decode_alpha(mcal, aofs, bool(lflags & 0x200), big_alpha)
                     a = a.astype(np.float32) / 255.0
                     if BAKE != 64:
                         a = np.kron(a, np.ones((BAKE // 64, BAKE // 64)))

@@ -94,7 +94,7 @@ func _ready() -> void:
 func _center_mouse() -> void:
 	# offscreen captures must never touch the real cursor — the whole point is
 	# that the machine stays usable while they run
-	if Cli.offscreen():
+	if Cli.offscreen() or puppet:
 		return
 	var vp := get_viewport()
 	if vp == null:
@@ -134,7 +134,8 @@ var _refocus_swallow := false
 
 
 func _process(_dt: float) -> void:
-	if look_enabled and not ui_locked and _focused:
+	# a replay places the camera itself; the mouse is idle
+	if look_enabled and not ui_locked and _focused and not puppet:
 		if _accum != Vector2.ZERO:
 			# motion arrives in canvas pixels, which the stretch shrinks in
 			# fullscreen; scale back so a hand movement turns the same amount
@@ -150,9 +151,12 @@ func _process(_dt: float) -> void:
 		if turn != 0.0 or tilt != 0.0:
 			yaw -= turn * KEY_TURN * _dt
 			pitch = clampf(pitch + tilt * KEY_PITCH * _dt, -PITCH_LIMIT, PITCH_LIMIT)
-		rotation.y = yaw
+		# the body turns on the tick (_physics_process); between ticks the
+		# camera carries the rest of the turn, so the physics body's transform
+		# is never written from a frame — a session and its replay then hand
+		# the physics engine exactly the same sequence of transforms
 		if cam != null:
-			cam.rotation = Vector3(pitch, 0, 0)
+			cam.rotation = Vector3(pitch, yaw - rotation.y, 0)
 		var vp := get_viewport()
 		var c := vp.get_visible_rect().size * 0.5
 		var pos := vp.get_mouse_position()
@@ -185,6 +189,7 @@ func refresh_attack_style() -> void:
 
 
 var ui_locked := false   # a UI panel owns the mouse: never attack or re-capture
+var puppet := false      # a replay places the body and aims the camera (replay.gd)
 
 
 func _input(e: InputEvent) -> void:
@@ -240,7 +245,7 @@ func on_block() -> void:
 
 
 func _start_attack(slot: int) -> void:
-	if attack_time > 0.0 or _block_t > 0.0 or _stun_t > 0.0:
+	if attack_time > 0.0 or _block_t > 0.0 or _stun_t > 0.0 or puppet:
 		return
 	# "+N% Increased Attack Speed" shortens the whole swing, release included;
 	# a cast is timed by "+N% Faster Cast Rate" instead
@@ -274,6 +279,8 @@ func _physics_process(dt: float) -> void:
 			_pending_slot = -1
 	cam.rotation = Vector3(pitch, 0, 0)
 	rotation = Vector3(0, yaw, 0)
+	if puppet:
+		return      # a replay has placed the body already (replay.gd)
 
 	var input := Vector2.ZERO
 	if Input.is_key_pressed(KEY_W): input.y -= 1.0

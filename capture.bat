@@ -12,5 +12,5 @@ echo window/size/no_focus=true
 echo window/size/initial_position_type=0
 echo window/size/initial_position=Vector2i(-32000, -32000^)
 ) > "%OVR%"
-call "%~dp0run_game.bat" %* --offscreen
+call "%~dp0run_game.bat" %* --offscreen --no-record
 del "%OVR%"

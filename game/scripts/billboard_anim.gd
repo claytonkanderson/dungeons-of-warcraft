@@ -15,6 +15,8 @@ const PIXEL := 0.024              # world metres per sprite pixel
 const DIR_OFFSET := 0.0
 
 var sheet: SpriteDB.Sheet
+var rel := ""                     # the sheet played, for the session log
+var anchor := "feet"
 var facing := 0.0                 # world yaw the entity is looking toward
 var looping := true
 var playing := false
@@ -34,17 +36,19 @@ func _ready() -> void:
 	region_enabled = true
 
 
-func play(rel: String, loop := true, anchor := "feet") -> void:
-	var s: SpriteDB.Sheet = db.load_sheet(rel)
+func play(rel_path: String, loop := true, anchor_kind := "feet") -> void:
+	var s: SpriteDB.Sheet = db.load_sheet(rel_path)
 	if s == null:
 		return
 	sheet = s
+	rel = rel_path
+	anchor = anchor_kind
 	texture = s.texture
 	looping = loop
 	playing = true
 	frame_f = 0.0
 	_fired.clear()
-	if anchor == "center":
+	if anchor_kind == "center":
 		# projectiles: node position is the sprite centre (same convention as
 		# the feet anchor below, with the origin at the cell midpoint)
 		offset = Vector2(-s.cell.x * 0.5, -s.cell.y * 0.5)

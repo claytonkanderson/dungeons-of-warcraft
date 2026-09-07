@@ -1,4 +1,7 @@
 extends Node
+# audio picks come from a private generator so they never shift the
+# simulation's random sequence (a replay must roll what the session rolled)
+var _rng := RandomNumberGenerator.new()
 ## Autoloaded as Music: WoW zone music + ambience extracted by
 ## pipeline/build_audio.py into assets/wow/audio. D2 sound effects stay with
 ## the Sfx autoload; this node only handles the Warcraft soundscape.
@@ -33,7 +36,7 @@ func _ready() -> void:
 	add_child(_music)
 	_music.finished.connect(_on_music_done)
 	_start_ambience()
-	_gap_t = randf_range(2.0, 6.0)
+	_gap_t = _rng.randf_range(2.0, 6.0)
 
 
 func _load_stream(fname: String) -> AudioStream:
@@ -53,7 +56,7 @@ func _start_ambience() -> void:
 	var amb: Array = manifest.get("ambience", [])
 	if amb.is_empty():
 		return
-	var stream := _load_stream(str(amb[randi() % amb.size()]))
+	var stream := _load_stream(str(amb[_rng.randi() % amb.size()]))
 	if stream == null:
 		return
 	if stream is AudioStreamMP3 or stream is AudioStreamOggVorbis:
@@ -87,7 +90,7 @@ func set_dungeon(id: String) -> void:
 	_pool = manifest.get("dungeon_music", {}).get(id, [])
 	if _music != null and _music.playing:
 		_music.stop()           # the menu theme ends at the dungeon door
-	_gap_t = randf_range(4.0, 10.0)
+	_gap_t = _rng.randf_range(4.0, 10.0)
 	set_process(true)
 
 
@@ -111,7 +114,7 @@ func set_menu() -> void:
 
 func _on_music_done() -> void:
 	var gap: Array = manifest.get("gap", [15, 45])
-	_gap_t = randf_range(float(gap[0]), float(gap[1]))
+	_gap_t = _rng.randf_range(float(gap[0]), float(gap[1]))
 
 
 func _process(dt: float) -> void:
@@ -125,7 +128,7 @@ func _process(dt: float) -> void:
 	if tracks.is_empty():
 		set_process(false)
 		return
-	var stream := _load_stream(str(tracks[randi() % tracks.size()]))
+	var stream := _load_stream(str(tracks[_rng.randi() % tracks.size()]))
 	if stream == null:
 		_gap_t = 10.0
 		return

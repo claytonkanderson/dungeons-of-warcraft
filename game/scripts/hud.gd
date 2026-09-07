@@ -226,10 +226,12 @@ func _update_viewmodel() -> void:
 
 func block_flash() -> void:
 	_block_kick = 1.0
+	Replay.log_event(["block"])
 
 
 func kick() -> void:
 	_kick = 1.0
+	Replay.log_event(["kick"])
 
 
 var _area_label: Label
@@ -238,6 +240,7 @@ var _item_labels := []
 
 
 func show_area(name: String, color := Color(0.9, 0.82, 0.6), dur := 3.0) -> void:
+	Replay.log_event(["area", name, color.to_html(), dur])
 	if _area_label == null:
 		_area_label = Label.new()
 		# the zone title in D2's large face

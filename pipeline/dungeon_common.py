@@ -4,10 +4,12 @@ Handles both WDT layouts: ADT-tiled maps (MAID -> per-tile obj files with
 MODF/MDDF, like Deadmines/Shadowfang) and global-WMO maps (MODF straight
 in the WDT, no tiles, like Ragefire Chasm / Wailing Caverns).
 
-The world -> scene transform is the same empirically self-verifying brute
-force the placements build uses: the candidate 2D map that puts the most
-AzerothCore creature spawns inside the main WMO's group boxes wins, and
-the hit rate is the health metric.
+The world -> scene transform is found by brute force over 32 candidate
+frames: the one that puts the most AzerothCore creature spawns inside the
+placed WMOs' group boxes wins, and the hit rate is the health metric. When
+spawns cannot separate candidates (an outdoor map with dozens of loose
+buildings), the world-space box each MODF placement records breaks the tie:
+the right frame reproduces those boxes from the buildings' local geometry.
 """
 import math
 import re
@@ -182,7 +184,8 @@ def wmo_placements(s, wdt_fdid):
             nid, uid = struct.unpack_from("<II", modf, k * 64)
             pos = struct.unpack_from("<3f", modf, k * 64 + 8)
             rot = struct.unpack_from("<3f", modf, k * 64 + 20)
-            seen[uid] = {"fdid": nid, "pos": pos, "rot": rot}
+            bounds = struct.unpack_from("<6f", modf, k * 64 + 32)   # world AABB
+            seen[uid] = {"fdid": nid, "pos": pos, "rot": rot, "bounds": bounds}
 
     if flags & 0x1:                       # global-WMO map: MODF in the WDT
         read_modf(c.get(b"MODF", b""))
@@ -226,10 +229,41 @@ def calibrate(s, spawns, placements, main_uid, roots):
     else:
         ox, oy, oz = world_from_file(*main_pl["pos"])
         ry_main = main_pl["rot"][1]
-    root = roots[main_pl["fdid"]]
-    boxes = [g["bbox"] for g in root.group_names]
+    global_wmo = ry_main == 0.0 and (ox, oy, oz) == (0.0, 0.0, 0.0)
 
-    def inside(xl, yl, zl, margin=8.0):
+    # Every placed WMO votes, not just the main one: an outdoor map (Zul'Farrak)
+    # keeps its spawns in dozens of small buildings and none in the largest,
+    # and a candidate frame that is wrong leaves every building's yaw wrong
+    # against the positions it stands among.
+    frames = []
+    for uid, p in placements.items():
+        root = roots.get(p["fdid"])
+        if root is None:
+            continue
+        if global_wmo:
+            if uid != main_uid:
+                continue
+            origin, ry = (0.0, 0.0, 0.0), 0.0
+        else:
+            origin, ry = world_from_file(*p["pos"]), p["rot"][1]
+        boxes = [g["bbox"] for g in root.group_names]
+        if not boxes:
+            continue
+        margin = 8.0
+        lo = [min(min(b[i], b[i + 3]) for b in boxes) - margin for i in range(3)]
+        hi = [max(max(b[i], b[i + 3]) for b in boxes) + margin for i in range(3)]
+        # the placement's own world-space box, from the MODF entry: the one
+        # witness of the building's orientation that spawns cannot give
+        wbox = None
+        if "bounds" in p:
+            b = p["bounds"]
+            w0 = world_from_file(b[0], b[1], b[2])
+            w1 = world_from_file(b[3], b[4], b[5])
+            wbox = ([min(w0[i], w1[i]) for i in range(2)],
+                    [max(w0[i], w1[i]) for i in range(2)])
+        frames.append((origin, ry, boxes, lo, hi, wbox))
+
+    def inside(boxes, xl, yl, zl, margin=8.0):
         for b in boxes:
             if (min(b[0], b[3]) - margin <= xl <= max(b[0], b[3]) + margin
                     and min(b[1], b[4]) - margin <= yl <= max(b[1], b[4]) + margin
@@ -237,26 +271,67 @@ def calibrate(s, spawns, placements, main_uid, roots):
                 return True
         return False
 
-    best = None
-    for deg in (ry_main, ry_main - 270, ry_main - 180, ry_main - 90,
-                -ry_main, 270 - ry_main, 90 - ry_main, 180 - ry_main):
+    def cand_deg(k, ry):
+        return (ry, ry - 270, ry - 180, ry - 90, -ry, 270 - ry, 90 - ry, 180 - ry)[k]
+
+    def forms(deg):
         th = math.radians(deg)
         c_, s_ = math.cos(th), math.sin(th)
-        for mat in ([[c_, -s_], [s_, c_]], [[c_, s_], [-s_, c_]],
-                    [[c_, s_], [s_, -c_]], [[-c_, s_], [s_, c_]]):
+        return ([[c_, -s_], [s_, c_]], [[c_, s_], [-s_, c_]],
+                [[c_, s_], [s_, -c_]], [[-c_, s_], [s_, c_]])
+
+    def box_error(mats):
+        """How far each building's local box, put into the world through the
+        candidate frame, lands from the world box its placement records."""
+        err = 0.0
+        for (origin, _ry, _boxes, lo, hi, wbox), mat in zip(frames, mats):
+            if wbox is None:
+                continue
+            det = mat[0][0] * mat[1][1] - mat[0][1] * mat[1][0]
+            if abs(det) < 1e-9:
+                continue
+            inv = [[mat[1][1] / det, -mat[0][1] / det],
+                   [-mat[1][0] / det, mat[0][0] / det]]
+            xs, ys = [], []
+            for xl in (lo[0] + 8.0, hi[0] - 8.0):       # the margin taken off
+                for yl in (lo[1] + 8.0, hi[1] - 8.0):
+                    xs.append(origin[0] + inv[0][0] * xl + inv[0][1] * yl)
+                    ys.append(origin[1] + inv[1][0] * xl + inv[1][1] * yl)
+            err += (abs(min(xs) - wbox[0][0]) + abs(max(xs) - wbox[1][0])
+                    + abs(min(ys) - wbox[0][1]) + abs(max(ys) - wbox[1][1]))
+        return err
+
+    scores = {}
+    for k in range(8):
+        for fi in range(4):
             hits = 0
+            mats = [forms(cand_deg(k, ry))[fi] for _o, ry, _b, _lo, _hi, _w in frames]
             for sp in spawns:
-                dn, dw = sp["x"] - ox, sp["y"] - oy
-                xl = mat[0][0] * dn + mat[0][1] * dw
-                yl = mat[1][0] * dn + mat[1][1] * dw
-                if inside(xl, yl, sp["z"] - oz):
-                    hits += 1
-            if best is None or hits > best[0]:
-                best = (hits, deg, mat)
-    hits, deg, mat = best
+                for (origin, _ry, boxes, lo, hi, _w), mat in zip(frames, mats):
+                    fx, fy, fz = origin
+                    dn, dw = sp["x"] - fx, sp["y"] - fy
+                    xl = mat[0][0] * dn + mat[0][1] * dw
+                    yl = mat[1][0] * dn + mat[1][1] * dw
+                    zl = sp["z"] - fz
+                    if (lo[0] <= xl <= hi[0] and lo[1] <= yl <= hi[1]
+                            and lo[2] <= zl <= hi[2] and inside(boxes, xl, yl, zl)):
+                        hits += 1
+                        break           # one vote per spawn
+            scores[(k, fi)] = (hits, box_error(mats))
+    # the spawn vote first; among candidates it cannot separate (many loose
+    # buildings on an outdoor map put most spawns inside something under any
+    # frame) the placement boxes decide
+    top = max(h for h, _e in scores.values())
+    eligible = [c for c, (h, _e) in scores.items() if h >= top * 0.9]
+    k, fi = min(eligible, key=lambda c: (scores[c][1], c))
+    hits, err = scores[(k, fi)]
+    deg = cand_deg(k, ry_main)
+    mat = forms(deg)[fi]
     det = mat[0][0] * mat[1][1] - mat[0][1] * mat[1][0]
     return {"origin": (ox, oy, oz), "mat": mat, "ry_main": ry_main,
-            "det": det, "hits": hits, "total": len(spawns)}
+            "det": det, "hits": hits, "total": len(spawns),
+            "candidate": (k, fi), "wmos": len(frames), "box_err": err,
+            "tied": len(eligible)}
 
 
 class Transform:

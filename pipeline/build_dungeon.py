@@ -341,7 +341,8 @@ def build(s, did, cfg):
     main_uid, roots = pick_main(s, placements)
     cal = calibrate(s, spawns, placements, main_uid, roots)
     print(f"calibration: {cal['hits']}/{cal['total']} spawns inside "
-          f"(det {cal['det']:+.2f})")
+          f"{cal['wmos']} WMO(s) (det {cal['det']:+.2f}, candidate {cal['candidate']} "
+          f"of {cal['tied']} tied, box error {cal['box_err']:.0f} m)")
     if cal["total"] and cal["hits"] < cal["total"] * 0.5:
         print("!! low calibration hit rate — placements may be misaligned")
     t = Transform(cal)

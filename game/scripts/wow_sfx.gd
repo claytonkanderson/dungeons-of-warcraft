@@ -1,4 +1,7 @@
 extends Node
+# audio picks come from a private generator so they never shift the
+# simulation's random sequence (a replay must roll what the session rolled)
+var _rng := RandomNumberGenerator.new()
 ## Autoloaded as WowSfx: WoW creature voices + melee impact foley extracted
 ## by pipeline/build_audio.py into assets/wow/audio (wowsfx.json). The D2
 ## effects stay with the Sfx autoload — this is the Warcraft layer.
@@ -45,13 +48,13 @@ func _play_at(names: Array, pos: Vector3, vol_db := -4.0,
 	if frame - int(_last.get(key, -1000)) < gap_frames:
 		return
 	_last[key] = frame
-	var stream := _stream(str(names[randi() % names.size()]))
+	var stream := _stream(str(names[_rng.randi() % names.size()]))
 	if stream == null:
 		return
 	var p := AudioStreamPlayer3D.new()
 	p.stream = stream
 	p.volume_db = vol_db
-	p.pitch_scale = randf_range(0.95, 1.06)
+	p.pitch_scale = _rng.randf_range(0.95, 1.06)
 	p.unit_size = 6.0
 	p.max_distance = 60.0
 	p.bus = "SFX"
@@ -65,8 +68,9 @@ func _play_at(names: Array, pos: Vector3, vol_db := -4.0,
 
 
 func voice(group: String, field: String, pos: Vector3, chance := 1.0) -> void:
-	if group == "" or (chance < 1.0 and randf() > chance):
+	if group == "" or (chance < 1.0 and _rng.randf() > chance):
 		return
+	Replay.log_event(["voice", group, field, pos.x, pos.y, pos.z])
 	var g: Dictionary = manifest.get("voices", {}).get(group, {})
 	var names: Array = g.get(field, [])
 	# the player-race NPC sets (orc, tauren, night elf, ...) ship attack,
@@ -77,6 +81,7 @@ func voice(group: String, field: String, pos: Vector3, chance := 1.0) -> void:
 
 
 func impact(kind: String, pos: Vector3, chance := 1.0) -> void:
-	if chance < 1.0 and randf() > chance:
+	if chance < 1.0 and _rng.randf() > chance:
 		return
+	Replay.log_event(["imp", kind, pos.x, pos.y, pos.z])
 	_play_at(manifest.get("impacts", {}).get(kind, []), pos, -6.0)

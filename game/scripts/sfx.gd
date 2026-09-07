@@ -1,4 +1,7 @@
 extends Node
+# audio picks come from a private generator so they never shift the
+# simulation's random sequence (a replay must roll what the session rolled)
+var _rng := RandomNumberGenerator.new()
 ## Sfx: plays the D2 sounds exported by pipeline/d2/export_sounds.py.
 ## Manifest (sounds.json) maps game events and MonSounds ids to wav variant
 ## lists; a random variant plays each time, like the Group Size rolls in D2.
@@ -44,7 +47,7 @@ func _volume_db(key: String) -> float:
 func _pick(keys: Array) -> String:
 	if keys.is_empty():
 		return ""
-	return str(keys[randi() % keys.size()])
+	return str(keys[_rng.randi() % keys.size()])
 
 
 func play_at(key: String, pos: Vector3, min_gap_frames := 3) -> void:
@@ -60,7 +63,7 @@ func play_at(key: String, pos: Vector3, min_gap_frames := 3) -> void:
 	var p := AudioStreamPlayer3D.new()
 	p.stream = stream
 	p.volume_db = _volume_db(key)
-	p.pitch_scale = randf_range(0.96, 1.05)
+	p.pitch_scale = _rng.randf_range(0.96, 1.05)
 	p.unit_size = 6.0
 	p.max_distance = 70.0
 	p.bus = "SFX"
@@ -96,8 +99,9 @@ func play_ui(key: String, min_gap_frames := 3, trim_db := 0.0) -> void:
 
 
 func event(name: String, pos: Vector3, chance := 1.0) -> void:
-	if chance < 1.0 and randf() > chance:
+	if chance < 1.0 and _rng.randf() > chance:
 		return
+	Replay.log_event(["sfx", name, pos.x, pos.y, pos.z])
 	var evs: Dictionary = meta.get("events", {})
 	var keys: Array = evs.get(name, [])
 	play_at(_pick(keys), pos)
@@ -107,14 +111,16 @@ func event_ui(name: String, trim_db := 0.0) -> void:
 	## trim_db lets a caller soften a loud sample without touching the shared
 	## Sounds.txt volumes — footsteps ship at full D2 volume, jarring on every
 	## stride in first person.
+	Replay.log_event(["sui", name, trim_db])
 	var evs: Dictionary = meta.get("events", {})
 	var keys: Array = evs.get(name, [])
 	play_ui(_pick(keys), 3, trim_db)
 
 
 func monster(mon_id: String, field: String, pos: Vector3, chance := 1.0) -> void:
-	if mon_id == "" or (chance < 1.0 and randf() > chance):
+	if mon_id == "" or (chance < 1.0 and _rng.randf() > chance):
 		return
+	Replay.log_event(["smon", mon_id, field, pos.x, pos.y, pos.z])
 	var mons: Dictionary = meta.get("monsters", {})
 	var entry: Dictionary = mons.get(mon_id, {})
 	var keys: Array = entry.get(field, [])

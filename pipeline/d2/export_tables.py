@@ -3,6 +3,7 @@ import os
 import json
 import config
 from sprites import mpqs
+import tbl
 
 
 def read_table(name):
@@ -31,11 +32,22 @@ def build():
     out['skill_names'] = {r['Id']: r['skill'] for r in skills
                           if r.get('Id') and r.get('skill')}
 
+    # the description text lives in the string tables under the keys
+    # skilldesc names; D2 stores a multi-line description bottom-up (it
+    # draws the tooltip from the bottom), so the lines come back reversed
+    strings = {k.lower(): v for k, v in tbl.load(mpqs()).items()}
+
+    def text(key):
+        s = strings.get(str(key).strip().lower(), '')
+        return '\n'.join(reversed(s.split('\n'))) if s else ''
+
     skilldesc = read_table('skilldesc.txt')
     out['skilldesc'] = {r['skilldesc']: {
         'page': r.get('SkillPage', ''), 'row': r.get('SkillRow', ''),
         'col': r.get('SkillColumn', ''), 'icon': r.get('IconCel', ''),
         'strname': r.get('str name', ''),
+        'short': text(r.get('str short', '')),
+        'long': text(r.get('str long', '')),
     } for r in skilldesc if r.get('skilldesc')}
 
     # --- Missiles: keep every row; game indexes by name --------------------

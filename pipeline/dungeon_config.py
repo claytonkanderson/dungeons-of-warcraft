@@ -147,4 +147,39 @@ DUNGEONS = {
         ambience=["razorfendowns", "razorfen", "barrens"],
         footstep="dirt",
     ),
+    "uldaman": dict(
+        map_name="uldaman", ac_map=70, target_level=50,
+        bosses=["Revelosh", "Ironaya", "Obsidian Sentinel", "Ancient Stone Keeper",
+                "Galgann Firehammer", "Grimlok", "Archaedas"],
+        final_boss="Archaedas",
+        ambience=["uldaman", "badlands"],
+        footstep="stone",
+    ),
+    "zul-farrak": dict(
+        map_name="tanarisinstance", ac_map=209, target_level=53,
+        # Nekrum, Sezz'ziz and Gahz'rilla are summoned by scripted events in
+        # WoW (the pyramid fight, the mallet) and have no spawn row
+        bosses=["Antu'sul", "Theka the Martyr", "Witch Doctor Zum'rah",
+                "Sergeant Bly", "Hydromancer Velratha", "Chief Ukorz Sandscalp"],
+        final_boss="Chief Ukorz Sandscalp",
+        ambience=["zulfarrak", "tanaris"],
+        footstep="dirt",
+    ),
+    "maraudon": dict(
+        map_name="mauradon", ac_map=349, target_level=56,
+        bosses=["Noxxion", "Razorlash", "Lord Vyletongue", "Celebras the Cursed",
+                "Landslide", "Tinkerer Gizlock", "Rotgrip", "Princess Theradras"],
+        final_boss="Princess Theradras",
+        ambience=["maraudon", "desolace"],
+        footstep="dirt",
+    ),
+    "sunken-temple": dict(
+        map_name="sunkentemple", ac_map=109, target_level=60,
+        # the Avatar of Hakkar is summoned by the altar event: no spawn row
+        bosses=["Atal'alarion", "Jammal'an the Prophet", "Ogom the Wretched",
+                "Dreamscythe", "Weaver", "Morphaz", "Hazzas", "Shade of Eranikus"],
+        final_boss="Shade of Eranikus",
+        ambience=["sunkentemple", "swampofsorrows", "swamp"],
+        footstep="stone",
+    ),
 }

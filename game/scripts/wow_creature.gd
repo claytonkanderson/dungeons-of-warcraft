@@ -57,6 +57,7 @@ var _burn_t := 0.0
 var res := {}                # elemental resistances in percent; 100 = immune
 var noheal := false          # "Prevents Monster Heal" has landed on it
 var _since_hit := 99.0       # seconds since the last damage, for regeneration
+var puppet := false          # a replay places it; no AI, no physics (replay.gd)
 
 # D2 monsters slowly regenerate; here a creature left alone for a while heals
 # a share of its life each second, which is what "Prevents Monster Heal" stops
@@ -360,6 +361,8 @@ func _face(dir: Vector3, dt: float) -> void:
 
 
 func _physics_process(dt: float) -> void:
+	if puppet:
+		return
 	if state == State.DEAD:
 		if _corpse_t > 0.0:
 			_corpse_t -= dt

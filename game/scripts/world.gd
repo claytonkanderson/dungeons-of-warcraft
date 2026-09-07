@@ -13,6 +13,7 @@ var spawn := Vector3(0, 2, 0)
 var spawn_yaw := 0.0
 var floor_y := -200.0
 var monsters: Array = []
+var puppet := false             # a replay drives the world (replay.gd)
 var arrows: Array = []
 var enemy_missiles: Array = []
 var ground_items: Array = []
@@ -92,7 +93,9 @@ func _spawn_gameobjects(placements: Dictionary) -> void:
 			[doors.size(), interactables.size()])
 
 
-func _open_door(d: Dictionary, boom := false) -> void:
+func _open_door(d: Dictionary, boom := false, silent := false) -> void:
+	## silent: a replay opens doors from the log and plays the sounds it
+	## logged separately
 	if d["open"]:
 		return
 	d["open"] = true
@@ -101,9 +104,10 @@ func _open_door(d: Dictionary, boom := false) -> void:
 		for b in mi.get_children():
 			if b is StaticBody3D:
 				b.set_collision_layer_value(1, false)
-	get_node("/root/WowSfx").impact("wood", node.global_position)
-	if boom:
-		get_node("/root/Sfx").event("fire_impact", node.global_position)
+	if not silent:
+		get_node("/root/WowSfx").impact("wood", node.global_position)
+		if boom:
+			get_node("/root/Sfx").event("fire_impact", node.global_position)
 	var tw := create_tween()
 	tw.tween_property(node, "rotation:y", node.rotation.y + 1.85, 1.1) \
 			.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
@@ -195,6 +199,19 @@ func _load_json(path: String) -> Dictionary:
 func _ready() -> void:
 	add_to_group("world")
 	var gs := get_node("/root/GameState")
+	# --replay=<log>: the character and dungeon come from the log's header
+	var replay_path := Cli.value("--replay=")
+	if replay_path != "" and not Replay.playing():
+		if not Replay.load_replay(replay_path, gs):
+			get_tree().quit()
+			return
+		# a replay (usually a movie render) is not for watching: keep its
+		# window off the desktop and out of the focus order. The window must
+		# stay a real, drawable one — minimized windows are never rendered —
+		# and the initial-position project setting is not honoured here, so
+		# it is moved after creation.
+		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_NO_FOCUS, true)
+		DisplayServer.window_set_position(Vector2i(-32000, -32000))
 	if not gs.session_loaded:
 		gs.session_loaded = true
 		var loaded := false
@@ -226,6 +243,7 @@ func _ready() -> void:
 		get_tree().quit()
 		return
 	wow_dir = _assets_dir().path_join("wow/%s" % gs.current_dungeon)
+	Replay.begin_session(gs)       # open the session log, when recording
 
 	# loading screen: the dungeon's backdrop and name while the world builds.
 	# Everything below is synchronous, so yield two frames first so it draws
@@ -282,6 +300,9 @@ func _ready() -> void:
 	timer.start()
 	gs.equip_refused.connect(func(reason): hud_node.show_area(reason))
 	gs.equipment_changed.connect(player.refresh_attack_style)
+	# the world is built: from the next physics tick the session is logged,
+	# or under --replay the world is puppeted from the log
+	Replay.arm(self, player)
 	player.refresh_attack_style()
 
 	# every verification mode keeps the window minimized under --offscreen,
@@ -299,6 +320,13 @@ func _ready() -> void:
 		get_tree().quit()
 	elif OS.get_cmdline_user_args().has("--item-test"):
 		await _item_test()
+		get_tree().quit()
+	elif OS.get_cmdline_user_args().has("--skill-tips"):
+		# the skill tree's tooltip numbers, as printed from GameState.skill_numbers
+		var gd: Dictionary = get_node("/root/SpriteDB").gamedata()
+		for sk in gd.get("skills", {}).keys():
+			for lv in [1, 10, 20]:
+				print("SKILL-TIPS %-16s L%-2d %s" % [sk, lv, " | ".join(tree_ui._number_lines(str(sk), lv))])
 		get_tree().quit()
 	elif Cli.value("--mob-shot=") != "":
 		# stand in front of the first creature of this entry, capture it, kill
@@ -333,8 +361,14 @@ func _ready() -> void:
 			print("MOB-SHOT done: %s corpse still in tree: %s" % [
 					Cli.value("--mob-name=", "?"), is_instance_valid(target_mob)])
 		get_tree().quit()
+	elif Cli.value("--topdown=") != "":
+		await _topdown_shot(Cli.value("--topdown="))
+		get_tree().quit()
 	elif OS.get_cmdline_user_args().has("--loot-run"):
 		_loot_run()
+		get_tree().quit()
+	elif OS.get_cmdline_user_args().has("--replay-test"):
+		await _replay_test()
 		get_tree().quit()
 	elif OS.get_cmdline_user_args().has("--what-here"):
 		# which placed models' world bounds enclose the camera: the engine's
@@ -927,13 +961,8 @@ func _skill_impact(a: Dictionary, pos: Vector3) -> void:
 	## Area effects on arrow impact.
 	var gs := get_node("/root/GameState")
 	var sk := str(a.get("skill", ""))
-	var lvl := maxi(1, gs.skill_level(sk))
-	var radius := 0.0
-	match sk:
-		"Exploding Arrow": radius = 2.5
-		"Immolation Arrow": radius = 3.0
-		"Freezing Arrow": radius = 3.0
-		"Plague Javelin": radius = 3.5
+	var sn: Dictionary = gs.skill_numbers(sk, gs.skill_level(sk))
+	var radius := float(sn.get("radius", 0.0))
 	if radius <= 0.0:
 		return
 	for mob in monsters:
@@ -941,19 +970,19 @@ func _skill_impact(a: Dictionary, pos: Vector3) -> void:
 			continue
 		if mob.global_position.distance_to(pos) > radius:
 			continue
-		if sk == "Freezing Arrow":
-			mob.slow(2.0 + 0.4 * lvl, 0.25)
-			mob.take_damage((4.0 + 3.0 * lvl) * GameState.DMG_MULT / 5.0
-					* gs.skill_elem_mult("cold"), "cold")
-		elif sk == "Plague Javelin":
-			var pd := _skill_elemental(gs, sk, lvl)
-			mob.burn(randf_range(pd.x, pd.y) / 4.0, 4.0)
-		else:
-			mob.take_damage((3.0 + 4.0 * lvl) * GameState.DMG_MULT / 5.0
-					* gs.skill_elem_mult("fire"), "fire")
-			if sk == "Immolation Arrow":
-				mob.burn(4.0 * lvl * GameState.DMG_MULT / 5.0
-						* gs.skill_elem_mult("fire"), 3.0, "fire")
+		if sn.has("area_chill"):
+			var ac: Vector2 = sn["area_chill"]
+			mob.slow(ac.x, ac.y)
+		if sn.has("area_dmg"):
+			var ad: Vector2 = sn["area_dmg"]
+			mob.take_damage(randf_range(ad.x, ad.y), str(sn["area_type"]))
+		if sn.has("area_poison"):
+			var ap: Vector2 = sn["area_poison"]
+			var secs := float(sn.get("poison_secs", 4.0))
+			mob.burn(randf_range(ap.x, ap.y) / secs, secs)
+		if sn.has("area_burn"):
+			var ab: Vector2 = sn["area_burn"]
+			mob.burn(ab.x, ab.y, str(sn["area_type"]))
 
 
 func _hit_monster(mob: WowCreature, ranged: bool, extra: float, thrown := false,
@@ -1000,14 +1029,8 @@ const CAST_SKILLS := ["Inner Sight", "Slow Missiles"]
 
 
 func _skill_elemental(gs, skill: String, lvl: int) -> Vector2:
-	## the skill's own elemental damage at this level, from the D2 table
-	var srow: Dictionary = gs.skill_row(skill)
-	var lo := float(str(srow.get("EMin", "0")).to_int()) \
-			+ float(str(srow.get("EMinLev1", "0")).to_int()) * (lvl - 1)
-	var hi := float(str(srow.get("EMax", "0")).to_int()) \
-			+ float(str(srow.get("EMaxLev1", "0")).to_int()) * (lvl - 1)
-	var mult: float = gs.skill_elem_mult(str(srow.get("EType", "")).strip_edges())
-	return Vector2(lo, maxf(lo, hi)) * GameState.DMG_MULT * mult
+	## a strike's or bolt's own element at this level (GameState.skill_numbers)
+	return gs.skill_numbers(skill, lvl).get("bolt", Vector2.ZERO)
 
 
 func _chain_lightning(from: Vector3, exclude: Node, count: int, dmg: Vector2) -> void:
@@ -1089,7 +1112,7 @@ func _on_fire(slot: int, origin: Vector3, dir: Vector3) -> void:
 			if is_instance_valid(f) and f.kind == kind:
 				f.queue_free()
 				friendlies.erase(f)
-		friendlies.append(Ally.spawn(self, at, kind, lvl))
+		friendlies.append(Ally.spawn(self, at, kind, gs.skill_numbers(skill, lvl)))
 		return
 	# Inner Sight / Slow Missiles: cast with any weapon on everything in range
 	if skill in CAST_SKILLS:
@@ -1097,9 +1120,9 @@ func _on_fire(slot: int, origin: Vector3, dir: Vector3) -> void:
 		if gs.mana < ccost:
 			return
 		gs.mana -= ccost
-		var clvl: int = maxi(1, gs.skill_level(skill))
-		var radius := 12.0 + float(clvl)
-		var dur := 8.0 + 4.0 * float(clvl)
+		var csn: Dictionary = gs.skill_numbers(skill, gs.skill_level(skill))
+		var radius: float = csn["range"]
+		var dur: float = csn["duration"]
 		var hit_n := 0
 		for mob in monsters:
 			if mob is WowCreature and mob.state != WowCreature.State.DEAD \
@@ -1139,29 +1162,31 @@ func _on_fire(slot: int, origin: Vector3, dir: Vector3) -> void:
 		else:
 			gs.mana -= mcost
 		var mlvl: int = maxi(1, gs.skill_level(mskill))
+		var msn: Dictionary = gs.skill_numbers(mskill, mlvl)
 		match mskill:
 			"Jab", "Fend":
-				for k in range(2 + mini(mlvl / 3, 3)):
-					get_tree().create_timer(0.09 * k).timeout.connect(
-						_melee_swing.bind(origin, dir))
+				# on the tick clock, not a scene timer: a replay must land
+				# every swing on the same tick the session did
+				for k in range(int(msn["swings"])):
+					_swings.append([k * SWING_GAP_TICKS, origin, dir])
 			"Power Strike", "Charged Strike":
 				_melee_swing(origin, dir)
+				var ad: Vector2 = msn["area_dmg"]
 				for mob in monsters:
 					if mob is WowCreature and mob.state != WowCreature.State.DEAD \
 							and mob.global_position.distance_to(
-								player.global_position) < 4.0:
-						mob.take_damage((3.0 + 3.0 * mlvl) * GameState.DMG_MULT / 5.0
-								* gs.skill_elem_mult("ltng"), "ltng")
+								player.global_position) < float(msn["radius"]):
+						mob.take_damage(randf_range(ad.x, ad.y), str(msn["area_type"]))
 			"Impale":
 				# one heavy blow (+300% and 25% a level in D2), slow to recover
-				_melee_mult = 4.0 + 0.25 * float(mlvl - 1)
+				_melee_mult = float(msn["phys_mult"])
 				_melee_swing(origin, dir)
 				_melee_mult = 1.0
-				player.attack_time = player._attack_len * 1.6
+				player.attack_time = player._attack_len * float(msn["recovery"])
 			"Lightning Strike":
 				_melee_swing(origin, dir)
 				_chain_lightning(player.global_position + dir * 2.0, null,
-						1 + mlvl, _skill_elemental(gs, "Lightning Strike", mlvl))
+						int(msn["chain"]), msn["bolt"])
 			_:
 				_melee_swing(origin, dir)
 		return
@@ -1169,14 +1194,14 @@ func _on_fire(slot: int, origin: Vector3, dir: Vector3) -> void:
 		var cost2: float = gs.mana_cost(skill)
 		if gs.mana >= cost2:
 			gs.mana -= cost2
-			var lvl2: int = maxi(1, gs.skill_level(skill))
+			var ssn: Dictionary = gs.skill_numbers(skill, gs.skill_level(skill))
 			var shots := 0
 			for mob in monsters:
-				if shots >= 2 + lvl2:
+				if shots >= int(ssn["arrows"]):
 					break
 				if mob is WowCreature and mob.state != WowCreature.State.DEAD:
 					var to: Vector3 = mob.global_position + Vector3(0, 0.9, 0) - origin
-					if to.length() < 30.0 and to.normalized().dot(dir) > 0.0:
+					if to.length() < float(ssn["range"]) and to.normalized().dot(dir) > 0.0:
 						_launch_arrow(gs, "Attack", origin, to.normalized())
 						shots += 1
 			if shots > 0:
@@ -1194,9 +1219,7 @@ func _on_fire(slot: int, origin: Vector3, dir: Vector3) -> void:
 			skill = "Exploding Arrow"
 	gs.mana -= cost
 	var lvl: int = maxi(1, gs.skill_level(skill))
-	var count := 1
-	if skill == "Multiple Shot":
-		count = 1 + lvl
+	var count: int = int(gs.skill_numbers(skill, lvl).get("arrows", 1))
 	for i in range(count):
 		var spread := 0.0
 		if count > 1:
@@ -1233,11 +1256,9 @@ func _launch_arrow(gs, skill: String, origin: Vector3, d2: Vector3) -> void:
 		explode = "exparrowexplode"
 	elif skill == "Freezing Arrow" and explode == "":
 		explode = "icearrowexplode"
-	var etype := str(srow.get("EType", "")).strip_edges()
-	var escale := 1.0 + 0.5 * (lvl - 1)
-	var edmg: Vector2 = Vector2(float(str(srow.get("EMin", "0")).to_int()),
-			float(str(srow.get("EMax", "0")).to_int())) * escale \
-			* gs.skill_elem_mult(etype)
+	var sn: Dictionary = gs.skill_numbers(skill, lvl)
+	var etype: String = sn["etype"]
+	var edmg: Vector2 = sn.get("edmg", Vector2.ZERO)   # per hit, DMG_MULT in
 	if skill in ["Poison Javelin", "Plague Javelin", "Throw"]:
 		cel = "javelin"
 	elif skill in ["Lightning Bolt", "Lightning Fury"]:
@@ -1260,7 +1281,25 @@ var _ground_safe := Vector3.ZERO     # through returns you here, not to spawn
 var _ground_t := 0.0
 
 
+var _swings: Array = []          # [ticks left, origin, dir]: Jab/Fend flurries
+const SWING_GAP_TICKS := 5       # 0.09 s at 60 ticks, on the tick clock
+
+
+func _run_swings() -> void:
+	var keep: Array = []
+	for sw in _swings:
+		if int(sw[0]) <= 0:
+			_melee_swing(sw[1], sw[2])
+		else:
+			sw[0] = int(sw[0]) - 1
+			keep.append(sw)
+	_swings = keep
+
+
 func _physics_process(dt: float) -> void:
+	if puppet:
+		return
+	_run_swings()
 	_update_enemy_missiles(dt)
 	if player != null:
 		if player.is_on_floor():
@@ -1309,23 +1348,24 @@ func _physics_process(dt: float) -> void:
 				var extra := 0.0
 				var edmg: Vector2 = a.get("edmg", Vector2.ZERO)
 				if edmg.y > 0.0:
-					extra = randf_range(edmg.x, edmg.y) * GameState.DMG_MULT
+					extra = randf_range(edmg.x, edmg.y)
 				var sk := str(a.get("skill", ""))
-				if a.get("etype", "") == "cold":
-					var factor := 0.25 if sk in ["Ice Arrow", "Freezing Arrow"] else 0.4
-					col.slow(2.0 + 0.5 * gs.skill_level(sk), factor)
-				if sk == "Immolation Arrow":
-					col.burn(6.0 * gs.skill_level(sk) * GameState.DMG_MULT / 5.0
-							* gs.skill_elem_mult("fire"), 3.0, "fire")
+				var hsn: Dictionary = gs.skill_numbers(sk, gs.skill_level(sk))
+				if hsn.has("chill"):
+					var ch: Vector2 = hsn["chill"]
+					col.slow(ch.x, ch.y)
+				if hsn.has("burn"):
+					var bn: Vector2 = hsn["burn"]
+					col.burn(bn.x, bn.y, str(a.get("etype", "fire")))
 				if a.get("etype", "") == "pois" and extra > 0.0:
 					# poison is damage over time, not a burst
-					col.burn(extra / 4.0, 4.0)
+					var secs := float(hsn.get("poison_secs", 4.0))
+					col.burn(extra / secs, secs)
 					extra = 0.0
 				_hit_monster(col, true, extra, bool(a.get("thrown", false)),
 						str(a.get("etype", "")))
-				if sk == "Lightning Fury":
-					_chain_lightning(hit["position"], col, 2 + gs.skill_level(sk) / 2,
-							_skill_elemental(gs, sk, maxi(1, gs.skill_level(sk))))
+				if hsn.has("chain"):
+					_chain_lightning(hit["position"], col, int(hsn["chain"]), hsn["bolt"])
 				get_node("/root/Sfx").event("arrow_impact", hit["position"])
 				_skill_impact(a, hit["position"])
 				if randf() < gs.pierce_chance():
@@ -1747,6 +1787,82 @@ func _loot_test() -> void:
 					" | ".join(sample)])
 
 
+func _replay_test() -> void:
+	## A short scripted session, recorded: key state for movement, attacks,
+	## the look angles, a fight. Replaying the log it names exercises every
+	## kind of line the log carries.
+	##   run_game.bat -- --fresh --dungeon=ragefire-chasm --replay-test
+	##   run_game.bat -- --replay=<the log it printed> --no-record
+	var keys := {}
+	var hold := func(code: int, down: bool):
+		var ev := InputEventKey.new()
+		ev.keycode = code
+		ev.physical_keycode = code
+		ev.pressed = down
+		Input.parse_input_event(ev)
+		keys[code] = down
+	# a fight: aim at the nearest living creature, close in at a sprint,
+	# hop now and then, shoot, and press E and a potion along the way
+	for f in range(2400):
+		var best: WowCreature = null
+		var bd := 1e9
+		for mob in monsters:
+			if mob.state == WowCreature.State.DEAD or mob.passive:
+				continue
+			var d: float = player.global_position.distance_to(mob.global_position)
+			if d < bd:
+				bd = d
+				best = mob
+		if best != null and f % 3 == 0:
+			var to: Vector3 = best.global_position - player.global_position
+			player.yaw = atan2(-to.x, -to.z) + 0.02 * sin(f * 0.1)
+			var eye := player.global_position + Vector3(0, Player.EYE, 0)
+			player.pitch = clampf(atan2(best.global_position.y + 1.0 - eye.y,
+					Vector2(to.x, to.z).length()), -Player.PITCH_LIMIT, Player.PITCH_LIMIT)
+		var want_forward: bool = best != null and bd > 12.0
+		if want_forward != bool(keys.get(KEY_W, false)):
+			hold.call(KEY_W, want_forward)
+		var want_run: bool = want_forward and f % 400 < 250
+		if want_run != bool(keys.get(KEY_SHIFT, false)):
+			hold.call(KEY_SHIFT, want_run)
+		var strafe: bool = f % 200 >= 170
+		if strafe != bool(keys.get(KEY_A, false)):
+			hold.call(KEY_A, strafe)
+		if f % 90 == 0:
+			hold.call(KEY_SPACE, true)
+		if f % 90 == 8:
+			hold.call(KEY_SPACE, false)
+		if f % 40 == 0 and best != null:
+			player._start_attack(0)
+		if f % 300 == 150:
+			if not _try_interact():
+				_pickup_nearest()
+		if f == 1500:
+			get_node("/root/GameState").drink(0)
+		if f == 900:
+			_ui_action("ui:inv")
+		if f > 900 and f < 1100 and f % 2 == 0:
+			# park the cursor on the bow, then on a charm, so hover tooltips show
+			var ev := InputEventMouseMotion.new()
+			ev.position = Vector2(850.0, 190.0) if f < 1000 else Vector2(822.0, 440.0)
+			ev.global_position = ev.position
+			Input.parse_input_event(ev)
+			Replay.cursor_override = ev.position   # the viewport only tracks the real mouse
+		if f == 1100:
+			_ui_action("ui:inv")
+			Replay.cursor_override = Vector2.INF
+		await get_tree().physics_frame
+	for code in keys:
+		if keys[code]:
+			hold.call(code, false)
+	var alive := 0
+	for mob in monsters:
+		if mob.state != WowCreature.State.DEAD:
+			alive += 1
+	print("REPLAY-TEST done: %d ticks, %d arrows flown, %d creatures alive, log %s"
+			% [Replay.tick, arrows.size(), alive, ProjectSettings.globalize_path(Replay.path)])
+
+
 func _loot_run() -> void:
 	## A full clear of the first four dungeons, every spawned creature
 	## killed once, repeated RUNS times: the expected rares, sets and uniques
@@ -1845,6 +1961,10 @@ func _sync_ui() -> void:
 		return
 	player.ui_locked = any_open
 	player.look_enabled = not any_open
+	# the panels and the character they show, for the session log
+	Replay.log_ui([inv_ui != null and inv_ui.open, tree_ui != null and tree_ui.open,
+			char_ui != null and char_ui.open, menu_ui != null and menu_ui.open],
+			get_node("/root/GameState").snapshot(player))
 	if any_open:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	else:
@@ -1873,6 +1993,8 @@ func drop_entry(entry: Dictionary) -> void:
 
 func _unhandled_input(e: InputEvent) -> void:
 	if e is InputEventKey and e.pressed and not e.echo:
+		if puppet:
+			return                  # a replay: the log drives everything
 		if e.keycode == KEY_E:
 			if not _try_interact():
 				_pickup_nearest()
@@ -1894,22 +2016,35 @@ func _unhandled_input(e: InputEvent) -> void:
 			if hud_node != null:
 				hud_node.show_area("Saved")
 		elif e.keycode == KEY_I:
-			if inv_ui != null:
-				inv_ui.toggle()
-				_sync_ui()
-				get_node("/root/Sfx").event_ui("button")
+			_ui_action("ui:inv")
 		elif e.keycode == KEY_T:
-			if tree_ui != null:
-				tree_ui.toggle()
-				_sync_ui()
+			_ui_action("ui:tree")
 		elif e.keycode == KEY_C:
-			if char_ui != null:
-				char_ui.toggle()
-				_sync_ui()
+			_ui_action("ui:char")
 		elif e.keycode == KEY_F11:
 			Cli.toggle_fullscreen()
 			get_viewport().set_input_as_handled()
 		elif e.keycode == KEY_ESCAPE:
+			_ui_action("ui:esc")
+
+
+func _ui_action(act: String) -> void:
+	## The panel keys.
+	match act:
+		"ui:inv":
+			if inv_ui != null:
+				inv_ui.toggle()
+				_sync_ui()
+				get_node("/root/Sfx").event_ui("button")
+		"ui:tree":
+			if tree_ui != null:
+				tree_ui.toggle()
+				_sync_ui()
+		"ui:char":
+			if char_ui != null:
+				char_ui.toggle()
+				_sync_ui()
+		"ui:esc":
 			# Esc closes panels first; with nothing open it toggles the menu
 			var closed := false
 			for panel in [inv_ui, tree_ui, char_ui]:
@@ -1932,7 +2067,8 @@ func toggle_menu() -> void:
 func _process(_dt: float) -> void:
 	if hud_node == null or player == null:
 		return
-	if (Input.is_key_pressed(KEY_ALT) or force_labels) and not ground_items.is_empty():
+	if (Input.is_key_pressed(KEY_ALT) or Replay.alt or force_labels) \
+			and not ground_items.is_empty():
 		var cam: Camera3D = player.get_node("Camera3D")
 		hud_node.show_item_labels(_visible_items(cam), cam)
 	else:
@@ -1992,6 +2128,10 @@ func _visible_items(cam: Camera3D) -> Array:
 	return out
 
 
+func _exit_tree() -> void:
+	Replay.end_session()      # the world is going: close the log, drop the puppets
+
+
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST:
 		get_node("/root/GameState").save_game(player)
@@ -2001,6 +2141,43 @@ func _notification(what: int) -> void:
 # ---------------------------------------------------------------------------
 # Verification modes
 # ---------------------------------------------------------------------------
+func _topdown_shot(path: String) -> void:
+	## A view straight down on the whole dungeon from a narrow-angle camera
+	## high above it (the HUD hidden), for checking how buildings, props and
+	## terrain sit against each other.
+	var lo := Vector3(1e9, 1e9, 1e9)
+	var hi := -lo
+	var pts: Array = [spawn]
+	for mob in monsters:
+		if is_instance_valid(mob):
+			pts.append(mob.global_position)
+	for it in interactables:
+		pts.append((it["node"] as Node3D).global_position)
+	for p in pts:
+		lo = lo.min(p)
+		hi = hi.max(p)
+	var center := (lo + hi) * 0.5
+	var span := maxf(hi.x - lo.x, hi.z - lo.z) + 120.0
+	var cam := Camera3D.new()
+	add_child(cam)
+	cam.fov = 30.0
+	cam.near = 1.0
+	var height: float = span / (2.0 * tan(deg_to_rad(cam.fov) / 2.0))
+	cam.far = height + 1000.0
+	cam.global_position = Vector3(center.x, hi.y + height, center.z)
+	cam.look_at(Vector3(center.x, hi.y, center.z), Vector3.FORWARD)   # north up
+	cam.make_current()
+	if hud_node != null:
+		hud_node.visible = false
+	if Cli.offscreen():
+		Cli.hide_window()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	await Cli.capture(get_viewport(), path)
+	print("TOPDOWN %s: %.0f m across from %.0f m up, centre (%.0f, %.0f), x %.0f..%.0f z %.0f..%.0f"
+			% [path, span, height, center.x, center.z, lo.x, hi.x, lo.z, hi.z])
+
+
 func _spawn_shots() -> void:
 	if Cli.offscreen():
 		Cli.hide_window()

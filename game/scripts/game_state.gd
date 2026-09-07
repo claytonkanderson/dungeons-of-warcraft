@@ -412,23 +412,37 @@ func attack_rating() -> float:
 	var ar := (float(total_stat("dex")) - 7.0) * 5.0 + (level - 1) * 5.0
 	ar += float(mods.get("ar", 0))
 	ar *= 1.0 + float(mods.get("ar%", 0)) / 100.0
-	# Penetrate passive
-	var pen := skill_level("Penetrate")
-	if pen > 0:
-		ar *= 1.0 + (0.30 + 0.10 * (pen - 1))
+	ar *= 1.0 + _penetrate_at(skill_level("Penetrate"))   # the passive
 	return ar
 
 
 # --- Amazon passives -------------------------------------------------------
-func crit_chance() -> float:
-	var l := skill_level("Critical Strike")
+static func _crit_at(l: int) -> float:
 	return 0.0 if l <= 0 else minf(0.05 + 0.11 * pow(l, 0.5), 0.6)
 
 
+static func _pierce_at(l: int) -> float:
+	return 0.0 if l <= 0 else 0.15 + 0.08 * l
+
+
+static func _dodge_at(l: int) -> float:
+	return 0.0 if l <= 0 else minf(0.10 + 0.06 * l, 0.56)
+
+
+static func _avoid_at(l: int) -> float:
+	return 0.0 if l <= 0 else minf(0.12 + 0.06 * l, 0.65)
+
+
+static func _penetrate_at(l: int) -> float:
+	return 0.0 if l <= 0 else 0.30 + 0.10 * (l - 1)
+
+
+func crit_chance() -> float:
+	return _crit_at(skill_level("Critical Strike"))
+
+
 func pierce_chance() -> float:
-	var l := skill_level("Pierce")
-	var c := 0.0 if l <= 0 else 0.15 + 0.08 * l
-	return minf(c + float(mods.get("pierce", 0)) / 100.0, 0.85)
+	return minf(_pierce_at(skill_level("Pierce")) + float(mods.get("pierce", 0)) / 100.0, 0.85)
 
 
 func shield_item() -> Dictionary:
@@ -475,13 +489,122 @@ func stamina_max() -> float:
 
 
 func dodge_chance() -> float:      # vs melee
-	var l := skill_level("Dodge")
-	return 0.0 if l <= 0 else minf(0.10 + 0.06 * l, 0.56)
+	return _dodge_at(skill_level("Dodge"))
 
 
 func avoid_chance() -> float:      # vs missiles
-	var l := maxi(skill_level("Avoid"), skill_level("Evade"))
-	return 0.0 if l <= 0 else minf(0.12 + 0.06 * l, 0.65)
+	return _avoid_at(maxi(skill_level("Avoid"), skill_level("Evade")))
+
+
+# --- What a skill does at a level -------------------------------------------
+func skill_numbers(n: String, lvl: int) -> Dictionary:
+	## Everything a skill's effect depends on at `lvl`, as the combat code
+	## applies it: world.gd reads these when a skill fires, the skill tree
+	## prints them, so the tooltip can never disagree with a hit. Damage
+	## ranges are per hit with DMG_MULT and the gear's elemental bonuses in.
+	##   mana            cost
+	##   etype           the skill's element ("" for none)
+	##   edmg            a missile's own element per hit (Vector2)
+	##   bolt            a strike's or chain bolt's element per hit (Vector2)
+	##   chill           (seconds, speed factor) a cold hit leaves
+	##   radius, area_dmg, area_type, area_chill, area_burn   area on impact
+	##   burn            (dps, seconds) an impact sets burning
+	##   poison_secs     a poison hit's total spread over this long
+	##   arrows, swings, chain, chain_range, homing, range
+	##   phys_mult, recovery   Impale
+	##   duration        a cast's effect length
+	##   ally_life, ally_dmg, ally_time
+	##   chance          a passive's chance; ar_bonus  Penetrate's factor
+	lvl = maxi(1, lvl)
+	var r := skill_row(n)
+	var etype := str(r.get("EType", "")).strip_edges()
+	var d := {"mana": mana_cost(n), "etype": etype}
+	var emin := float(str(r.get("EMin", "0")).to_int())
+	var emax := float(str(r.get("EMax", "0")).to_int())
+	if emax > 0.0:
+		var mult := skill_elem_mult(etype)
+		# a missile's element: the table's base range, grown half again a level
+		d["edmg"] = Vector2(emin, emax) * (1.0 + 0.5 * (lvl - 1)) * mult * DMG_MULT
+		# a strike's or bolt's element: the table's own per-level increments
+		var lo := emin + float(str(r.get("EMinLev1", "0")).to_int()) * (lvl - 1)
+		var hi := emax + float(str(r.get("EMaxLev1", "0")).to_int()) * (lvl - 1)
+		d["bolt"] = Vector2(lo, maxf(lo, hi)) * DMG_MULT * mult
+	var fifth := DMG_MULT / 5.0
+	match n:
+		"Cold Arrow":
+			d["chill"] = Vector2(2.0 + 0.5 * lvl, 0.4)
+		"Ice Arrow":
+			d["chill"] = Vector2(2.0 + 0.5 * lvl, 0.25)
+		"Freezing Arrow":
+			d["chill"] = Vector2(2.0 + 0.5 * lvl, 0.25)
+			d["radius"] = 3.0
+			d["area_type"] = "cold"
+			d["area_dmg"] = Vector2.ONE * (4.0 + 3.0 * lvl) * fifth * skill_elem_mult("cold")
+			d["area_chill"] = Vector2(2.0 + 0.4 * lvl, 0.25)
+		"Exploding Arrow":
+			d["radius"] = 2.5
+			d["area_type"] = "fire"
+			d["area_dmg"] = Vector2.ONE * (3.0 + 4.0 * lvl) * fifth * skill_elem_mult("fire")
+		"Immolation Arrow":
+			d["radius"] = 3.0
+			d["area_type"] = "fire"
+			d["area_dmg"] = Vector2.ONE * (3.0 + 4.0 * lvl) * fifth * skill_elem_mult("fire")
+			d["area_burn"] = Vector2(4.0 * lvl * fifth * skill_elem_mult("fire"), 3.0)
+			d["burn"] = Vector2(6.0 * lvl * fifth * skill_elem_mult("fire"), 3.0)
+		"Multiple Shot":
+			d["arrows"] = 1 + lvl
+		"Strafe":
+			d["arrows"] = 2 + lvl
+			d["range"] = 30.0
+		"Guided Arrow":
+			d["homing"] = true
+		"Jab", "Fend":
+			d["swings"] = 2 + mini(lvl / 3, 3)
+		"Power Strike", "Charged Strike":
+			d["radius"] = 4.0
+			d["area_type"] = "ltng"
+			d["area_dmg"] = Vector2.ONE * (3.0 + 3.0 * lvl) * fifth * skill_elem_mult("ltng")
+		"Impale":
+			d["phys_mult"] = 4.0 + 0.25 * float(lvl - 1)
+			d["recovery"] = 1.6
+		"Lightning Strike":
+			d["chain"] = 1 + lvl
+			d["chain_range"] = 8.0
+		"Lightning Fury":
+			d["chain"] = 2 + lvl / 2
+			d["chain_range"] = 8.0
+		"Poison Javelin":
+			d["poison_secs"] = 4.0
+		"Plague Javelin":
+			d["poison_secs"] = 4.0
+			d["radius"] = 3.5
+			d["area_type"] = "pois"
+			d["area_poison"] = Vector2(d.get("bolt", Vector2.ZERO).x, d.get("bolt", Vector2.ZERO).y)
+		"Inner Sight", "Slow Missiles":
+			d["range"] = 12.0 + float(lvl)
+			d["duration"] = 8.0 + 4.0 * float(lvl)
+		"Decoy", "Dopplezon":
+			d["ally_life"] = 30.0 + 15.0 * lvl
+			d["ally_time"] = 12.0 + 2.0 * lvl
+		"Valkyrie":
+			d["ally_life"] = 80.0 + 40.0 * lvl
+			d["ally_dmg"] = Vector2(4 + 4 * lvl, 10 + 6 * lvl)
+			d["ally_time"] = 45.0
+		"Critical Strike":
+			d["chance"] = _crit_at(lvl)
+		"Pierce":
+			d["chance"] = minf(_pierce_at(lvl), 0.85)   # the cap pierce_chance applies
+		"Dodge":
+			d["chance"] = _dodge_at(lvl)
+		"Avoid", "Evade":
+			d["chance"] = _avoid_at(lvl)
+		"Penetrate":
+			d["ar_bonus"] = _penetrate_at(lvl)
+	# the melee skills never fire a missile: their table element is only
+	# the strike's bolt (Lightning Strike chains it; the others use an area)
+	if n in ["Jab", "Fend", "Power Strike", "Charged Strike", "Impale", "Lightning Strike"]:
+		d.erase("edmg")
+	return d
 
 
 func player_defense() -> float:
@@ -956,7 +1079,8 @@ func is_poisoned() -> bool:
 	return poison_t > 0.0
 
 
-func _process(dt: float) -> void:
+func _physics_process(dt: float) -> void:
+	# on the tick clock so a replay regenerates exactly as the session did
 	# D2-style slow mana regeneration, sped up by "+N% Regenerate Mana";
 	# "Replenish Life +N" restores N*25/256 life a second
 	mana = minf(mana_max, mana + mana_max * dt / 30.0
@@ -1217,7 +1341,9 @@ func _migrate_save(d: Dictionary) -> Dictionary:
 	return d
 
 
-func save_game(player) -> void:
+func snapshot(player) -> Dictionary:
+	## The character as a save dict: what save_game writes, and what a
+	## session log carries so a replay starts from the same character.
 	var d := {
 		"version": SAVE_VERSION,
 		"name": char_name,
@@ -1236,6 +1362,13 @@ func save_game(player) -> void:
 		_saved_action = player.action_skill
 	else:
 		d["action"] = _saved_action
+	return d
+
+
+func save_game(player) -> void:
+	if Replay.playing():
+		return      # a replay drives the character; it must not touch the save
+	var d := snapshot(player)
 	if character != "":
 		DirAccess.make_dir_recursive_absolute(CHAR_DIR)
 	var f := FileAccess.open(_save_path(), FileAccess.WRITE)
@@ -1253,6 +1386,12 @@ func load_game(player) -> bool:
 	if d == null or d.is_empty():
 		return false
 	d = _migrate_save(d)
+	apply(d, player)
+	return true
+
+
+func apply(d: Dictionary, player) -> void:
+	## The character from a save dict: a file, or a replay's state line.
 	level = int(d.get("level", 1))
 	xp = int(d.get("xp", 0))
 	skill_points = int(d.get("skill_points", 0))
@@ -1286,4 +1425,3 @@ func load_game(player) -> bool:
 	inventory_changed.emit()
 	skills_changed.emit()
 	equipment_changed.emit()
-	return true

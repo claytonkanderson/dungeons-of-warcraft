@@ -245,17 +245,110 @@ func _hide_tip() -> void:
 func _on_hover(s: Dictionary, rect: Rect2) -> void:
 	_hover_skill = str(s.name)
 	var r: Dictionary = s.def
-	var lines := [s.name,
-		"Level %d" % gs.skill_level(s.name),
-		"Mana: %.1f" % (float(str(r.get("mana", "0")).to_int()) / 8.0),
-		"Required level: %s" % r.get("reqlevel", "1")]
+	var lines := [s.name]
+	# D2's own description for the skill (skilldesc "str long" through the
+	# string tables), exported into gamedata by the table stage
+	var sd: Dictionary = get_node("/root/SpriteDB").gamedata() 			.get("skilldesc", {}).get(str(s.name).to_lower(), {})
+	var desc := str(sd.get("long", ""))
+	if desc == "":
+		desc = str(sd.get("short", ""))
+	if desc != "":
+		for dl in desc.split("\n"):
+			lines.append(dl.substr(0, 1).to_upper() + dl.substr(1))   # D2 stores them lowercase
+	var lvl: int = gs.skill_level(s.name)
+	lines.append("Required level: %s" % r.get("reqlevel", "1"))
 	for k in ["reqskill1", "reqskill2", "reqskill3"]:
 		var req := str(r.get(k, "")).strip_edges()
 		if req != "":
 			lines.append("Requires: " + req)
+	# the numbers the combat applies at this level, and at the next
+	lines.append("")
+	lines.append("Current Skill Level: %d" % lvl if lvl > 0 else "First Level")
+	lines.append_array(_number_lines(str(s.name), maxi(1, lvl)))
+	if lvl < 20:
+		lines.append("")
+		lines.append("Next Level")
+		lines.append_array(_number_lines(str(s.name), maxi(1, lvl) + 1))
+	lines.append("")
 	lines.append("click: +1   ctrl+click: LMB   right-click: RMB")
 	lines.append("F1-F5: bind hotkey")
 	_show_tip("\n".join(lines), rect)
+
+
+const ELEMENT_NAMES := {"fire": "Fire", "cold": "Cold", "ltng": "Lightning",
+		"pois": "Poison", "mag": "Magic", "": "Magic"}
+
+
+static func _range(v: Vector2) -> String:
+	return "%d" % roundi(v.x) if roundi(v.x) == roundi(v.y) \
+			else "%d-%d" % [roundi(v.x), roundi(v.y)]
+
+
+func _number_lines(skill: String, lvl: int) -> Array:
+	## What GameState.skill_numbers says the skill does at `lvl`, in D2's
+	## phrasing: exactly the values world.gd applies, nothing D2 promises
+	## that this combat does not do.
+	var n: Dictionary = gs.skill_numbers(skill, lvl)
+	var out := []
+	if float(n["mana"]) > 0.0:
+		out.append("Mana Cost: %.1f" % float(n["mana"]))
+	var el: String = ELEMENT_NAMES.get(str(n["etype"]), str(n["etype"]).capitalize())
+	if n.has("edmg"):
+		var e: Vector2 = n["edmg"]
+		if n.has("poison_secs"):
+			out.append("%s Damage: %s over %d seconds" % [el, _range(e), int(n["poison_secs"])])
+		else:
+			out.append("%s Damage: %s" % [el, _range(e)])
+	# a strike's bolt only matters where it chains; the area line covers
+	# Power and Charged Strike
+	if n.has("chain"):
+		out.append("Chains to %d enemies within %d yards: %s Damage: %s" % [
+				int(n["chain"]), int(n["chain_range"]), el, _range(n["bolt"])])
+	if n.has("chill"):
+		var c: Vector2 = n["chill"]
+		out.append("Slows by %d percent for %.1f seconds" % [roundi((1.0 - c.y) * 100.0), c.x])
+	if n.has("burn"):
+		var b: Vector2 = n["burn"]
+		out.append("Burns for %d over %d seconds" % [roundi(b.x * b.y), int(b.y)])
+	if n.has("radius"):
+		out.append("Radius: %.1f yards" % float(n["radius"]))
+	if n.has("area_dmg"):
+		out.append("Area %s Damage: %s" % [ELEMENT_NAMES.get(str(n["area_type"]), ""),
+				_range(n["area_dmg"])])
+	if n.has("area_chill"):
+		var ac: Vector2 = n["area_chill"]
+		out.append("Area slowed by %d percent for %.1f seconds" % [
+				roundi((1.0 - ac.y) * 100.0), ac.x])
+	if n.has("area_burn"):
+		var ab: Vector2 = n["area_burn"]
+		out.append("Area burns for %d over %d seconds" % [roundi(ab.x * ab.y), int(ab.y)])
+	if n.has("area_poison"):
+		out.append("Area Poison Damage: %s over %d seconds" % [
+				_range(n["area_poison"]), int(n["poison_secs"])])
+	if n.has("arrows"):
+		out.append("Fires %d arrows" % int(n["arrows"]))
+	if n.has("swings"):
+		out.append("%d rapid thrusts" % int(n["swings"]))
+	if n.has("homing"):
+		out.append("Seeks the nearest enemy")
+	if n.has("phys_mult"):
+		out.append("Damage: +%d percent" % roundi((float(n["phys_mult"]) - 1.0) * 100.0))
+		out.append("Slow to recover")
+	if n.has("range") and not n.has("arrows"):
+		out.append("Range: %d yards" % int(n["range"]))
+	if n.has("duration"):
+		out.append("Duration: %d seconds" % int(n["duration"]))
+	if n.has("ally_life"):
+		out.append("Life: %d" % int(n["ally_life"]))
+	if n.has("ally_dmg"):
+		out.append("Damage: %s" % _range(n["ally_dmg"]))
+	if n.has("ally_time"):
+		out.append("Lasts %d seconds" % int(n["ally_time"]))
+	if n.has("chance"):
+		out.append("%d percent chance" % roundi(float(n["chance"]) * 100.0))
+	if n.has("ar_bonus"):
+		out.append("Attack Rating: +%d percent" % roundi(float(n["ar_bonus"]) * 100.0))
+	return out
 
 
 func _on_icon_input(e: InputEvent, s: Dictionary) -> void:

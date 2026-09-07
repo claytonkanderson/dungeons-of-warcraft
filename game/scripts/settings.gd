@@ -7,6 +7,10 @@ const PATH := "user://settings.json"
 var master := 1.0
 var music := 1.0
 var effects := 1.0
+# record each session to user://sessions (see replay.gd), read when a
+# dungeon is entered. Off for players and not in any menu: run_game.bat
+# passes --record, and "record_sessions": true in settings.json also works.
+var record_sessions := false
 
 
 func _ready() -> void:
@@ -23,6 +27,7 @@ func _ready() -> void:
 			master = clampf(float(d.get("master", 1.0)), 0.0, 1.0)
 			music = clampf(float(d.get("music", 1.0)), 0.0, 1.0)
 			effects = clampf(float(d.get("effects", 1.0)), 0.0, 1.0)
+			record_sessions = bool(d.get("record_sessions", false))
 	_apply()
 
 
@@ -47,7 +52,11 @@ func set_volume(which: String, v: float) -> void:
 		"music": music = v
 		"effects": effects = v
 	_apply()
+	_save()
+
+
+func _save() -> void:
 	var f := FileAccess.open(PATH, FileAccess.WRITE)
 	if f != null:
-		f.store_string(JSON.stringify(
-			{"master": master, "music": music, "effects": effects}))
+		f.store_string(JSON.stringify({"master": master, "music": music,
+				"effects": effects, "record_sessions": record_sessions}))

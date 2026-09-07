@@ -46,7 +46,8 @@ func _ready() -> void:
 		if str(a) in ["--combat-test", "--ui-test", "--fps-probe",
 				"--walk-test", "--fresh"] or str(a).begins_with("--shots=") \
 				or str(a).begins_with("--at=") \
-				or str(a).begins_with("--dungeon="):
+				or str(a).begins_with("--dungeon=") \
+				or str(a).begins_with("--replay="):
 			get_tree().change_scene_to_file.call_deferred("res://scenes/world.tscn")
 			return
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE

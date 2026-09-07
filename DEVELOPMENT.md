@@ -122,6 +122,7 @@ run_game.bat -- --fresh                     # ignore the save, starter kit
 run_game.bat -- --dungeon=shadowfang-keep   # jump straight into one dungeon
 run_game.bat -- --combat-test               # scripted bow fight: kills, drops, xp
 run_game.bat -- --item-test                 # equip every property, print what it does
+run_game.bat -- --skill-tips                # every skill's tooltip numbers at levels 1, 10, 20
 run_game.bat -- --loot-test                 # drop statistics per level and kind
 run_game.bat -- --loot-run                  # expected loot from clearing the first four dungeons
 run_game.bat -- --ui-test                   # capture the HUD and panels to shots/
@@ -131,6 +132,9 @@ run_game.bat -- --mob-shot=<entry>          # a creature alive, dead and gone
 run_game.bat -- --what-here                 # placements enclosing the spawn
 run_game.bat -- --perf-test                 # look, sprint and crowd frame times
 run_game.bat -- --walk-test / --stair-test  # footing probes
+run_game.bat -- --topdown=<abs path>.png   # orthographic view of the whole dungeon
+run_game.bat -- --replay-test               # a scripted session, recorded (see below)
+run_game.bat -- --replay=<log> --no-record  # play a session log back
 ```
 
 Two launchers keep automated runs off the desktop so they never steal
@@ -140,6 +144,47 @@ force their own draws), and `offdesk.bat` does the same without minimizing
 (for anything that must render real frames: the combat test and the perf
 probe; `perf.bat` is that plus `--perf-test`). Both take the same
 arguments as `run_game.bat`.
+
+## Recording and replaying a session
+
+`run_game.bat` records every session (it passes `--record`); players are
+never recorded unless `"record_sessions": true` is put in their
+`settings.json` (there is no menu for it), and `--no-record` wins over
+both (the capture launchers pass it). Logs go to
+`%APPDATA%\Godot\app_userdata\Dungeons of Warcraft\sessions\<stamp>-<character>-<dungeon>.jsonl`,
+roughly half a megabyte a minute, and render to video offline:
+
+```bash
+render_replay.bat "<path to session.jsonl>" [out.mp4]
+```
+
+The log is a state log, not an input log. `replay.gd` (autoloaded as
+`Replay`) runs after every gameplay node each physics tick and writes what
+changed: the player's position and look angles every tick; the HUD
+numbers, the creatures (position, yaw, animation clip, life), every
+`BillboardAnim` under the world (arrows, enemy missiles, bolts, summons),
+the items on the floor and the doors every third tick; the panels and a
+full character snapshot whenever a panel opens or closes; and events for
+sounds, HUD flashes and area text, which `Sfx`, `WowSfx` and `HUD` log at
+their entry points.
+
+Playback is puppetry. The world builds its geometry as usual, then
+`Replay.arm` switches the world, the player and every creature to
+`puppet`, turns off `GameState`'s tick, and from then on places everything
+from the log, interpolating positions between samples. Nothing is
+simulated, so a replay cannot drift and gameplay code owes it nothing
+beyond what is logged. Anything new that should appear in a video (a new
+effect type, a new HUD element) needs a line in the sampler or an event.
+
+`--replay-test` records a scripted session (a walk, a sprint, jumps, a
+fight, a potion, the inventory opened and closed); rendering the log it
+prints exercises every kind of line. The render runs the game under
+Godot's Movie Maker (`--write-movie`, `--fixed-fps 60`), one frame per
+tick, into an MJPEG AVI with audio, then transcodes to MP4 with ffmpeg
+(`winget install Gyan.FFmpeg`; the script also finds a winget install the
+shell has not picked up). Movie Maker draws and encodes every frame, so
+it runs at roughly real time; the window is moved off the desktop and out
+of the focus order while it does.
 
 ## Project layout
 
@@ -158,6 +203,8 @@ runtime through `Paths.root()`, which is `../assets` in the editor and
   creatures.
 - `player.gd` — movement, warp-based mouse look, attack timing, blocking,
   hit recovery.
+- `replay.gd` — session recording as a state log, and playback as
+  puppetry (above).
 - `game_state.gd` — characters, equipment and every item property's
   effect, set bonuses, stats, versioned saves.
 - `item_db.gd`, `item_gen.gd` — D2 treasure classes and the quality roll;
@@ -208,4 +255,8 @@ GitHub. They cover the same ground and should be kept in step.
   other classes' skill bonuses.
 - The Shadowfang Keep entrance-stair probe regressed (0.24 m climbed against
   a 3.7 m baseline) on both physics engines; not yet diagnosed.
-- Ten of the twenty dungeons are unbuilt.
+- Six of the twenty dungeons are unbuilt.
+- Zul'Farrak is the first outdoor instance: spawn calibration finds no
+  building to match against (0 of 271, expected), the map places fine, but
+  the flat indoor ambient lighting washes out the desert; an outdoor sky
+  and sun for it is still to do.
