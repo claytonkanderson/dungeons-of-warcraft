@@ -3,7 +3,8 @@ video/tours/<dungeon>.mp4, for watching a build for artifacts.
 
     python tour_videos.py <seconds> <dungeon-id> [<dungeon-id> ...]
 
-Recording runs off-desktop and minimized (only the session log matters);
+Recording runs off-desktop and minimized (only the session log matters,
+and it is removed once its video is written);
 the render is render_replay.bat. Each dungeon takes about the tour length
 to record and one to two times that to render.
 """
@@ -62,6 +63,9 @@ def main():
         mp4.unlink(missing_ok=True)
         if render(log, mp4):
             print(f"  wrote {mp4} ({mp4.stat().st_size / 1e6:.1f} MB)")
+            # the glide's log is only the render's input, not a play session:
+            # keep it out of the sessions folder once the video exists
+            Path(log).unlink(missing_ok=True)
     print(f"tours in {OUT}")
 
 

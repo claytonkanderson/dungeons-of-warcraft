@@ -199,8 +199,12 @@ def _glb_tris(path):
         for prim in mesh["primitives"]:
             pos = acc(prim["attributes"]["POSITION"])
             idx = acc(prim["indices"])
-            for k in range(0, len(idx), 3):
-                tris.append((pos[idx[k]], pos[idx[k + 1]], pos[idx[k + 2]]))
+            n = len(pos)
+            for k in range(0, len(idx) - 2, 3):
+                i, jj, kk = idx[k], idx[k + 1], idx[k + 2]
+                if i >= n or jj >= n or kk >= n:
+                    continue          # a malformed primitive: not a wall
+                tris.append((pos[i], pos[jj], pos[kk]))
     return tris
 
 

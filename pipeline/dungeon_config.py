@@ -280,7 +280,7 @@ DUNGEONS = {
     ),
     # the two raids, at the top of the ladder
     "molten-core": dict(
-        map_name="moltencore", ac_map=409, target_level=84, xp_span=4,
+        map_name="moltencore", ac_map=409, target_level=84, xp_span=2,
         entrance="Window Entrance",
         bosses=["Lucifron", "Magmadar", "Gehennas", "Garr", "Baron Geddon",
                 "Shazzrah", "Sulfuron Harbinger", "Golemagg the Incinerator",
@@ -292,6 +292,34 @@ DUNGEONS = {
         extra_spawns=[("Majordomo Executus", 759.542, -1173.43, -118.974, 3.3048),
                       ("Ragnaros", 838.3082, -831.4665, -232.1853, 2.199115)],
         ambience=["moltencore", "blackrock", "lava"],
+        footstep="stone",
+    ),
+    "ruins-of-ahnqiraj": dict(
+        map_name="ahnqiraj", ac_map=509, target_level=82, xp_span=2,
+        entrance="Outside",
+        bosses=["Kurinnaxx", "General Rajaxx", "Moam", "Buru the Gorger",
+                "Ayamiss the Hunter", "Ossirian the Unscarred"],
+        final_boss="Ossirian the Unscarred",
+        ambience=["ahnqiraj", "silithus", "desert"],
+        footstep="dirt",
+    ),
+    "onyxias-lair": dict(
+        map_name="onyxialairinstance", ac_map=249, target_level=85, xp_span=1,
+        bosses=["Onyxia"],
+        final_boss="Onyxia",
+        ambience=["onyxia", "dustwallow", "cave"],
+        footstep="stone",
+    ),
+    "temple-of-ahnqiraj": dict(
+        map_name="ahnqirajtemple", ac_map=531, target_level=92, xp_span=4,
+        entrance="Outside",
+        bosses=["The Prophet Skeram", "Battleguard Sartura", "Fankriss the Unyielding",
+                "Viscidus", "Princess Huhuran", "Emperor Vek'lor", "Emperor Vek'nilash",
+                "Lord Kri", "Princess Yauj", "Vem", "Ouro", "C'Thun"],
+        final_boss="C'Thun",
+        # Ouro rises from the sand on a trigger: placed on his spawner's spot
+        extra_spawns=[("Ouro", -9173.0, 2107.0, -65.0, 1.43)],
+        ambience=["ahnqiraj", "silithus", "desert"],
         footstep="stone",
     ),
     "zul-gurub": dict(
@@ -308,7 +336,7 @@ DUNGEONS = {
         footstep="stone",
     ),
     "blackwing-lair": dict(
-        map_name="blackwinglair", ac_map=469, target_level=88, xp_span=4,
+        map_name="blackwinglair", ac_map=469, target_level=88, xp_span=3,
         bosses=["Razorgore the Untamed", "Vaelastrasz the Corrupt",
                 "Broodlord Lashlayer", "Firemaw", "Ebonroc", "Flamegor",
                 "Chromaggus", "Nefarian"],

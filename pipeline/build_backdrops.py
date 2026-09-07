@@ -55,6 +55,9 @@ ART = {
     "upper-blackrock-spire": ["upperblackrockspire", "blackrockspire"],
     "molten-core": ["moltencore"],
     "zul-gurub": ["zulgurub"],
+    "ruins-of-ahnqiraj": ["ruinsofahnqiraj", "ahnqiraj"],
+    "onyxias-lair": ["onyxiaslair", "onyxia"],
+    "temple-of-ahnqiraj": ["templeofahnqiraj", "ahnqiraj"],
     "blackwing-lair": ["blackwinglair"],
 }
 

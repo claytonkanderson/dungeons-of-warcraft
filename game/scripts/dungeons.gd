@@ -31,8 +31,11 @@ const LIST := [
 	{"id": "stratholme", "name": "Stratholme", "levels": "72-75"},
 	{"id": "upper-blackrock-spire", "name": "Upper Blackrock Spire", "levels": "75-78"},
 	{"id": "zul-gurub", "name": "Zul'Gurub", "levels": "78-80"},
-	{"id": "molten-core", "name": "Molten Core", "levels": "80-84"},
-	{"id": "blackwing-lair", "name": "Blackwing Lair", "levels": "84-88"},
+	{"id": "ruins-of-ahnqiraj", "name": "Ruins of Ahn'Qiraj", "levels": "80-82"},
+	{"id": "molten-core", "name": "Molten Core", "levels": "82-84"},
+	{"id": "onyxias-lair", "name": "Onyxia's Lair", "levels": "84-85"},
+	{"id": "blackwing-lair", "name": "Blackwing Lair", "levels": "85-88"},
+	{"id": "temple-of-ahnqiraj", "name": "Temple of Ahn'Qiraj", "levels": "88-92"},
 ]
 
 
