@@ -182,4 +182,67 @@ DUNGEONS = {
         ambience=["sunkentemple", "swampofsorrows", "swamp"],
         footstep="stone",
     ),
+    "blackrock-depths": dict(
+        map_name="blackrockdepths", ac_map=230, target_level=63,
+        # the Ring of Law arena bosses are event-spawned and have no rows
+        bosses=["High Interrogator Gerstahn", "Lord Roccor", "Houndmaster Grebmar",
+                "Pyromancer Loregrain", "Lord Incendius", "Warder Stilgiss", "Verek",
+                "Fineous Darkvire", "Bael'Gar", "General Angerforge",
+                "Golem Lord Argelmach", "Hurley Blackbreath", "Phalanx",
+                "Ribbly Screwspigot", "Plugger Spazzring", "Ambassador Flamelash",
+                "Panzor the Invincible", "Magmus", "Princess Moira Bronzebeard",
+                "Emperor Dagran Thaurissan"],
+        final_boss="Emperor Dagran Thaurissan",
+        ambience=["blackrockdepths", "blackrock", "searinggorge"],
+        footstep="stone",
+    ),
+    # Blackrock Spire is one building holding both instances; the lower one
+    # is the western half (server x below 30), the upper spire the eastern.
+    # `bounds` keeps the spawns and gameobjects of one side; `entrance`
+    # names the trigger, as the map's first row is the exit
+    "lower-blackrock-spire": dict(
+        map_name="blackrockspire", ac_map=229, target_level=66,
+        bounds={"xmax": 30.0},
+        entrance="Searing Gorge Instance (Inside)",
+        bosses=["Highlord Omokk", "Shadow Hunter Vosh'gajin", "War Master Voone",
+                "Mother Smolderweb", "Quartermaster Zigris", "Halycon",
+                "Bannok Grimaxe", "Crystal Fang", "Ghok Bashguud",
+                "Overlord Wyrmthalak"],
+        final_boss="Overlord Wyrmthalak",
+        ambience=["blackrockspire", "blackrock", "burningsteppes"],
+        footstep="stone",
+    ),
+    # Dire Maul: three instances in one building. Each wing is a quadrant of
+    # the map in server coordinates (`bounds`); the wing's own entrance
+    # trigger names the way in.
+    "dire-maul-east": dict(
+        map_name="diremaul", ac_map=429, target_level=67, xp_span=1,
+        bounds={"ymax": -100.0},
+        entrance="East Wing [West]",
+        bosses=["Pusillin", "Zevrim Thornhoof", "Hydrospawn", "Lethtendris",
+                "Alzzin the Wildshaper"],
+        final_boss="Alzzin the Wildshaper",
+        ambience=["diremaul", "feralas"],
+        footstep="stone",
+    ),
+    "dire-maul-west": dict(
+        map_name="diremaul", ac_map=429, target_level=68, xp_span=1,
+        bounds={"xmax": 250.0, "ymin": 150.0},
+        entrance="West Wing [North]",
+        bosses=["Tendris Warpwood", "Illyanna Ravenoak", "Magister Kalendris",
+                "Tsu'zee", "Immol'thar", "Prince Tortheldrin"],
+        final_boss="Prince Tortheldrin",
+        ambience=["diremaul", "feralas"],
+        footstep="stone",
+    ),
+    "dire-maul-north": dict(
+        map_name="diremaul", ac_map=429, target_level=69, xp_span=1,
+        bounds={"xmin": 250.0, "ymin": -100.0},
+        entrance="North Wing (Entrance)",
+        bosses=["Guard Mol'dar", "Stomper Kreeg", "Guard Fengus", "Guard Slip'kik",
+                "Captain Kromcrush", "Cho'Rush the Observer", "King Gordok"],
+        final_boss="King Gordok",
+        ambience=["diremaul", "feralas"],
+        footstep="stone",
+    ),
 }

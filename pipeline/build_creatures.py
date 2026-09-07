@@ -388,7 +388,7 @@ def load_stats(entries, spawns, cfg):
 
 
 def build(s, dungeon_id, cfg, stats_only=False):
-    spawns = load_spawns(cfg["ac_map"], cfg.get("wing"))
+    spawns = load_spawns(cfg["ac_map"], cfg.get("wing"), cfg.get("bounds"))
     entries = sorted({sp["entry"] for sp in spawns})
     print(f"{dungeon_id}: {len(spawns)} spawns, {len(entries)} unique entries")
     stats = load_stats(entries, spawns, cfg)

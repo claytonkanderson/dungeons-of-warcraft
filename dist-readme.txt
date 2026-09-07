@@ -82,12 +82,13 @@ CONTROLS
 CURRENT LIMITATIONS
 
   - Amazon only.
-  - Fourteen of the twenty dungeons are built: Ragefire Chasm, Wailing
+  - Seventeen of the twenty dungeons are built: Ragefire Chasm, Wailing
     Caverns (good luck - there's no map), The Deadmines, Shadowfang Keep,
     Blackfathom Deeps, The Stockade, Gnomeregan, Razorfen Kraul, Scarlet
     Monastery (all four wings), Razorfen Downs, Uldaman, Zul'Farrak,
-    Maraudon and The Temple of Atal'Hakkar. The rest are listed and
-    arrive as they get built.
+    Maraudon, The Temple of Atal'Hakkar, Blackrock Depths, Lower Blackrock
+    Spire and Dire Maul (all three wings). Scholomance, Stratholme and
+    Upper Blackrock Spire arrive as they get built.
   - Windows only, keyboard and mouse only (no controller support).
 
 NOTES

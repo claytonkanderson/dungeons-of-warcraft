@@ -103,6 +103,13 @@ terrain tiles nearest it; the calibration hit rate should be near 100%
 for every wing. `xp_span` sets how many levels a clear is worth (five by
 default) so the wings together budget one dungeon's worth.
 
+When one building holds several instances (Dire Maul's three wings, the
+two Blackrock Spires) there is no placement to pick: `bounds` names the
+part of the map in server coordinates (`xmin`/`xmax`/`ymin`/`ymax`/`zmin`/
+`zmax`, any subset) whose spawns and gameobjects belong to the instance,
+and `entrance` names the trigger to start at when the map's first row is
+not it.
+
 Creature models the local client lacks get a stand-in from
 `MODEL_STANDINS` in `build_creatures.py`; the build lists any it skipped.
 Creature voices are assigned per model family in `voice_sets.py`;
@@ -255,7 +262,9 @@ GitHub. They cover the same ground and should be kept in step.
   other classes' skill bonuses.
 - The Shadowfang Keep entrance-stair probe regressed (0.24 m climbed against
   a 3.7 m baseline) on both physics engines; not yet diagnosed.
-- Six of the twenty dungeons are unbuilt.
+- Three of the twenty dungeons are unbuilt: Scholomance, Stratholme and
+  Upper Blackrock Spire (the eastern half of the Blackrock Spire building,
+  `bounds={"xmin": 30}` on map 229 when its turn comes).
 - Zul'Farrak is the first outdoor instance: spawn calibration finds no
   building to match against (0 of 271, expected), the map places fine, but
   the flat indoor ambient lighting washes out the desert; an outdoor sky

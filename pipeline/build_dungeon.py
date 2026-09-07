@@ -25,7 +25,7 @@ import build_creatures
 import build_terrain
 from dungeon_common import (find_wdt, load_spawns, entrance, wmo_placements,
                             pick_main, calibrate, Transform, world_from_file,
-                            wing_keep)
+                            wing_keep, in_bounds)
 from dungeon_config import DUNGEONS
 
 # WoW scatters barrels and crates by the hundred as filler. Dropped in from
@@ -319,7 +319,8 @@ def build(s, did, cfg):
         print("!! WDT not found, aborting")
         return False
     wing = cfg.get("wing")
-    spawns = load_spawns(cfg["ac_map"], wing)
+    bounds = cfg.get("bounds")
+    spawns = load_spawns(cfg["ac_map"], wing, bounds)
     placements, obj_fdids, flags = wmo_placements(s, wdt)
     if not placements:
         print("!! no WMO placements, aborting")
@@ -330,14 +331,20 @@ def build(s, did, cfg):
     # of the map (nearest-entrance, as for the spawns) and everything the
     # map carries near it; the other wings drop out here and their doodad
     # sets, gameobjects, props and tiles follow through the same predicate
-    keep = wing_keep(cfg["ac_map"], wing) if wing else (lambda x, y: True)
+    wkeep = wing_keep(cfg["ac_map"], wing) if wing else (lambda x, y: True)
+
+    def keep(x, y, z=0.0):
+        return wkeep(x, y) and in_bounds(bounds, x, y, z)
     if wing:
-        placements = {uid: p for uid, p in placements.items()
-                      if keep(*world_from_file(*p["pos"])[:2])}
-        print(f"wing {wing}: {len(placements)} WMO placement(s)")
-        if not placements:
-            print("!! no WMO placement on the wing's side of the map")
-            return False
+        mine = {uid: p for uid, p in placements.items()
+                if wkeep(*world_from_file(*p["pos"])[:2])}
+        if mine:
+            placements = mine
+            print(f"wing {wing}: {len(placements)} WMO placement(s)")
+        else:
+            # one building holds every wing (Dire Maul): keep it whole and
+            # let the spawn partition make the wing
+            print(f"wing {wing}: no placement of its own, the whole map's building stays")
     main_uid, roots = pick_main(s, placements)
     cal = calibrate(s, spawns, placements, main_uid, roots)
     print(f"calibration: {cal['hits']}/{cal['total']} spawns inside "
@@ -372,8 +379,7 @@ def build(s, did, cfg):
     for uid, p in sorted(placements.items()):
         if p["fdid"] not in wmo_names:
             continue
-        if all(abs(v) < 0.01 for v in p["pos"]) \
-                and all(abs(v) < 0.01 for v in p["rot"]):
+        if all(abs(v) < 0.01 for v in p["pos"]):
             w = (0.0, 0.0, 0.0)     # global-WMO map: authored at world origin
         else:
             w = world_from_file(*p["pos"])
@@ -452,7 +458,7 @@ def build(s, did, cfg):
             encoding="utf-8").splitlines():
         if sp_pat.match(line):
             f = line.strip("(),;").split(",")
-            if not keep(float(f[7]), float(f[8])):
+            if not keep(float(f[7]), float(f[8]), float(f[9])):
                 continue
             go_spawns.append((int(f[1]), float(f[7]), float(f[8]),
                               float(f[9]), float(f[10])))
@@ -511,7 +517,7 @@ def build(s, did, cfg):
     out["door_rules"] = cfg.get("doors", {})
 
     # entrance
-    ent = entrance(cfg["ac_map"], wing)
+    ent = entrance(cfg["ac_map"], wing, cfg.get("entrance"))
     if ent:
         ex, ey, ez, eo = ent
         out["spawn"] = {"pos": t.to_gl(ex, ey, ez),

@@ -88,9 +88,19 @@ def creature_names():
     return names
 
 
-def load_spawns(ac_map, wing=None):
+def in_bounds(b, x, y, z):
+    """`bounds`: a dict of xmin/xmax/ymin/ymax/zmin/zmax in server world
+    coordinates, any subset; the part of one map that is one instance."""
+    if not b:
+        return True
+    return (x >= b.get("xmin", -1e9) and x <= b.get("xmax", 1e9)
+            and y >= b.get("ymin", -1e9) and y <= b.get("ymax", 1e9)
+            and z >= b.get("zmin", -1e9) and z <= b.get("zmax", 1e9))
+
+
+def load_spawns(ac_map, wing=None, bounds=None):
     """Creature spawns on the map; with `wing`, only that wing's (see
-    wing_keep)."""
+    wing_keep); with `bounds`, only those inside (see in_bounds)."""
     rows = []
     names = creature_names()
     dropped = {}
@@ -116,6 +126,10 @@ def load_spawns(ac_map, wing=None):
         before = len(rows)
         rows = [r for r in rows if keep(r["x"], r["y"])]
         print(f"wing {wing}: {len(rows)} of {before} spawns")
+    if bounds:
+        before = len(rows)
+        rows = [r for r in rows if in_bounds(bounds, r["x"], r["y"], r["z"])]
+        print(f"bounds {bounds}: {len(rows)} of {before} spawns")
     return rows
 
 
@@ -141,11 +155,13 @@ def entrances(ac_map):
     return out
 
 
-def entrance(ac_map, wing=None):
-    """The map's entrance trigger -> (x, y, z, o) or None. With `wing`, the
-    trigger whose name carries the wing's; the first row otherwise."""
+def entrance(ac_map, wing=None, name_part=None):
+    """The map's entrance trigger -> (x, y, z, o) or None. With `wing` or
+    `name_part`, the first trigger whose name carries it; else the first
+    row for the map."""
+    want = name_part or wing
     for name, x, y, z, o in entrances(ac_map):
-        if wing is None or wing.lower() in name.lower():
+        if want is None or want.lower() in name.lower():
             return (x, y, z, o)
     return None
 
@@ -158,16 +174,15 @@ def wing_keep(ac_map, wing):
     everything on the map (creatures, gameobjects, props, tiles). The
     calibration hit rate after the split is the check that it held."""
     ents = entrances(ac_map)
-    mine = [e for e in ents if wing.lower() in e[0].lower()]
-    if len(mine) != 1:
+    mine = [(e[1], e[2]) for e in ents if wing.lower() in e[0].lower()]
+    if not mine:
         raise SystemExit(
-            "wing %r matches %d entrance triggers on map %d: %s"
-            % (wing, len(mine), ac_map, ", ".join(e[0] for e in ents)))
-    wx, wy = mine[0][1], mine[0][2]
-    others = [(e[1], e[2]) for e in ents if e is not mine[0]]
+            "wing %r matches no entrance trigger on map %d: %s"
+            % (wing, ac_map, ", ".join(e[0] for e in ents)))
+    others = [(e[1], e[2]) for e in ents if wing.lower() not in e[0].lower()]
 
     def keep(x, y):
-        d = (x - wx) ** 2 + (y - wy) ** 2
+        d = min((x - mx) ** 2 + (y - my) ** 2 for mx, my in mine)
         return all(d <= (x - ox) ** 2 + (y - oy) ** 2 for ox, oy in others)
     return keep
 
@@ -220,16 +235,16 @@ def pick_main(s, placements):
 
 def calibrate(s, spawns, placements, main_uid, roots):
     main_pl = placements[main_uid]
-    if all(abs(v) < 0.01 for v in main_pl["pos"]) \
-            and all(abs(v) < 0.01 for v in main_pl["rot"]):
+    global_wmo = all(abs(v) < 0.01 for v in main_pl["pos"])
+    if global_wmo:
         # global-WMO map: the WMO is authored at the world origin, so server
-        # coords map straight into WMO-local space (no file-coord shift)
+        # coords map straight into WMO-local space (no file-coord shift). It
+        # may still be placed turned (Dire Maul: 180 degrees), which the
+        # candidate rotations below absorb through ry_main
         ox, oy, oz = 0.0, 0.0, 0.0
-        ry_main = 0.0
     else:
         ox, oy, oz = world_from_file(*main_pl["pos"])
-        ry_main = main_pl["rot"][1]
-    global_wmo = ry_main == 0.0 and (ox, oy, oz) == (0.0, 0.0, 0.0)
+    ry_main = main_pl["rot"][1]
 
     # Every placed WMO votes, not just the main one: an outdoor map (Zul'Farrak)
     # keeps its spawns in dozens of small buildings and none in the largest,
