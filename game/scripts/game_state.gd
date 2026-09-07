@@ -916,11 +916,16 @@ func award_xp(amount: int) -> void:
 		get_node("/root/Sfx").event_ui("level_up")
 
 
+var invulnerable := false      # diagnostics (the survey tour): blows land, nothing dies
+
+
 func take_damage(dmg: float, etype := "phys", ranged := false) -> bool:
 	## Incoming damage through the character's reductions: physical gets the
 	## flat and percent damage reductions; elemental gets resistance, the flat
 	## magic reduction, then flat and percent absorb. A share can return as
 	## mana ("damage taken goes to mana").
+	if invulnerable:
+		return false
 	var raw := dmg
 	if etype == "phys":
 		dmg -= float(mods.get("red-dmg", 0))

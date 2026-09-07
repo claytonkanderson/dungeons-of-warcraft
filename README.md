@@ -24,13 +24,10 @@ content in a different way than usual.
 ## Current limitations
 
 - **Amazon only.** The other six classes are not playable.
-- **Seventeen of the twenty dungeons** on the ladder are built: Ragefire
-  Chasm, Wailing Caverns (good luck — there's no map), The Deadmines,
-  Shadowfang Keep, Blackfathom Deeps, The Stockade, Gnomeregan, Razorfen
-  Kraul, Scarlet Monastery (all four wings), Razorfen Downs, Uldaman,
-  Zul'Farrak, Maraudon, The Temple of Atal'Hakkar, Blackrock Depths, Lower
-  Blackrock Spire and Dire Maul (all three wings). Scholomance, Stratholme
-  and Upper Blackrock Spire arrive as they get built.
+- **All twenty dungeons** on the ladder are built, Ragefire Chasm to Upper
+  Blackrock Spire, with Scarlet Monastery as four wings and Dire Maul as
+  three. Some creatures have no model in the Anniversary client and a few
+  event-summoned bosses have no spawn; those stand out in play.
 - Windows only, keyboard and mouse only (no controller support).
 
 ## How do I install it?

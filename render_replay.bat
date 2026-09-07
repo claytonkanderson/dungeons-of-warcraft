@@ -35,7 +35,7 @@ if not defined FFMPEG (
   echo install ffmpeg ^(winget install Gyan.FFmpeg^) to get an MP4
   exit /b 0
 )
-"%FFMPEG%" -y -loglevel error -i "%AVI%" -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -c:a aac -b:a 192k "%OUTMP4%"
+"%FFMPEG%" -y -loglevel error -i "%AVI%" -c:v libx264 -preset medium -crf 22 -pix_fmt yuv420p -c:a aac -b:a 192k "%OUTMP4%"
 if errorlevel 1 (
   echo ffmpeg failed: the video is %AVI%
   exit /b 1

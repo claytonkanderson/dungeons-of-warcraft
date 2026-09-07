@@ -364,6 +364,9 @@ func _ready() -> void:
 	elif Cli.value("--topdown=") != "":
 		await _topdown_shot(Cli.value("--topdown="))
 		get_tree().quit()
+	elif Cli.value("--tour=") != "":
+		await _tour(float(Cli.value("--tour=")))
+		get_tree().quit()
 	elif OS.get_cmdline_user_args().has("--loot-run"):
 		_loot_run()
 		get_tree().quit()
@@ -2141,6 +2144,72 @@ func _notification(what: int) -> void:
 # ---------------------------------------------------------------------------
 # Verification modes
 # ---------------------------------------------------------------------------
+func _tour(seconds: float) -> void:
+	## A survey of the whole dungeon for the session log, to be rendered and
+	## watched for build artifacts: the camera glides through waypoints
+	## sampled along a nearest-neighbour chain over every creature's spot,
+	## sweeping its look around as it goes. The character is a puppet (no
+	## physics: walls do not stop the survey) kept at full life, so fights
+	## play out on camera without ending the run.
+	##   run_game.bat -- --fresh --dungeon=<id> --tour=120
+	var chain: Array = [spawn]
+	var pool: Array = []
+	for mob in monsters:
+		if is_instance_valid(mob):
+			pool.append(mob.global_position)
+	var here: Vector3 = spawn
+	while not pool.is_empty():
+		var bi := 0
+		var bd := 1e18
+		for i in range(pool.size()):
+			var d: float = here.distance_squared_to(pool[i])
+			if d < bd:
+				bd = d
+				bi = i
+		here = pool[bi]
+		chain.append(here)
+		pool.remove_at(bi)
+	# as many stops as the time allows at a few seconds each, spread evenly
+	# along the chain so the whole dungeon is seen; most of each leg is a
+	# look around from the stop (a creature's spot, so real floor), the
+	# rest a quick glide to the next
+	const LEG := 3.0
+	const MOVE := 0.8
+	var stops := maxi(2, int(seconds / LEG))
+	var route: Array = []
+	for k in range(stops):
+		route.append(chain[int(float(k) * (chain.size() - 1) / float(stops - 1))])
+	var length := 0.0
+	for i in range(1, route.size()):
+		length += route[i - 1].distance_to(route[i])
+	var gs := get_node("/root/GameState")
+	gs.invulnerable = true       # a level-1 survey of a level-60 dungeon
+	player.puppet = true
+	var leg_ticks := int(LEG * 60.0)
+	var yaw: float = player.yaw
+	var f := 0
+	for i in range(1, route.size()):
+		var a: Vector3 = route[i - 1]
+		var b: Vector3 = route[i]
+		var want := atan2(-(b.x - a.x), -(b.z - a.z)) if a.distance_to(b) > 0.5 else yaw
+		var move_ticks := int(MOVE * 60.0)
+		for k in range(leg_ticks):
+			var t := clampf(float(k) / float(move_ticks), 0.0, 1.0)
+			var e := t * t * (3.0 - 2.0 * t)      # ease in and out of the glide
+			player.global_position = a.lerp(b, e) + Vector3(0, 0.1, 0)
+			yaw = lerp_angle(yaw, want, 0.08)
+			# a slow half-turn each way while standing, straight ahead gliding
+			var sweep := 1.2 * sin(float(k - move_ticks) / float(leg_ticks - move_ticks) * TAU) 					if k >= move_ticks else 0.0
+			player.yaw = yaw + sweep
+			player.pitch = 0.12 * sin(float(f) / 60.0 * TAU / 13.0) - 0.05
+			gs.hp = gs.hp_max
+			gs.mana = gs.mana_max
+			f += 1
+			await get_tree().physics_frame
+	print("TOUR done: %d creature spots, %d stops, %.0f m, %d ticks" % [
+			chain.size() - 1, route.size(), length, f])
+
+
 func _topdown_shot(path: String) -> void:
 	## A view straight down on the whole dungeon from a narrow-angle camera
 	## high above it (the HUD hidden), for checking how buildings, props and

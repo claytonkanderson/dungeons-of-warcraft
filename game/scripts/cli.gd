@@ -24,6 +24,7 @@ const FLAGS := {
 	"--at=": "<x,y,z>         override the spawn position",
 	"--menu-shot=": "<file>   capture the main menu, then quit",
 	"--topdown=": "<file>     diagnostic: an orthographic view straight down on the whole dungeon, quit",
+	"--tour=": "<seconds>     diagnostic: a recorded survey glide through the dungeon, then quit",
 	"--what-here": "diagnostic: list placements whose bounds enclose the spawn, quit",
 	"--loot-test": "diagnostic: simulate drops per monster level and kind, quit",
 	"--loot-run": "diagnostic: expected loot from clearing the first four dungeons, quit",

@@ -245,4 +245,37 @@ DUNGEONS = {
         ambience=["diremaul", "feralas"],
         footstep="stone",
     ),
+    "scholomance": dict(
+        map_name="schoolofnecromancy", ac_map=289, target_level=72,
+        # Kirtonos is summoned by the blood of innocents: no spawn row
+        bosses=["Jandice Barov", "Rattlegore", "Marduk Blackpool", "Vectus",
+                "Ras Frostwhisper", "Instructor Malicia", "Doctor Theolen Krastinov",
+                "Lorekeeper Polkelt", "The Ravenian", "Lord Alexei Barov",
+                "Lady Illucia Barov", "Darkmaster Gandling"],
+        final_boss="Darkmaster Gandling",
+        ambience=["scholomance", "westernplaguelands", "plaguelands"],
+        footstep="stone",
+    ),
+    "stratholme": dict(
+        map_name="stratholme", ac_map=329, target_level=75,
+        bosses=["The Unforgiven", "Timmy the Cruel", "Malor the Zealous",
+                "Cannon Master Willey", "Archivist Galford", "Grand Crusader Dathrohan",
+                "Baroness Anastari", "Nerub'enkan", "Maleki the Pallid",
+                "Magistrate Barthilas", "Hearthsinger Forresten",   # Ramstein is event-summoned
+                "Stonespine", "Baron Rivendare"],
+        final_boss="Baron Rivendare",
+        ambience=["stratholme", "easternplaguelands", "plaguelands"],
+        footstep="stone",
+    ),
+    # the eastern half of the Blackrock Spire building (see lower-blackrock-spire)
+    "upper-blackrock-spire": dict(
+        map_name="blackrockspire", ac_map=229, target_level=78,
+        bounds={"xmin": 30.0},
+        entrance="Searing Gorge Instance (Inside)",
+        bosses=["Pyroguard Emberseer", "Goraluk Anvilcrack", "Jed Runewatcher",
+                "Warchief Rend Blackhand", "The Beast", "General Drakkisath"],
+        final_boss="General Drakkisath",
+        ambience=["blackrockspire", "blackrock", "burningsteppes"],
+        footstep="stone",
+    ),
 }

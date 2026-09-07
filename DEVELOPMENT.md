@@ -139,7 +139,8 @@ run_game.bat -- --mob-shot=<entry>          # a creature alive, dead and gone
 run_game.bat -- --what-here                 # placements enclosing the spawn
 run_game.bat -- --perf-test                 # look, sprint and crowd frame times
 run_game.bat -- --walk-test / --stair-test  # footing probes
-run_game.bat -- --topdown=<abs path>.png   # orthographic view of the whole dungeon
+run_game.bat -- --topdown=<abs path>.png   # a view straight down on the whole dungeon
+run_game.bat -- --tour=90                   # a recorded survey glide (python tour_videos.py renders one per dungeon)
 run_game.bat -- --replay-test               # a scripted session, recorded (see below)
 run_game.bat -- --replay=<log> --no-record  # play a session log back
 ```
@@ -262,9 +263,8 @@ GitHub. They cover the same ground and should be kept in step.
   other classes' skill bonuses.
 - The Shadowfang Keep entrance-stair probe regressed (0.24 m climbed against
   a 3.7 m baseline) on both physics engines; not yet diagnosed.
-- Three of the twenty dungeons are unbuilt: Scholomance, Stratholme and
-  Upper Blackrock Spire (the eastern half of the Blackrock Spire building,
-  `bounds={"xmin": 30}` on map 229 when its turn comes).
+- Creature models the Anniversary client lacks and that have no stand-in
+  are skipped (the build lists them); Scholomance loses 14 of 41.
 - Zul'Farrak is the first outdoor instance: spawn calibration finds no
   building to match against (0 of 271, expected), the map places fine, but
   the flat indoor ambient lighting washes out the desert; an outdoor sky
