@@ -34,6 +34,10 @@ const REWARDS := {
 # Boss classes carry no gold row; a boss leaves one pile, scaled like the
 # richest class leaf (gld,mul=1280).
 const BOSS_GOLD_MUL := 5.0
+# D2's classes reach rings, amulets and charms about once in five hundred
+# kills; here a third of the class roll's weapons and armour become
+# jewellery instead, so the three kinds fall alike.
+const JEWELRY_SHARE := 1.0 / 3.0
 
 var items := {}
 var treasure := {}
@@ -234,6 +238,10 @@ func drops_for(mlvl: int, kind: String, archetype := "melee") -> Array:
 		for res in roll(tc, mlvl):
 			var d := {"code": str(res["code"]), "gold": int(res["gold"]), "inst": {}}
 			if d["gold"] == 0:
+				var cat: String = ItemGen.category(gen.type_chain(
+						str(item(d["code"]).get("type", ""))))
+				if cat in ["weapon", "armor"] and randf() < JEWELRY_SHARE:
+					d["code"] = gen.jewelry_base(mlvl)
 				d["inst"] = gen.roll_item(d["code"], mlvl, bonus, minq)
 				if gen._equippable(gen.type_chain(str(item(d["code"]).get("type", "")))):
 					gear += 1

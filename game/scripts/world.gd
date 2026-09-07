@@ -1766,6 +1766,7 @@ func _loot_test() -> void:
 			var gold := 0
 			var gear := 0
 			var q := {"normal": 0, "magic": 0, "rare": 0, "set": 0, "unique": 0}
+			var cats := {"weapon": 0, "armor": 0, "jewelry": 0}
 			var sample := []
 			for i in range(N):
 				for res in db.drops_for(mlvl, kind, "melee"):
@@ -1775,9 +1776,11 @@ func _loot_test() -> void:
 						continue
 					var inst: Dictionary = res["inst"]
 					var it: Dictionary = db.item(str(res["code"]))
-					if not gen._equippable(gen.type_chain(str(it.get("type", "")))):
+					var chain: Dictionary = gen.type_chain(str(it.get("type", "")))
+					if not gen._equippable(chain):
 						continue
 					gear += 1
+					cats[ItemGen.category(chain)] = int(cats[ItemGen.category(chain)]) + 1
 					var qual := str(inst.get("quality", "normal"))
 					q[qual] = int(q[qual]) + 1
 					if qual in ["unique", "set"] and sample.size() < 3:
@@ -1785,9 +1788,10 @@ func _loot_test() -> void:
 								inst.get("base_name", ""), int(inst.get("reqlvl", 0))])
 			print("LOOT mlvl %2d %-8s %-22s drops/kill %.2f  gold %.2f  gear/kill %.2f  "
 					% [mlvl, kind, tc, float(drops) / N, float(gold) / N, float(gear) / N]
-					+ "per kill r/s/u %.2f %.2f %.2f  %s" % [
+					+ "per kill r/s/u %.2f %.2f %.2f  w/a/j %d%%/%d%%/%d%%  %s" % [
 					float(q["rare"]) / N, float(q["set"]) / N, float(q["unique"]) / N,
-					" | ".join(sample)])
+					100 * cats["weapon"] / maxi(1, gear), 100 * cats["armor"] / maxi(1, gear),
+					100 * cats["jewelry"] / maxi(1, gear), " | ".join(sample)])
 
 
 func _replay_test() -> void:

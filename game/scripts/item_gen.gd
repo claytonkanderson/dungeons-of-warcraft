@@ -94,7 +94,44 @@ func type_chain(code: String) -> Dictionary:
 
 func _equippable(chain: Dictionary) -> bool:
 	return chain.has("weap") or chain.has("armo") or chain.has("ring") \
-			or chain.has("amul")
+			or chain.has("amul") or chain.has("char")
+
+
+static func category(chain: Dictionary) -> String:
+	## weapon | armor | jewelry (rings, amulets, charms) | "" for the rest
+	if chain.has("weap"):
+		return "weapon"
+	if chain.has("armo"):
+		return "armor"
+	if chain.has("ring") or chain.has("amul") or chain.has("char"):
+		return "jewelry"
+	return ""
+
+
+# The jewellery bases and their weights, from D2's Jewelry classes: rings
+# most, amulets half as often, the three charms behind. Drops take a
+# category first (weapon, armor, jewelry alike) and then a base, so the
+# jewellery is as common as either of the others rather than the one-in-
+# five-hundred D2's classes give it.
+const JEWELRY := [["rin", 8], ["amu", 4], ["cm3", 2], ["cm2", 2], ["cm1", 2]]
+
+
+func jewelry_base(ilvl: int) -> String:
+	## A ring, amulet or charm the level allows, Jewelry-class weighted.
+	var pool := []
+	var total := 0
+	for j in JEWELRY:
+		if str(db.item(str(j[0])).get("level", "1")).to_int() <= ilvl:
+			pool.append(j)
+			total += int(j[1])
+	if pool.is_empty():
+		return "rin"
+	var pick := randi() % total
+	for j in pool:
+		pick -= int(j[1])
+		if pick < 0:
+			return str(j[0])
+	return str(pool[0][0])
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +153,9 @@ func roll_item(code: String, ilvl: int, bonus := {}, min_quality := "") -> Dicti
 	var quality := _roll_quality(qlvl, ilvl, chain, bonus)
 	if int(QUALITY_RANK.get(min_quality, 0)) > int(QUALITY_RANK.get(quality, 0)):
 		quality = min_quality
+	# a charm is never plain and never rare in D2: magic, or a unique
+	if chain.has("char") and quality in ["normal", "rare", "set"]:
+		quality = "magic"
 	match quality:
 		"unique":
 			var u := _make_unique(code, ilvl)
@@ -135,8 +175,9 @@ func maybe_magic(code: String, ilvl: int) -> Dictionary:
 	return roll_item(code, ilvl)
 
 
-func _equip_base(ilvl: int) -> String:
-	## A random equippable base the level allows ("" when none).
+func _equip_base(ilvl: int, want := "") -> String:
+	## A random equippable base the level allows ("" when none); `want`
+	## narrows it to a category (see category()).
 	_ensure_loaded()
 	if _equip_pool.is_empty():
 		for c in db.items:
@@ -146,12 +187,18 @@ func _equip_base(ilvl: int) -> String:
 			if _equippable(type_chain(str(it.get("type", "")))):
 				_equip_pool.append(c)
 	var pool := _equip_pool.filter(func(c):
-		return str(db.item(str(c)).get("level", "1")).to_int() <= ilvl)
+		var it: Dictionary = db.item(str(c))
+		return str(it.get("level", "1")).to_int() <= ilvl \
+				and (want == "" or category(type_chain(str(it.get("type", "")))) == want))
 	if pool.is_empty():
 		pool = _equip_pool
 	if pool.is_empty():
 		return ""
 	return str(pool[randi() % pool.size()])
+
+
+static func pick_category() -> String:
+	return ["weapon", "armor", "jewelry"][randi() % 3]
 
 
 func roll_drop(ilvl: int) -> Dictionary:
@@ -162,8 +209,14 @@ func roll_drop(ilvl: int) -> Dictionary:
 
 
 func roll_rare(ilvl: int) -> Dictionary:
-	## A guaranteed rare on a base the level allows.
-	var code := _equip_base(ilvl)
+	## A guaranteed rare on a base the level allows: a weapon, a piece of
+	## armour or a ring or amulet, each a third of the time (no rare charms).
+	var cat := pick_category()
+	var code: String
+	if cat == "jewelry":
+		code = "rin" if randi() % 3 < 2 else "amu"
+	else:
+		code = _equip_base(ilvl, cat)
 	return roll_item(code, ilvl, {}, "rare") if code != "" else {}
 
 
@@ -177,8 +230,9 @@ var _special_pools := {}   # ilvl -> the candidates roll_special draws from
 
 
 func roll_special(ilvl: int) -> Dictionary:
-	## A guaranteed set item or unique the level allows: one entry drawn
-	## uniformly from both lists, so the mix follows how many of each exist.
+	## A guaranteed set item or unique the level allows: a category first
+	## (weapon, armour, jewellery alike), then one entry drawn uniformly
+	## from both lists within it, so the mix follows how many of each exist.
 	_ensure_loaded()
 	if not _special_pools.has(ilvl):
 		var cands := []
@@ -190,8 +244,20 @@ func roll_special(ilvl: int) -> Dictionary:
 			return str(c[0].get("lvl", "1")).to_int() <= ilvl)
 		var near := ok.filter(func(c):
 			return str(c[0].get("lvl", "1")).to_int() > ilvl - SPECIAL_WINDOW)
-		_special_pools[ilvl] = near if not near.is_empty() else ok
-	var allowed: Array = _special_pools[ilvl]
+		var chosen := near if not near.is_empty() else ok
+		var by_cat := {"weapon": [], "armor": [], "jewelry": []}
+		for c in chosen:
+			var cat := category(type_chain(str(db.item(str(c[0].get("code", ""))).get("type", ""))))
+			if by_cat.has(cat):
+				by_cat[cat].append(c)
+		_special_pools[ilvl] = by_cat
+	var pools: Dictionary = _special_pools[ilvl]
+	var cat := pick_category()
+	var allowed: Array = pools[cat]
+	if allowed.is_empty():
+		# nothing of that kind at this level: any of the others
+		for k in pools:
+			allowed = allowed + pools[k]
 	if allowed.is_empty():
 		return roll_rare(ilvl)
 	var pick: Array = allowed[randi() % allowed.size()]
