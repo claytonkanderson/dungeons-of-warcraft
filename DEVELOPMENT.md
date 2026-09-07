@@ -110,6 +110,12 @@ part of the map in server coordinates (`xmin`/`xmax`/`ymin`/`ymax`/`zmin`/
 and `entrance` names the trigger to start at when the map's first row is
 not it.
 
+A boss a WoW script summons rather than spawns (Ragnaros, Majordomo,
+Nefarian) has no creature row: `extra_spawns` lists `(name, x, y, z, o)`
+in server coordinates and the build places it like any spawn; the trimmer
+vendors its template and model rows by name. The positions come from
+AzerothCore's boss scripts.
+
 Creature models the local client lacks get a stand-in from
 `MODEL_STANDINS` in `build_creatures.py`; the build lists any it skipped.
 Creature voices are assigned per model family in `voice_sets.py`;

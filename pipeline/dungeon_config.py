@@ -283,9 +283,14 @@ DUNGEONS = {
         map_name="moltencore", ac_map=409, target_level=82,
         entrance="Window Entrance",
         bosses=["Lucifron", "Magmadar", "Gehennas", "Garr", "Baron Geddon",
-                "Shazzrah", "Sulfuron Harbinger", "Golemagg the Incinerator"],
-        # Majordomo and Ragnaros are summoned by the rune event: no spawn rows
-        final_boss="Golemagg the Incinerator",
+                "Shazzrah", "Sulfuron Harbinger", "Golemagg the Incinerator",
+                "Majordomo Executus", "Ragnaros"],
+        final_boss="Ragnaros",
+        # Majordomo and Ragnaros are summoned by the rune event and have no
+        # spawn rows: placed where AzerothCore's scripts summon them
+        # (boss_majordomo_executus.cpp: MajordomoSummonPos, RagnarosSummonPos)
+        extra_spawns=[("Majordomo Executus", 759.542, -1173.43, -118.974, 3.3048),
+                      ("Ragnaros", 838.3082, -831.4665, -232.1853, 2.199115)],
         ambience=["moltencore", "blackrock", "lava"],
         footstep="stone",
     ),
@@ -293,8 +298,12 @@ DUNGEONS = {
         map_name="blackwinglair", ac_map=469, target_level=86,
         bosses=["Razorgore the Untamed", "Vaelastrasz the Corrupt",
                 "Broodlord Lashlayer", "Firemaw", "Ebonroc", "Flamegor",
-                "Chromaggus"],
-        final_boss="Chromaggus",     # Nefarian is spawned by his own event
+                "Chromaggus", "Nefarian"],
+        final_boss="Nefarian",
+        # Nefarian flies in from outside in WoW (boss_nefarian.cpp spawns him
+        # 300 m away); he stands on his throne-room floor here, between the
+        # points his Shadowblink script uses, a little above it to settle
+        extra_spawns=[("Nefarian", -7556.0, -1231.0, 478.0, 1.8)],
         ambience=["blackwinglair", "blackrock", "lava"],
         footstep="stone",
     ),

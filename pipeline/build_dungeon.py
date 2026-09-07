@@ -320,7 +320,7 @@ def build(s, did, cfg):
         return False
     wing = cfg.get("wing")
     bounds = cfg.get("bounds")
-    spawns = load_spawns(cfg["ac_map"], wing, bounds)
+    spawns = load_spawns(cfg["ac_map"], wing, bounds, cfg.get("extra_spawns"))
     placements, obj_fdids, flags = wmo_placements(s, wdt)
     if not placements:
         print("!! no WMO placements, aborting")

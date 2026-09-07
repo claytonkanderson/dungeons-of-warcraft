@@ -114,9 +114,21 @@ def main():
             v = f[c(k)]
             if v not in ("", "0"):
                 entries.add(v)
-    # bosses and final bosses named in the config are spawned already; the
-    # template of anything a dungeon script summons is not, and is not needed
+    # bosses and final bosses named in the config are spawned already; what
+    # a script summons is not, so a dungeon's extra_spawns name it here
     t = col("creature_template")
+    extra_names = {row[0] for cfg in DUNGEONS.values()
+                   for row in cfg.get("extra_spawns", [])}
+    if extra_names:
+        for line in (ac / "creature_template.sql").read_text(
+                encoding="utf-8", errors="replace").splitlines():
+            if line.startswith("("):
+                f = split_tuple(line)
+                if f[t("name")] in extra_names:
+                    entries.add(f[t("entry")])
+                    extra_names.discard(f[t("name")])
+        for n in extra_names:
+            print(f"!! extra spawn {n!r}: no creature_template row in the dump")
     trim(ac / "creature_template.sql", OUT / "creature_template.sql",
          lambda f: f[t("entry")] in entries)
     m = col("creature_template_model")

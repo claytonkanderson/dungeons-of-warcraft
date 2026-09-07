@@ -98,9 +98,11 @@ def in_bounds(b, x, y, z):
             and z >= b.get("zmin", -1e9) and z <= b.get("zmax", 1e9))
 
 
-def load_spawns(ac_map, wing=None, bounds=None):
+def load_spawns(ac_map, wing=None, bounds=None, extra=None):
     """Creature spawns on the map; with `wing`, only that wing's (see
-    wing_keep); with `bounds`, only those inside (see in_bounds)."""
+    wing_keep); with `bounds`, only those inside (see in_bounds). `extra`:
+    [(name, x, y, z, o)] spawns the rows lack because a script summons the
+    creature (a raid's last boss), placed as given, filters not applied."""
     rows = []
     names = creature_names()
     dropped = {}
@@ -130,6 +132,14 @@ def load_spawns(ac_map, wing=None, bounds=None):
         before = len(rows)
         rows = [r for r in rows if in_bounds(bounds, r["x"], r["y"], r["z"])]
         print(f"bounds {bounds}: {len(rows)} of {before} spawns")
+    for i, (name, x, y, z, o) in enumerate(extra or []):
+        entry = next((e for e, n in names.items() if n == name), None)
+        if entry is None:
+            print(f"!! extra spawn {name!r}: no creature_template row (re-run trim_ac.py)")
+            continue
+        rows.append({"guid": -1 - i, "entry": entry, "x": float(x), "y": float(y),
+                     "z": float(z), "o": float(o)})
+        print(f"extra spawn: {name} (entry {entry}) at ({x}, {y}, {z})")
     return rows
 
 
