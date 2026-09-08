@@ -11,6 +11,13 @@ import struct
 from gltf_export import _cv, YARD
 
 
+# The liquid surfaces' own tiling textures (lake water, lava, slime), by
+# file id: the extractor loads them into the texture set beside the
+# material textures, and the surfaces tile them once per four liquid tiles
+LIQUID_TEXTURES = {"water": 219901, "magma": 219795, "slime": 219991}
+LIQUID_TILES_PER_REPEAT = 4.0
+
+
 def export_wmo_glb(root, groups, textures, out_path, meta_path=None,
                    vc_scale=1.0):
     """groups: [(index, WMOGroup)]; textures: {fdid: png_bytes}"""
@@ -64,17 +71,27 @@ def export_wmo_glb(root, groups, textures, out_path, meta_path=None,
         materials_out.append(mat)
     # one material per liquid kind: Molten Core's pools are magma, not water
     liquid_mats = {}
-    for kind, rgba in (("water", [0.08, 0.26, 0.34, 0.55]),
-                       ("magma", [0.95, 0.32, 0.04, 0.92]),
-                       ("slime", [0.25, 0.55, 0.10, 0.80])):
+    for kind, rgba, alpha in (("water", [0.08, 0.26, 0.34, 0.55], 0.7),
+                              ("magma", [0.95, 0.32, 0.04, 0.92], 0.95),
+                              ("slime", [0.25, 0.55, 0.10, 0.80], 0.85)):
         liquid_mats[kind] = len(materials_out)
-        materials_out.append({
-            "pbrMetallicRoughness": {"metallicFactor": 0.0,
-                                     "roughnessFactor": 1.0,
-                                     "baseColorFactor": rgba},
-            "alphaMode": "BLEND", "doubleSided": True,
-            "name": f"wmo_liquid_{kind}",
-            "extensions": {"KHR_materials_unlit": {}}})
+        mat = {"pbrMetallicRoughness": {"metallicFactor": 0.0,
+                                        "roughnessFactor": 1.0,
+                                        "baseColorFactor": rgba},
+               "alphaMode": "BLEND", "doubleSided": True,
+               "name": f"wmo_liquid_{kind}",
+               "extensions": {"KHR_materials_unlit": {}}}
+        tf = LIQUID_TEXTURES[kind]
+        if tf in textures:
+            # textured: the flat tint gives way to the tiling texture
+            if tf not in tex_index:
+                images.append({"bufferView": view(textures[tf]),
+                               "mimeType": "image/png"})
+                gl_textures.append({"source": len(images) - 1, "sampler": 0})
+                tex_index[tf] = len(gl_textures) - 1
+            mat["pbrMetallicRoughness"]["baseColorTexture"] =                 {"index": tex_index[tf]}
+            mat["pbrMetallicRoughness"]["baseColorFactor"] = [1.0, 1.0, 1.0, alpha]
+        materials_out.append(mat)
 
     def liquid_kind(g):
         """water | magma | slime: from the group's LiquidType id when the
@@ -140,12 +157,14 @@ def export_wmo_glb(root, groups, textures, out_path, meta_path=None,
             L = g.liquid
             LT = 4.1666665
             cx, cy, cz = L["corner"]
-            lpos = []
+            lpos, luv = [], []
             for j in range(L["yv"]):
                 for i in range(L["xv"]):
                     w = (cx + i * LT, cy + j * LT,
                          L["heights"][j * L["xv"] + i])
                     lpos.append(tuple(c * YARD for c in _cv(w)))
+                    luv.append((i / LIQUID_TILES_PER_REPEAT,
+                                j / LIQUID_TILES_PER_REPEAT))
             lids = []
             for ty in range(L["yt"]):
                 for tx in range(L["xt"]):
@@ -165,8 +184,11 @@ def export_wmo_glb(root, groups, textures, out_path, meta_path=None,
                            min=lmins, max=lmaxs)
                 a_li = acc(view(b"".join(struct.pack("<H", i) for i in lids),
                                 34963), 5123, len(lids), "SCALAR")
+                a_luv = acc(view(b"".join(struct.pack("<2f", *t) for t in luv),
+                                 34962), 5126, len(luv), "VEC2")
                 meshes.append({"primitives": [{
-                    "attributes": {"POSITION": a_lp}, "indices": a_li,
+                    "attributes": {"POSITION": a_lp, "TEXCOORD_0": a_luv},
+                    "indices": a_li,
                     "material": liquid_mats[liquid_kind(g)]}],
                     "name": f"liquid{gi}"})
                 nodes.append({"name": f"liquid{gi}",

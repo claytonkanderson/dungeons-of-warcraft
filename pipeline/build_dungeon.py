@@ -464,6 +464,11 @@ def build(s, did, cfg):
             f = line.strip("(),;").split(",")
             if not keep(float(f[7]), float(f[8]), float(f[9])):
                 continue
+            # a negative respawn time is a spawn a script raises for an
+            # event and despawns after (Ragnaros' lava steam and splash):
+            # absent in the idle world, so absent here
+            if float(f[15]) < 0:
+                continue
             go_spawns.append((int(f[1]), float(f[7]), float(f[8]),
                               float(f[9]), float(f[10])))
     if go_spawns:

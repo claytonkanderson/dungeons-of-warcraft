@@ -113,6 +113,39 @@ RACE_FOLDER = {1: "human", 2: "orc", 3: "dwarf", 4: "nightelf", 5: "scourge",
 # at a glance; untextured it rendered bright white (Mr. Smite's mane)
 HAIR_FALLBACK_RGBA = (0.13, 0.09, 0.06, 1.0)
 
+# The anniversary client streams creature models on demand, and 23 of the
+# 692 CreatureModelData models are not in a client whose owner never met
+# them: the whole Scourge line (ghoul, zombie, skeleton, abomination, the
+# Forsaken character model) and the slimes. Each missing model file id maps
+# to a local model that reads alike and whose textures are local too (the
+# zombie's skins are missing with it, which rules the ZombieSword model
+# out; SkeletonFemale carries no texture of its own). The model file ids
+# are the client's own, stable across installs. A creature borrows the
+# stand-in's skin (from a display row that uses that model), not its own
+# texture set, and is scaled to the missing model's bounding height.
+MODEL_STANDINS_BY_FDID = {
+    124160: 126449,     # creature/ghoul/ghoul -> Wight (hunched, clawed)
+    126570: 124809,     # creature/zombie/zombie -> LostOne (hunched, grey)
+    126571: 124809,     # zombie variant (Mangled Cadaver) -> LostOne
+    125942: 126131,     # creature/skeleton/skeleton -> DeathGuard
+    125948: 126131,     # skeleton variant (Skeletal Guardian) -> DeathGuard
+    125947: 125092,     # creature/skeletonmage -> Necromancer
+    121768: 126131,     # Forsaken character model -> DeathGuard
+    123961: 123952,     # creature/fleshgolem (abomination) -> FleshGiant
+    123120: 123972,     # creature/bonegolem (Rattlegore) -> FleshTitan
+    125957: 125958,     # creature/slime/slime -> SlimeLesser
+    125965: 125958,     # Viscidus -> SlimeLesser (at his 19 m)
+}
+
+# A template whose every display id postdates this client's tables has no
+# row to read a model from at all; these few are bosses or named casters
+# worth a model by name (the file ids are local troll models)
+NO_DISPLAY_STANDINS = [
+    ("voone", 126245),               # War Master Voone -> TrollForestBoss
+    ("witherbark speaker", 126246),  # -> TrollForestCaster
+    ("vilebranch speaker", 126248),  # -> TrollJungleCaster
+]
+
 # name keyword -> stand-in model names, in preference order (see ok_models)
 MODEL_STANDINS = [
     ("mordresh", ["Lich", "Ghost"]), ("summoner", ["Lich", "Ghost"]),
@@ -420,10 +453,19 @@ def build(s, dungeon_id, cfg, stats_only=False):
     for m, line in sql_rows(AC / "creature_template.sql",
                             r"^\((\d+),(?:[^,]*,){5}'((?:[^'\\]|\\.)*)'"):
         names[int(m.group(1))] = m.group(2).replace("\\'", "'")
+    # every display a template lists, in its own order: the first that this
+    # client's CreatureDisplayInfo knows is the one used (the LBRS trolls'
+    # first rows are later-expansion ids the anniversary tables lack)
+    display_rows = {}
     for m, line in sql_rows(AC / "creature_template_model.sql",
                             r"^\((\d+), ?(\d+), ?(\d+),"):
-        if int(m.group(2)) == 0:
-            displays[int(m.group(1))] = int(m.group(3))
+        display_rows.setdefault(int(m.group(1)), []).append(
+            (int(m.group(2)), int(m.group(3))))
+    for entry, rows in display_rows.items():
+        for _idx, disp in sorted(rows):
+            displays[entry] = disp
+            if disp in cdi.rows:
+                break
     for m, line in sql_rows(AC / "creature_equip_template.sql",
                             r"^\((\d+), ?(\d+), ?(\d+), ?(\d+), ?(\d+),"):
         if int(m.group(2)) == 1:
@@ -506,28 +548,71 @@ def build(s, dungeon_id, cfg, stats_only=False):
                         return avail[c]
         return None
 
+    # model fdid -> the textures of a display row that uses it natively, for
+    # a stand-in's skin (the borrowing creature's own display row names
+    # textures cut for the model it lost)
+    native_textures = {}
+    for _d, r in cdi.rows.items():
+        fd = cmd.rows.get(r[1], (None, None, None))[2]
+        if fd and fd not in native_textures and isinstance(r[25], list) and any(r[25]):
+            native_textures[fd] = r[25]
+
+    def load_model(fd):
+        """fd when the client holds that model (noting its name), else None."""
+        if fd is None:
+            return None
+        if fd not in ok_models:
+            try:
+                ok_models[fd] = M2Model(s.read_fdid(fd), lambda *a: None,
+                                        s.read_fdid).name
+            except (CascError, KeyError, ValueError, struct.error):
+                return None
+        return fd
+
+    def client_standin(fd):
+        return load_model(MODEL_STANDINS_BY_FDID.get(fd))
+
     manifest = {}
     for entry in entries:
         name = names.get(entry, "?")
         disp = displays.get(entry)
         row = cdi.rows.get(disp) if disp else None
         if not row:
-            print(f"{entry} {name}: no display row, skipped")
-            continue
-        model_fdid = cmd.rows[row[1]][2]
-        scale = f32(row[4]) or 1.0
-        extra_id = row[7]
+            alt = load_model(next((fd for key, fd in NO_DISPLAY_STANDINS
+                                   if key in name.lower()), None))
+            if alt is None:
+                print(f"{entry} {name}: no display row, skipped")
+                continue
+            print(f"{entry} {name}: no display row this client knows -> "
+                  f"stand-in {ok_models[alt]}")
+            model_fdid, scale, extra_id = alt, 1.0, None
+            variations = native_textures.get(alt, [])
+        else:
+            model_fdid = cmd.rows[row[1]][2]
+            scale = f32(row[4]) or 1.0
+            extra_id = row[7]
+            variations = row[25] if isinstance(row[25], list) else []
         if model_fdid not in ok_models:
-            alt = standin(name)
+            alt = client_standin(model_fdid) or standin(name)
             if alt is None:
                 print(f"{entry} {name}: model {model_fdid} not in the local client, "
                       "no stand-in, skipped")
                 continue
             print(f"{entry} {name}: model {model_fdid} not in the local client -> "
                   f"stand-in {ok_models[alt]}")
+            variations = native_textures.get(alt, [])
+            # the missing model's bounding height is still in the table:
+            # size the stand-in to it (Rattlegore is not a seven-metre titan)
+            try:
+                h_lost = f32(cmd.rows[row[1]][0][5]) - f32(cmd.rows[row[1]][0][2])
+                alt_row = next(r for r in cmd.rows.values() if r[2] == alt)
+                h_alt = f32(alt_row[0][5]) - f32(alt_row[0][2])
+                if h_lost > 0.1 and h_alt > 0.1:
+                    scale *= max(0.25, min(8.0, h_lost / h_alt))
+            except (StopIteration, TypeError, IndexError):
+                pass
             model_fdid = alt
             extra_id = None       # its own textures, not the missing model's bake
-        variations = row[25] if isinstance(row[25], list) else []
         def anim_resolver(seq_id, variation, afid):
             fd = afid.get((seq_id, variation))
             if fd:

@@ -346,10 +346,11 @@ func _ready() -> void:
 			print("MOB-SHOT: entry %d not found" % want)
 		else:
 			var dir_out := Basis(Vector3.UP, target_mob.rotation.y) * Vector3(0, 0, -1)
-			player.global_position = target_mob.global_position + dir_out * 5.0 + Vector3(0, 0.5, 0)
+			var dist := Cli.value("--mob-dist=", "5").to_float()
+			player.global_position = target_mob.global_position + dir_out * dist + Vector3(0, 0.5, 0)
 			player.yaw = atan2(-(target_mob.global_position - player.global_position).x,
 					-(target_mob.global_position - player.global_position).z)
-			player.pitch = -0.15
+			player.pitch = Cli.value("--mob-pitch=", "-0.15").to_float()
 			target_mob.passive = true
 			var dirn := ProjectSettings.globalize_path("res://../shots")
 			await _ui_shot(dirn + "/mob_alive.png")
@@ -2257,8 +2258,14 @@ func _spawn_shots() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 	DirAccess.make_dir_recursive_absolute(_shot_dir)
-	for k in 4:
+	# --look=yaw,pitch (radians, as a session log's "p" line carries them):
+	# one shot from exactly that pose instead of the four compass angles
+	var look := Cli.value("--look=")
+	for k in (1 if look != "" else 4):
 		player.yaw = spawn_yaw + k * PI / 2.0
+		if look != "" and look.split(",").size() == 2:
+			player.yaw = look.split(",")[0].to_float()
+			player.pitch = look.split(",")[1].to_float()
 		await get_tree().process_frame
 		await Cli.capture(get_viewport(), _shot_dir.path_join("spawn_%d.png" % k))
 	print("spawn shots done (window %s)" % (

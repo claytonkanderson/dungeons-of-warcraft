@@ -11,7 +11,7 @@ from pathlib import Path
 from config import OUT
 from casc import Storage, CascError
 from wmo import WMORoot, WMOGroup
-from wmo_export import export_wmo_glb
+from wmo_export import export_wmo_glb, LIQUID_TEXTURES
 from blp import blp_to_png
 
 WMOS = {
@@ -43,6 +43,13 @@ def extract_wmo(s, fdid, name, out_dir, vc_scale):
                     textures[fdid_t] = blp_to_png(s.read_fdid(fdid_t))
                 except CascError as e:
                     print(f"  texture {fdid_t}: {e}")
+    # the liquid surfaces' tiling textures, keyed by file id like the rest
+    for tf in LIQUID_TEXTURES.values():
+        if tf not in textures:
+            try:
+                textures[tf] = blp_to_png(s.read_fdid(tf))
+            except Exception:
+                pass
     info = export_wmo_glb(root, groups, textures,
                           out_dir / f"{name}.glb",
                           out_dir / f"{name}_meta.json",

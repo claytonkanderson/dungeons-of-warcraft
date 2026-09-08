@@ -116,8 +116,23 @@ in server coordinates and the build places it like any spawn; the trimmer
 vendors its template and model rows by name. The positions come from
 AzerothCore's boss scripts.
 
-Creature models the local client lacks get a stand-in from
-`MODEL_STANDINS` in `build_creatures.py`; the build lists any it skipped.
+Creature models the local client lacks get a stand-in: the Anniversary
+client streams creature models on demand and is missing the whole Scourge
+line (ghoul, zombie, skeleton, abomination, the Forsaken character model)
+and the slimes, 23 models in all. `MODEL_STANDINS_BY_FDID` in
+`build_creatures.py` maps each missing model file id to a local model
+that reads alike and whose textures are local too (ghoul to Wight, zombie
+to Lost One, skeleton to Deathguard, abomination to Flesh Giant, slime to
+Lesser Slime); the stand-in borrows a display row's skin for that model
+and is scaled to the missing model's bounding height. A template whose
+display ids the client's tables lack altogether gets one by name from
+`NO_DISPLAY_STANDINS`; the older `MODEL_STANDINS` name table is the last
+resort. The build lists every stand-in and anything it still skipped.
+
+Gameobject spawns with a negative respawn time are script-raised event
+props (Ragnaros' lava steam and splash, the Firelord's cache) and are left
+out; WMO liquid surfaces carry the client's tiling water, lava and slime
+textures (`LIQUID_TEXTURES` in `wmo_export.py`).
 Creature voices are assigned per model family in `voice_sets.py`;
 `probe_voices.py --merge` searches the client for new families.
 
@@ -140,8 +155,10 @@ run_game.bat -- --loot-test                 # drop statistics per level and kind
 run_game.bat -- --loot-run                  # expected loot from clearing the first four dungeons
 run_game.bat -- --ui-test                   # capture the HUD and panels to shots/
 run_game.bat -- --menu-shot=<abs path>.png  # capture the main menu
-run_game.bat -- --shots=DIR --at=x,y,z      # screenshot probe at a position
+run_game.bat -- --shots=DIR --at=x,y,z      # screenshot probe at a position (four compass angles)
+run_game.bat -- --shots=DIR --at=x,y,z --look=yaw,pitch   # one shot from a session log's pose
 run_game.bat -- --mob-shot=<entry>          # a creature alive, dead and gone
+run_game.bat -- --mob-shot=<entry> --mob-dist=20 --mob-pitch=0.3   # from farther back, looking up
 run_game.bat -- --what-here                 # placements enclosing the spawn
 run_game.bat -- --perf-test                 # look, sprint and crowd frame times
 run_game.bat -- --walk-test / --stair-test  # footing probes
@@ -269,8 +286,8 @@ GitHub. They cover the same ground and should be kept in step.
   other classes' skill bonuses.
 - The Shadowfang Keep entrance-stair probe regressed (0.24 m climbed against
   a 3.7 m baseline) on both physics engines; not yet diagnosed.
-- Creature models the Anniversary client lacks and that have no stand-in
-  are skipped (the build lists them); Scholomance loses 14 of 41.
+- Creature models the Anniversary client lacks now all have stand-ins;
+  only trigger creatures (invisible stalkers) are skipped.
 - Zul'Farrak is the first outdoor instance: spawn calibration finds no
   building to match against (0 of 271, expected), the map places fine, but
   the flat indoor ambient lighting washes out the desert; an outdoor sky
