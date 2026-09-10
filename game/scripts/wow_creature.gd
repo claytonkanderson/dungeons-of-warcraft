@@ -44,6 +44,7 @@ var ranged_etype := "fire"
 var _atk_cd := 0.0
 var _retarget_t := 0.0
 var _dormant := false
+var _settled := false   # snapped onto the floor on the first tick
 var _los_check_t := 0.0
 var _los_lost := 0.0
 var _los := true
@@ -360,9 +361,25 @@ func _face(dir: Vector3, dt: float) -> void:
 			atan2(-dir.x, -dir.z) + MODEL_YAW_OFFSET, TURN_SPEED * dt)
 
 
+func _settle() -> void:
+	## Stand on the floor under the spawn point. A spawn from the tables can
+	## sit a little under the mesh (a miscalibrated build put Razorfen
+	## Kraul's a metre or more down), and an idle mob far from the player
+	## skips physics, so it would never work itself out on its own.
+	_settled = true
+	var from := global_position + Vector3.UP * 2.0
+	var q := PhysicsRayQueryParameters3D.create(from, global_position - Vector3.UP * 4.0)
+	q.exclude = [get_rid()]
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	if hit and hit["collider"] is StaticBody3D:
+		global_position.y = float(hit["position"].y) + 0.02
+
+
 func _physics_process(dt: float) -> void:
 	if puppet:
 		return
+	if not _settled:
+		_settle()
 	if state == State.DEAD:
 		if _corpse_t > 0.0:
 			_corpse_t -= dt

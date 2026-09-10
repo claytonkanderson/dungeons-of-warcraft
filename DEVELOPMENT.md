@@ -153,7 +153,7 @@ run_game.bat -- --item-test                 # equip every property, print what i
 run_game.bat -- --skill-tips                # every skill's tooltip numbers at levels 1, 10, 20
 run_game.bat -- --loot-test                 # drop statistics per level and kind
 run_game.bat -- --loot-run                  # expected loot from clearing the first four dungeons
-run_game.bat -- --ui-test                   # capture the HUD and panels to shots/
+run_game.bat -- --ui-test                   # capture the HUD, a loot pile and the panels (all three skill tabs) to shots/
 run_game.bat -- --menu-shot=<abs path>.png  # capture the main menu
 run_game.bat -- --shots=DIR --at=x,y,z      # screenshot probe at a position (four compass angles)
 run_game.bat -- --shots=DIR --at=x,y,z --look=yaw,pitch   # one shot from a session log's pose
@@ -162,6 +162,7 @@ run_game.bat -- --mob-shot=<entry> --mob-dist=20 --mob-pitch=0.3   # from farthe
 run_game.bat -- --what-here                 # placements enclosing the spawn
 run_game.bat -- --perf-test                 # look, sprint and crowd frame times
 run_game.bat -- --walk-test / --stair-test  # footing probes
+run_game.bat -- --swim-test --dungeon=blackfathom-deeps   # drop into the deepest pool, swim up and along
 run_game.bat -- --topdown=<abs path>.png   # a view straight down on the whole dungeon
 run_game.bat -- --tour=90                   # a recorded survey glide (python tour_videos.py renders one per dungeon)
 run_game.bat -- --replay-test               # a scripted session, recorded (see below)

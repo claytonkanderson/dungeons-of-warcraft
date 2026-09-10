@@ -98,6 +98,10 @@ func play_ui(key: String, min_gap_frames := 3, trim_db := 0.0) -> void:
 	p.play()
 
 
+func has_event(name: String) -> bool:
+	return (meta.get("events", {}) as Dictionary).has(name)
+
+
 func event(name: String, pos: Vector3, chance := 1.0) -> void:
 	if chance < 1.0 and _rng.randf() > chance:
 		return

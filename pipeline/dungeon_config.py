@@ -105,8 +105,9 @@ DUNGEONS = {
     # on one map, each with its own entrance trigger. `wing` names the
     # trigger ("Scarlet Monastery - <Wing> (Entrance)"); the build keeps the
     # building on that entrance's side of the map and everything near it.
-    # The four together span one dungeon's worth of levels (34-40), so each
-    # wing's XP budget (xp_span) is its share rather than the usual five.
+    # The first three span 34-39, each wing's XP budget (xp_span) its share
+    # rather than the usual five; Razorfen Downs then carries the character
+    # to 46 and the Cathedral, the hardest wing, closes the tier at 47.
     "scarlet-monastery-graveyard": dict(
         map_name="monasteryinstances", ac_map=189, wing="Graveyard",
         target_level=36, xp_span=2,
@@ -133,7 +134,7 @@ DUNGEONS = {
     ),
     "scarlet-monastery-cathedral": dict(
         map_name="monasteryinstances", ac_map=189, wing="Cathedral",
-        target_level=40, xp_span=1,
+        target_level=47, xp_span=1,
         bosses=["High Inquisitor Fairbanks", "Scarlet Commander Mograine",
                 "High Inquisitor Whitemane"],
         final_boss="High Inquisitor Whitemane",
@@ -141,7 +142,7 @@ DUNGEONS = {
         footstep="stone",
     ),
     "razorfen-downs": dict(
-        map_name="razorfendowns", ac_map=129, target_level=47,
+        map_name="razorfendowns", ac_map=129, target_level=46,
         bosses=["Mordresh Fire Eye", "Glutton", "Amnennar the Coldbringer"],
         final_boss="Amnennar the Coldbringer",
         ambience=["razorfendowns", "razorfen", "barrens"],

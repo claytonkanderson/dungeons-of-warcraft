@@ -21,6 +21,7 @@ from m2 import M2Model, Skin
 from blp import blp_to_png
 from gltf_export import YARD, export_static_glb, _cv, _cq
 from extract_deadmines import extract_wmo
+from wmo_export import FORMAT as WMO_FORMAT
 import build_creatures
 import build_terrain
 from dungeon_common import (find_wdt, load_spawns, entrance, wmo_placements,
@@ -176,8 +177,34 @@ def lift_sunk_doodads(out, out_dir, bottoms):
     return lifted
 
 
+def _meta_format(meta_path):
+    try:
+        return json.loads(meta_path.read_text()).get("format", 0)
+    except (OSError, ValueError):
+        return 0
+
+
+def _texture_or_neighbour(s, tf, what):
+    """The BLP as PNG, or a numbered neighbour's when the file is not in
+    the local client (a model's skins are numbered together); None when
+    neither reads, said aloud so the build log shows the bare slot."""
+    try:
+        return blp_to_png(s.read_fdid(tf))
+    except CascError:
+        alt = build_creatures.nearest_blp(s, tf)
+        if alt:
+            try:
+                print(f"!! {what}: texture {tf} not local; using neighbour {alt}")
+                return blp_to_png(s.read_fdid(alt))
+            except CascError:
+                pass
+        print(f"!! {what}: texture {tf} not local, slot left bare")
+        return None
+
+
 def _glb_tris(path):
-    """[(a, b, c)] world-local triangles of every mesh in a GLB."""
+    """[(a, b, c)] world-local triangles of every mesh in a GLB; the
+    liquid surfaces are not ground and are skipped."""
     b = path.read_bytes()
     ln = struct.unpack_from("<I", b, 12)[0]
     j = json.loads(b[20:20 + ln])
@@ -196,6 +223,8 @@ def _glb_tris(path):
 
     tris = []
     for mesh in j["meshes"]:
+        if str(mesh.get("name", "")).startswith("liquid"):
+            continue
         for prim in mesh["primitives"]:
             pos = acc(prim["attributes"]["POSITION"])
             idx = acc(prim["indices"])
@@ -352,8 +381,9 @@ def build(s, did, cfg):
     main_uid, roots = pick_main(s, placements)
     cal = calibrate(s, spawns, placements, main_uid, roots)
     print(f"calibration: {cal['hits']}/{cal['total']} spawns inside "
-          f"{cal['wmos']} WMO(s) (det {cal['det']:+.2f}, candidate {cal['candidate']} "
-          f"of {cal['tied']} tied, box error {cal['box_err']:.0f} m)")
+          f"{cal['wmos']} WMO(s), {cal['tight']} tightly (det {cal['det']:+.2f}, "
+          f"candidate {cal['candidate']} of {cal['tied']} tied, "
+          f"box error {cal['box_err']:.0f} m)")
     if cal["total"] and cal["hits"] < cal["total"] * 0.5:
         print("!! low calibration hit rate — placements may be misaligned")
     t = Transform(cal)
@@ -368,7 +398,11 @@ def build(s, did, cfg):
             continue
         name = f"w{fdid}"
         wmo_names[fdid] = name
-        if (out_dir / f"{name}.glb").exists():
+        # cached only while it is the current exporter's output: a GLB
+        # from before the textured liquids or the water data was kept
+        # forever, so exporter fixes never reached a dungeon already built
+        if (out_dir / f"{name}.glb").exists() \
+                and _meta_format(out_dir / f"{name}_meta.json") == WMO_FORMAT:
             print(f"{name}: cached")
             continue
         try:
@@ -505,10 +539,10 @@ def build(s, did, cfg):
                                     elif tex["name"]:
                                         tf = s.root.fdid_for_path(tex["name"])
                                 if tf:
-                                    try:
-                                        gt[ti] = blp_to_png(s.read_fdid(tf))
-                                    except CascError:
-                                        pass
+                                    png = _texture_or_neighbour(
+                                        s, tf, f"gameobject {gname}")
+                                    if png:
+                                        gt[ti] = png
                             export_static_glb(gm, gskin, gt, dest)
                             okf = True
                     except (CascError, KeyError, ValueError, struct.error) as e:
@@ -597,10 +631,9 @@ def build(s, did, cfg):
                     elif tex["name"]:
                         tf = s.root.fdid_for_path(tex["name"])
                 if tf:
-                    try:
-                        texs[ti] = blp_to_png(s.read_fdid(tf))
-                    except CascError:
-                        pass
+                    png = _texture_or_neighbour(s, tf, "doodad")
+                    if png:
+                        texs[ti] = png
             export_static_glb(m, skin, texs, dest_glb)
             ok += 1
         except (CascError, KeyError, ValueError, struct.error) as e:
@@ -719,7 +752,7 @@ def build(s, did, cfg):
         def tile_keep(x, y):
             return keep(x, y) and math.hypot(x - wx, y - wy) < reach
     build_terrain.build_for(s, wdt, t.to_gl, out_dir / "terrain",
-                            tile_keep=tile_keep)
+                            tile_keep=tile_keep, frame=t.frame_key())
 
     # ---- ambience ----
     audio_dir = OUT / "audio"

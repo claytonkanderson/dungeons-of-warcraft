@@ -17,6 +17,9 @@ var puppet := false             # a replay drives the world (replay.gd)
 var arrows: Array = []
 var enemy_missiles: Array = []
 var ground_items: Array = []
+var water: Array = []       # [{node, liq}] the WMO liquid grids, for swimming
+var _wmo_metas: Dictionary = {}
+var _underwater := false
 var friendlies: Array = []
 const INTERACT_RANGE := 3.2     # E reach; the HUD prompt uses it too, so what
                                 # the prompt offers is exactly what E does
@@ -371,6 +374,9 @@ func _ready() -> void:
 	elif OS.get_cmdline_user_args().has("--loot-run"):
 		_loot_run()
 		get_tree().quit()
+	elif OS.get_cmdline_user_args().has("--swim-test"):
+		await _swim_test()
+		get_tree().quit()
 	elif OS.get_cmdline_user_args().has("--replay-test"):
 		await _replay_test()
 		get_tree().quit()
@@ -513,6 +519,32 @@ func _ui_test() -> void:
 		if gs.skill_points > 0:
 			gs.allocate(sk)
 	await _ui_shot(shots + "/ui_hud.png")
+	# a pile at the feet: every floor label up, the one under the crosshair
+	# boxed and named in the E prompt
+	var fwd: Vector3 = -player.global_transform.basis.z
+	fwd.y = 0.0
+	fwd = fwd.normalized()
+	var side := Vector3(-fwd.z, 0, fwd.x)
+	var pile := []
+	for i in range(5):
+		var gi := GroundItem.new()
+		add_child(gi)
+		if i == 0:
+			gi.drop("gold", 57)
+		else:
+			gi.drop_instance(gen.roll_drop(12))
+		gi.global_position = player.global_position \
+				+ fwd * (1.0 + 0.4 * i) + side * (0.7 * (i - 2)) + Vector3(0, 0.02, 0)
+		ground_items.append(gi)
+		pile.append(gi)
+	player.pitch = -0.55
+	force_labels = true
+	await _ui_shot(shots + "/ui_loot.png")
+	force_labels = false
+	player.pitch = 0.0
+	for gi in pile:
+		ground_items.erase(gi)
+		gi.queue_free()
 	gs.stat_points = 5
 	char_ui.toggle()
 	_sync_ui()
@@ -526,10 +558,80 @@ func _ui_test() -> void:
 	tree_ui.toggle()
 	_sync_ui()
 	await _ui_shot(shots + "/ui_tree.png")
+	for t in [1, 2]:
+		tree_ui.tab = t
+		tree_ui._rebuild()
+		await _ui_shot(shots + "/ui_tree_%s.png" % ["bow", "passive", "javelin"][t])
+	tree_ui.tab = 0
 	tree_ui.toggle()
 	toggle_menu()
 	await _ui_shot(shots + "/ui_menu.png")
 	print("ui captures done")
+
+
+func _swim_test() -> void:
+	## Drop the amazon into the dungeon's deepest pool, swim up, then swim
+	## along the surface: prints depth and travel, so a dungeon's water can
+	## be checked without playing to it (--dungeon=blackfathom-deeps).
+	if water.is_empty():
+		print("SWIM-TEST: no water in this dungeon's meta (rebuild it with the current exporter)")
+		return
+	var deepest: Dictionary = {}
+	var span := 0.0
+	for w in water:
+		var liq: Dictionary = w["liq"]
+		var d := float(liq["max"][1]) - float(liq["floor"])
+		if d > span:
+			span = d
+			deepest = w
+	var liq: Dictionary = deepest["liq"]
+	var node: Node3D = deepest["node"]
+	# a drawn tile near the pool's middle, its centre in world space
+	var tiles: Array = liq["tiles"]
+	var best := Vector2i(-1, -1)
+	var bd := 1e9
+	for tj in range(tiles.size()):
+		for ti in range(tiles[tj].size()):
+			if int(tiles[tj][ti]) == 0:
+				continue
+			var dd: float = Vector2(ti - tiles[tj].size() * 0.5, tj - tiles.size() * 0.5).length()
+			if dd < bd:
+				bd = dd
+				best = Vector2i(ti, tj)
+	var step := float(liq["step"])
+	var lx: float = float(liq["origin"][0]) - (best.y + 0.5) * step
+	var lz: float = float(liq["origin"][1]) - (best.x + 0.5) * step
+	var surface := _liquid_height(liq, lx, lz)
+	var start: Vector3 = node.global_transform * Vector3(lx, surface - 4.0, lz)
+	player.global_position = start
+	player.velocity = Vector3.ZERO
+	player.pitch = 0.0
+	print("SWIM-TEST pool %s (%s) surface y=%.1f floor y=%.1f; start %s" % [
+			str(liq["name"]), str(liq["kind"]), surface + node.global_position.y,
+			float(liq["floor"]) + node.global_position.y, start])
+	var hold := func(code: int, down: bool):
+		var ev := InputEventKey.new()
+		ev.keycode = code
+		ev.physical_keycode = code
+		ev.pressed = down
+		Input.parse_input_event(ev)
+	for f in range(240):
+		if f == 0:
+			hold.call(KEY_SPACE, true)         # rise
+		if f == 120:
+			hold.call(KEY_SPACE, false)
+			hold.call(KEY_W, true)             # then along the surface
+		if f % 30 == 0:
+			var wy := water_surface_at(player.global_position)
+			print("SWIM-TEST f=%3d pos %s depth %.2f swimming %s on_floor %s" % [
+					f, player.global_position, wy - player.global_position.y,
+					player.swimming, player.is_on_floor()])
+		await get_tree().physics_frame
+	hold.call(KEY_W, false)
+	var wy := water_surface_at(player.global_position)
+	print("SWIM-TEST end: travelled %.1f m from the start, depth %.2f (float line %.2f)" % [
+			Vector2(player.global_position.x - start.x, player.global_position.z - start.z).length(),
+			wy - player.global_position.y, Player.SWIM_DEPTH])
 
 
 func respawn_position() -> Vector3:
@@ -588,6 +690,17 @@ func _find_meshes(node: Node) -> Array[MeshInstance3D]:
 	return out
 
 
+func _model_local(n: Node3D, root: Node3D) -> Transform3D:
+	## n's transform relative to root, before either is in the tree
+	var t := Transform3D.IDENTITY
+	var cur: Node = n
+	while cur != null and cur != root:
+		if cur is Node3D:
+			t = (cur as Node3D).transform * t
+		cur = cur.get_parent()
+	return t
+
+
 func _find_anim_player(node: Node) -> AnimationPlayer:
 	if node is AnimationPlayer:
 		return node
@@ -616,9 +729,13 @@ func _build_world(placements: Dictionary) -> void:
 		node.rotation.y = w["yaw"]
 		add_child(node)
 		wmo_nodes[int(w["uid"])] = node
+		# the WMO's pools as data (wmo_export writes each liquid's height
+		# grid beside the GLB): the player swims in these
+		for liq in _wmo_meta(glb).get("liquids", []):
+			water.append({"node": node, "liq": liq})
 		for mi in _find_meshes(node):
 			if str(mi.name).begins_with("liquid"):
-				continue    # water surfaces are visual only
+				continue    # water surfaces are visual only; the grid is the water
 			mi.create_trimesh_collision()
 			mesh_count += 1
 			if Cli.has("--two-sided"):
@@ -692,6 +809,70 @@ func _build_world(placements: Dictionary) -> void:
 	if lo < 1e8:
 		floor_y = lo - 60.0
 	print("fall guard at y=%.0f" % floor_y)
+
+
+func _wmo_meta(glb: String) -> Dictionary:
+	if not _wmo_metas.has(glb):
+		_wmo_metas[glb] = _load_json(glb.get_basename() + "_meta.json")
+	return _wmo_metas[glb]
+
+
+func water_surface_at(p: Vector3) -> float:
+	## The water surface over a point, in world metres, or NAN on dry ground.
+	## Each pool is the exporter's height grid in its WMO's own frame:
+	## vertex (i, j) at (origin.x - j * step, origin.z - i * step), bilinear
+	## between them, and only over tiles the surface is drawn on. Pools stack
+	## (Blackfathom's tunnels run above its flooded halls), so a pool counts
+	## only from its group's floor up, and the nearest surface above the
+	## feet wins.
+	var best := NAN
+	for w in water:
+		var node: Node3D = w["node"]
+		var liq: Dictionary = w["liq"]
+		var lp: Vector3 = node.global_transform.affine_inverse() * p
+		if lp.y < float(liq["floor"]) - 1.0 or lp.y > float(liq["max"][1]) + 2.0:
+			continue
+		if lp.x < float(liq["min"][0]) - 0.1 or lp.x > float(liq["max"][0]) + 0.1 \
+				or lp.z < float(liq["min"][2]) - 0.1 or lp.z > float(liq["max"][2]) + 0.1:
+			continue
+		var h := _liquid_height(liq, lp.x, lp.z)
+		if is_nan(h):
+			continue
+		var wh: float = (node.global_transform * Vector3(lp.x, h, lp.z)).y
+		# the lowest surface still above the feet; failing that the highest
+		if is_nan(best) or (wh >= p.y and (best < p.y or wh < best)) \
+				or (wh < p.y and best < p.y and wh > best):
+			best = wh
+	return best
+
+
+func _liquid_height(liq: Dictionary, x: float, z: float) -> float:
+	var step := float(liq["step"])
+	var fj := (float(liq["origin"][0]) - x) / step
+	var fi := (float(liq["origin"][1]) - z) / step
+	var tiles: Array = liq["tiles"]
+	var heights: Array = liq["heights"]
+	var ti := int(floor(fi))
+	var tj := int(floor(fj))
+	if tj < 0 or tj >= tiles.size():
+		return NAN
+	var row: Array = tiles[tj]
+	if ti < 0 or ti >= row.size() or int(row[ti]) == 0:
+		return NAN
+	var u := fi - ti
+	var v := fj - tj
+	var hs := [heights[tj][ti], heights[tj][ti + 1], heights[tj + 1][ti], heights[tj + 1][ti + 1]]
+	var ws := [(1.0 - u) * (1.0 - v), u * (1.0 - v), (1.0 - u) * v, u * v]
+	var acc := 0.0
+	var wsum := 0.0
+	for k in range(4):
+		if hs[k] == null:
+			continue
+		acc += float(hs[k]) * ws[k]
+		wsum += ws[k]
+	if wsum <= 0.0:
+		return NAN
+	return acc / wsum
 
 
 func _place_set(entries: Array, wmo_nodes: Dictionary, solid: Dictionary,
@@ -853,19 +1034,22 @@ func _spawn_creatures(entries: Array) -> void:
 		var sc: float = float(info.get("scale", 1.0))
 		model.scale = Vector3.ONE * sc
 
-		# capsule sized from the model bounds
+		# capsule sized from the model bounds, each mesh's box taken where
+		# its node puts it (a weapon on a hand bone has its own origin)
 		var aabb := AABB()
 		var first := true
 		for mi in _find_meshes(model):
-			var b := mi.get_aabb()
+			var b: AABB = _model_local(mi, model) * mi.get_aabb()
 			if first:
 				aabb = b
 				first = false
 			else:
 				aabb = aabb.merge(b)
-		var radius: float = clampf(
-			maxf(aabb.size.x, aabb.size.z) * 0.5 * sc * 0.7, 0.3, 1.3)
 		var height: float = clampf(aabb.size.y * sc, 1.0, 4.0)
+		# no wider than the body is tall: a bat's bind pose spreads its
+		# wings five metres, which made a 0.6 m bat a 2.6 m wide capsule
+		var radius: float = clampf(minf(
+				maxf(aabb.size.x, aabb.size.z) * 0.5 * sc * 0.7, height * 0.45), 0.3, 1.3)
 
 		var mob := WowCreature.new()
 		var cs := CollisionShape3D.new()
@@ -1422,7 +1606,6 @@ func _on_monster_died(dead: WowCreature) -> void:
 		gi.global_position = dead.global_position \
 				+ Vector3(cos(a) * r, 0.02, sin(a) * r)
 		ground_items.append(gi)
-	get_node("/root/Sfx").event("flippy", dead.global_position)
 	gs.on_kill(str(dead.stats.get("ctype", "")))
 	# boss-keyed doors swing open on the kill
 	for dr in doors:
@@ -1931,14 +2114,48 @@ func _loot_run() -> void:
 			grand["kills"], grand["drops"], grand["gear"], grand["rare"], grand["set"], grand["unique"]])
 
 
-func _pickup_nearest() -> void:
+const PICKUP_RANGE := 2.5      # how far E reaches for loot
+
+var aimed_item: GroundItem = null   # the drop E would take: nearest the crosshair
+
+
+func _aimed_item(cam: Camera3D) -> GroundItem:
+	## Of the drops within reach, the one closest to the crosshair on screen.
+	## A pile at the feet spreads over a few metres; picking by distance to
+	## the player made the wanted piece impossible to single out, since the
+	## nearest drop is rarely the one being looked at. Nothing near the
+	## crosshair still gives a pick, so E works while walking over loot
+	## without looking down at it.
 	var best: GroundItem = null
-	var bd := 2.5
+	var bd := INF
+	var centre: Vector2 = get_viewport().get_visible_rect().size * 0.5
 	for gi in ground_items:
-		var d: float = player.global_position.distance_to(gi.global_position)
+		if not is_instance_valid(gi):
+			continue
+		if player.global_position.distance_to(gi.global_position) > PICKUP_RANGE:
+			continue
+		var wpos: Vector3 = gi.global_position + Vector3(0, gi.label_height() * 0.5, 0)
+		if cam.is_position_behind(wpos):
+			continue
+		var d: float = cam.unproject_position(wpos).distance_to(centre)
 		if d < bd:
 			bd = d
 			best = gi
+	return best
+
+
+func _pickup_nearest() -> void:
+	## E: the drop under the crosshair, or failing that the one at the feet.
+	var best: GroundItem = aimed_item
+	if best == null or not is_instance_valid(best) or not ground_items.has(best) \
+			or player.global_position.distance_to(best.global_position) > PICKUP_RANGE:
+		best = null
+		var bd := PICKUP_RANGE
+		for gi in ground_items:
+			var d: float = player.global_position.distance_to(gi.global_position)
+			if d < bd:
+				bd = d
+				best = gi
 	if best == null:
 		return
 	var gs := get_node("/root/GameState")
@@ -1995,7 +2212,6 @@ func drop_entry(entry: Dictionary) -> void:
 	gi.global_position = player.global_position \
 			+ Vector3(fwd.x, 0, fwd.z).normalized() * 1.2 + Vector3(0, 0.02, 0)
 	ground_items.append(gi)
-	get_node("/root/Sfx").event("flippy", gi.global_position)
 	gs.inventory_changed.emit()
 
 
@@ -2075,14 +2291,28 @@ func toggle_menu() -> void:
 func _process(_dt: float) -> void:
 	if hud_node == null or player == null:
 		return
+	var cam2: Camera3D = player.get_node("Camera3D")
+	# eyes under the surface: the room dims to green-blue murk
+	var wy := water_surface_at(player.global_position) if not water.is_empty() else NAN
+	var under: bool = not is_nan(wy) and cam2.global_position.y < wy
+	if under != _underwater and _env != null:
+		_underwater = under
+		_env.fog_enabled = under
+		_env.fog_light_color = Color(0.04, 0.16, 0.22)
+		_env.fog_light_energy = 0.6
+		_env.fog_density = 0.09
+		_env.fog_sky_affect = 1.0
+	# the drop E would take: always labelled, boxed like a hovered D2 floor
+	# label, so one piece of a pile can be singled out by looking at it
+	aimed_item = _aimed_item(cam2) if not ground_items.is_empty() else null
 	if (Input.is_key_pressed(KEY_ALT) or Replay.alt or force_labels) \
 			and not ground_items.is_empty():
-		var cam: Camera3D = player.get_node("Camera3D")
-		hud_node.show_item_labels(_visible_items(cam), cam)
+		hud_node.show_item_labels(_visible_items(cam2), cam2, aimed_item)
+	elif aimed_item != null:
+		hud_node.show_item_labels([aimed_item], cam2, aimed_item)
 	else:
 		hud_node.hide_item_labels()
 	# creature under the crosshair -> D2-style name + health plate up top
-	var cam2: Camera3D = player.get_node("Camera3D")
 	var from := cam2.global_position
 	var q := PhysicsRayQueryParameters3D.create(
 		from, from - cam2.global_transform.basis.z * 45.0)
@@ -2104,10 +2334,13 @@ func _process(_dt: float) -> void:
 		if ud < use_d:
 			use_d = ud
 			use_name = str(it["name"])
-	if use_name == "":
-		hud_node.hide_interact()
-	else:
+	if use_name != "":
 		hud_node.show_interact(use_name)
+	elif aimed_item != null:
+		# E falls through to the pickup when nothing usable is in reach
+		hud_node.show_interact(aimed_item.display_name, aimed_item.name_color)
+	else:
+		hud_node.hide_interact()
 
 
 func _visible_items(cam: Camera3D) -> Array:

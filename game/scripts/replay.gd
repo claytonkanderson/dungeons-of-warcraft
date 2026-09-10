@@ -541,6 +541,7 @@ func _play_tick() -> void:
 		for iid in line["i"]:
 			var rec: Array = line["i"][iid]
 			var gi := GroundItem.new()
+			gi.silent = true      # the log carries the drop's sound event
 			world.add_child(gi)
 			var inst = rec[2]
 			if inst is Dictionary and not inst.is_empty():

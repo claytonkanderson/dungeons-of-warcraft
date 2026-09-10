@@ -227,7 +227,7 @@ class GlbWriter:
         return len(glb)
 
 
-def build_for(s, wdt_fdid, to_gl, out_dir, tile_keep=None):
+def build_for(s, wdt_fdid, to_gl, out_dir, tile_keep=None, frame=None):
     """Bake every ADT tile of one map. No-op for global-WMO maps.
     tile_keep(x, y): optional predicate over server world coordinates; a
     tile is baked when any of its corners or its centre passes (a wing of
@@ -246,8 +246,17 @@ def build_for(s, wdt_fdid, to_gl, out_dir, tile_keep=None):
         print("terrain: no ADT tiles flagged, skipping")
         return
     if (out_dir / "terrain.json").exists():
-        print("terrain: cached (delete the terrain dir to rebake)")
-        return
+        # the bake is only good for the frame it was calibrated in: a
+        # rebuild that lands on another candidate angle must rebake, or
+        # the ground and the buildings disagree (Zul'Gurub's did)
+        try:
+            baked = json.loads((out_dir / "terrain.json").read_text()).get("frame")
+        except (OSError, ValueError):
+            baked = None
+        if frame is None or baked == frame:
+            print("terrain: cached (delete the terrain dir to rebake)")
+            return
+        print("terrain: calibration frame changed, rebaking")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     tex_cache = {}
@@ -438,6 +447,7 @@ def build_for(s, wdt_fdid, to_gl, out_dir, tile_keep=None):
         manifest["water"] = dest.name
         print(f"water: {len(water_pos)//4} cells, {size//1024} KB")
 
+    manifest["frame"] = frame
     (out_dir / "terrain.json").write_text(json.dumps(manifest, indent=1))
     print(f"{tiles_done} tiles written to {out_dir}")
 

@@ -10,6 +10,12 @@ import struct
 
 from gltf_export import _cv, YARD
 
+# Bumped when the GLB or its meta changes shape; build_dungeon rebuilds a
+# cached WMO whose meta carries an older number.
+#   1: textured liquids by kind
+#   2: liquid height grids in the meta, for swimming
+FORMAT = 2
+
 
 # The liquid surfaces' own tiling textures (lake water, lava, slime), by
 # file id: the extractor loads them into the texture set beside the
@@ -106,12 +112,12 @@ def export_wmo_glb(root, groups, textures, out_path, meta_path=None,
         counts = {}
         for f in g.liquid["tiles"]:
             if (f & 0x0F) != 0x0F:
-                counts[f & 3] = counts.get(f & 3, 0) + 1
+                counts[f & 7] = counts.get(f & 7, 0) + 1
         k = max(counts, key=counts.get) if counts else 0
         return {2: "magma", 3: "slime"}.get(k, "water")
 
     # ----- groups
-    nodes, meshes, meta_groups = [], [], []
+    nodes, meshes, meta_groups, meta_liquids = [], [], [], []
     for gi, g in groups:
         info = root.group_names[gi]
         if not g.vertices or not g.batches:
@@ -193,6 +199,31 @@ def export_wmo_glb(root, groups, textures, out_path, meta_path=None,
                     "name": f"liquid{gi}"})
                 nodes.append({"name": f"liquid{gi}",
                               "mesh": len(meshes) - 1})
+                # the surface as data, for the game's swimming: the height
+                # grid in the game's own frame. After _cv the MLIQ i axis
+                # runs along -z and the j axis along -x, so vertex (i, j)
+                # sits at (origin.x - j * step, origin.z - i * step); the
+                # bounds cover the drawn vertices only (masked ones sit at
+                # height 0 and would make every pool tens of metres tall)
+                used = sorted(set(lids))
+                up = [lpos[k] for k in used]
+                drawn = [None] * len(lpos)
+                for k in used:
+                    drawn[k] = round(lpos[k][1], 3)
+                bb = info["bbox"]
+                gy = [_cv(bb[0:3])[1] * YARD, _cv(bb[3:6])[1] * YARD]
+                meta_liquids.append({
+                    "group": gi, "name": info["name"], "kind": liquid_kind(g),
+                    "min": [round(min(p[k] for p in up), 3) for k in range(3)],
+                    "max": [round(max(p[k] for p in up), 3) for k in range(3)],
+                    "floor": round(min(gy), 3),
+                    "origin": [round(lpos[0][0], 3), round(lpos[0][2], 3)],
+                    "step": LT * YARD, "nx": L["xv"], "nz": L["yv"],
+                    "heights": [[drawn[j * L["xv"] + i] for i in range(L["xv"])]
+                                for j in range(L["yv"])],
+                    "tiles": [[0 if (L["tiles"][ty * L["xt"] + tx] & 0x0F) == 0x0F else 1
+                               for tx in range(L["xt"])] for ty in range(L["yt"])],
+                })
         bb = info["bbox"]
         c0 = tuple(c * YARD for c in _cv(bb[0:3]))
         c1 = tuple(c * YARD for c in _cv(bb[3:6]))
@@ -233,6 +264,8 @@ def export_wmo_glb(root, groups, textures, out_path, meta_path=None,
         f.write(glb)
     if meta_path:
         with open(meta_path, "w") as f:
-            json.dump({"groups": meta_groups}, f, indent=1)
-    return {"groups": len(meshes), "size": len(glb),
+            json.dump({"format": FORMAT, "groups": meta_groups,
+                       "liquids": meta_liquids}, f, indent=1)
+    return {"groups": len(meta_groups), "liquids": len(meta_liquids),
+            "size": len(glb),
             "vertices": sum(m["vertices"] for m in meta_groups)}

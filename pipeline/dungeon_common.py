@@ -330,6 +330,7 @@ def calibrate(s, spawns, placements, main_uid, roots):
     for k in range(8):
         for fi in range(4):
             hits = 0
+            tight = 0
             mats = [forms(cand_deg(k, ry))[fi] for _o, ry, _b, _lo, _hi, _w in frames]
             for sp in spawns:
                 for (origin, _ry, boxes, lo, hi, _w), mat in zip(frames, mats):
@@ -341,22 +342,45 @@ def calibrate(s, spawns, placements, main_uid, roots):
                     if (lo[0] <= xl <= hi[0] and lo[1] <= yl <= hi[1]
                             and lo[2] <= zl <= hi[2] and inside(boxes, xl, yl, zl)):
                         hits += 1
+                        # the same test with no slack: only the right frame
+                        # puts the spawns inside the rooms themselves
+                        if inside(boxes, xl, yl, zl, 0.5):
+                            tight += 1
                         break           # one vote per spawn
-            scores[(k, fi)] = (hits, box_error(mats))
+            scores[(k, fi)] = (hits, box_error(mats), tight)
     # the spawn vote first; among candidates it cannot separate (many loose
     # buildings on an outdoor map put most spawns inside something under any
-    # frame) the placement boxes decide
-    top = max(h for h, _e in scores.values())
-    eligible = [c for c, (h, _e) in scores.items() if h >= top * 0.9]
-    k, fi = min(eligible, key=lambda c: (scores[c][1], c))
-    hits, err = scores[(k, fi)]
+    # frame) the tight vote, then the placement boxes decide. Razorfen
+    # Kraul's main building sits at 227 degrees, where two candidate angles
+    # (ry - 180 and 270 - ry) fall 4 degrees apart and the loose vote and
+    # the box error both tied; the wrong one put 37% of the spawns under
+    # the floor.
+    top = max(h for h, _e, _t in scores.values())
+    eligible = [c for c, (h, _e, _t) in scores.items() if h >= top * 0.9]
+    # the placement boxes gate first: a frame that puts the buildings far
+    # from where their placements record them is wrong however the spawns
+    # vote (Zul'Gurub's mirror scored seven more tight spawns of 928 with a
+    # 2651 m box error against 14 m); within that, the tight vote decides
+    best_err = min(scores[c][1] for c in eligible)
+    finalists = [c for c in eligible if scores[c][1] <= best_err + 50.0]
+    k, fi = min(finalists, key=lambda c: (-scores[c][2], scores[c][1], c))
+    hits, err, tight = scores[(k, fi)]
+    angles = sorted({cand_deg(c[0], ry_main) % 360.0 for c in eligible})
+    close = [(a, b) for a in angles for b in angles if 0.0 < abs(a - b) < 15.0]
+    if close:
+        print(f"!! calibration: candidate angles {[round(a, 1) for a in angles]} within "
+              f"15 degrees of each other; the tight spawn vote chose "
+              f"{cand_deg(k, ry_main) % 360.0:.1f} ({tight}/{len(spawns)} spawns tight, {hits} loose)")
+        for c in sorted(eligible, key=lambda c: -scores[c][2]):
+            print(f"     {cand_deg(c[0], ry_main) % 360.0:6.1f} deg form {c[1]}: "
+                  f"{scores[c][2]} tight, {scores[c][0]} loose, box error {scores[c][1]:.0f} m")
     deg = cand_deg(k, ry_main)
     mat = forms(deg)[fi]
     det = mat[0][0] * mat[1][1] - mat[0][1] * mat[1][0]
     return {"origin": (ox, oy, oz), "mat": mat, "ry_main": ry_main,
             "det": det, "hits": hits, "total": len(spawns),
             "candidate": (k, fi), "wmos": len(frames), "box_err": err,
-            "tied": len(eligible)}
+            "tight": tight, "tied": len(eligible)}
 
 
 class Transform:
@@ -365,6 +389,11 @@ class Transform:
         self.mat = cal["mat"]
         self.ry_main = cal["ry_main"]
         self.sgn = 1.0 if cal["det"] > 0 else -1.0
+
+    def frame_key(self):
+        """The calibration as a short string: what a bake was made in."""
+        return "%.2f,%.2f,%.2f|%s" % (self.ox, self.oy, self.oz,
+                                       ",".join("%.4f" % v for row in self.mat for v in row))
 
     def to_local(self, wx, wy, wz):
         dn, dw = wx - self.ox, wy - self.oy

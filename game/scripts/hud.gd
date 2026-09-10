@@ -257,16 +257,17 @@ func show_area(name: String, color := Color(0.9, 0.82, 0.6), dur := 3.0) -> void
 var _use_label: Label
 
 
-func show_interact(what: String) -> void:
+func show_interact(what: String, color := Color(0.85, 0.72, 0.35)) -> void:
 	## Name what E would act on. Chests and ore veins are small enough to walk
 	## straight past, and a shut door gives no hint that it will open at all.
+	## Loot names come through in the item's own quality colour.
 	if _use_label == null:
 		_use_label = Label.new()
 		get_node("/root/D2Font").style_near(_use_label, 18)
-		_use_label.add_theme_color_override("font_color", Color(0.85, 0.72, 0.35))
 		_use_label.add_theme_color_override("font_outline_color", Color(0, 0, 0))
 		_use_label.add_theme_constant_override("outline_size", 6)
 		add_child(_use_label)
+	_use_label.add_theme_color_override("font_color", color)
 	_use_label.text = "[E]  %s" % what
 	_use_label.visible = true
 
@@ -319,7 +320,18 @@ func hide_target() -> void:
 		_tgt_root.visible = false
 
 
-func show_item_labels(items: Array, cam: Camera3D) -> void:
+var _focus_bg: ColorRect   # the box behind the drop E would take
+
+
+func show_item_labels(items: Array, cam: Camera3D, focus: GroundItem = null) -> void:
+	## Floor labels over the drops; `focus` is the one E would pick up, boxed
+	## the way D2 boxes a floor label under the mouse.
+	if _focus_bg == null:
+		_focus_bg = ColorRect.new()
+		_focus_bg.color = Color(0.0, 0.0, 0.0, 0.7)
+		add_child(_focus_bg)
+		move_child(_focus_bg, 0)   # beneath every label
+	_focus_bg.visible = false
 	while _item_labels.size() < items.size():
 		var l := Label.new()
 		# ground item names: font16, as D2's floor labels
@@ -342,12 +354,19 @@ func show_item_labels(items: Array, cam: Camera3D) -> void:
 		l.text = gi.display_name
 		l.add_theme_color_override("font_color", gi.name_color)
 		var sp := cam.unproject_position(wpos)
-		l.position = sp - Vector2(l.size.x * 0.5, l.size.y)
+		var sz: Vector2 = l.get_minimum_size()
+		l.position = sp - Vector2(sz.x * 0.5, sz.y)
+		if gi == focus:
+			_focus_bg.position = l.position - Vector2(6, 2)
+			_focus_bg.size = sz + Vector2(12, 4)
+			_focus_bg.visible = true
 
 
 func hide_item_labels() -> void:
 	for l in _item_labels:
 		l.visible = false
+	if _focus_bg != null:
+		_focus_bg.visible = false
 
 
 func _process(dt: float) -> void:

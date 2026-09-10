@@ -32,7 +32,8 @@ def read_table(name):
 CHARM_INV = {'cm1': 'invch1', 'cm2': 'invch2', 'cm3': 'invch3'}
 
 BASE_COLS = ['type', 'invwidth', 'invheight', 'invfile', 'flippyfile',
-             'level', 'levelreq', 'rarity', 'cost', 'reqstr', 'reqdex']
+             'level', 'levelreq', 'rarity', 'cost', 'reqstr', 'reqdex',
+             'dropsound', 'dropsfxframe', 'usesound']
 
 # What the character composite draws when this item is worn. Body armour
 # picks a light/medium/heavy variant per body part; helms, shields and

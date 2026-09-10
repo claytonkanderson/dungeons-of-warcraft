@@ -102,7 +102,8 @@ Run `DungeonsOfWarcraft.exe`, create a character, pick Ragefire Chasm, go.
 | F1–F5 | swap the right-hand skill |
 | T | skill tree — click to spend, ctrl-click binds LMB, right-click binds RMB, hover and press F1–F5 to bind a hotkey |
 | I / C | inventory, character sheet |
-| E | interact, or pick up the nearest item |
+| E | interact, or pick up the item under the crosshair (its label is boxed; the nearest one if none is aimed at) |
+| in water | look down to dive, up to rise; Space swims up, and hops out at the surface |
 | Alt | show loot labels |
 | F9 | manual save |
 | F11 | fullscreen |

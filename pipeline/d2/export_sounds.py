@@ -131,6 +131,23 @@ def build():
         if keys:
             events[ev] = keys
 
+    # --- items: every dropsound / usesound the item tables name, as an
+    # event under the Sounds.txt key itself (item_amulet, item_ring,
+    # item_gem, item_sword ...); the game plays an item's own when it lands
+    item_keys = set()
+    for table in ('weapons.txt', 'armor.txt', 'misc.txt'):
+        for r in read_table(table):
+            for col in ('dropsound', 'usesound'):
+                k = (r.get(col) or '').strip()
+                if k and k in index_of:
+                    item_keys.add(k)
+    for k in sorted(item_keys):
+        if k in events:
+            continue
+        keys = export_group(k)
+        if keys:
+            events[k] = keys
+
     # --- monsters: roster codes -> monstats -> MonSounds -------------------
     from export_monsters import ROSTER
     monstats = read_table('monstats.txt')

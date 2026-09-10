@@ -131,6 +131,7 @@ MODEL_STANDINS_BY_FDID = {
     125948: 126131,     # skeleton variant (Skeletal Guardian) -> DeathGuard
     125947: 125092,     # creature/skeletonmage -> Necromancer
     121768: 126131,     # Forsaken character model -> DeathGuard
+    121608: 126131,     # Forsaken female character model -> DeathGuard
     123961: 123952,     # creature/fleshgolem (abomination) -> FleshGiant
     123120: 123972,     # creature/bonegolem (Rattlegore) -> FleshTitan
     125957: 125958,     # creature/slime/slime -> SlimeLesser
@@ -548,14 +549,38 @@ def build(s, dungeon_id, cfg, stats_only=False):
                         return avail[c]
         return None
 
-    # model fdid -> the textures of a display row that uses it natively, for
-    # a stand-in's skin (the borrowing creature's own display row names
-    # textures cut for the model it lost)
-    native_textures = {}
+    # The tables name many texture files the Anniversary client never
+    # streamed, so a slot is only as good as a file the storage can read
+    _readable = {}
+
+    def readable(fd):
+        if not fd:
+            return False
+        if fd not in _readable:
+            try:
+                _readable[fd] = s.read_fdid(fd)[:4] == b"BLP2"
+            except (CascError, KeyError):
+                _readable[fd] = False
+        return _readable[fd]
+
+    # model fdid -> every display row's texture variation set that uses it
+    # natively: a stand-in's skin (the borrowing creature's own row names
+    # textures cut for the model it lost), and the readable spare for a
+    # creature whose own row names a file that is not local (the quillboars
+    # of Razorfen Downs came out white for that)
+    model_variations = {}
     for _d, r in cdi.rows.items():
         fd = cmd.rows.get(r[1], (None, None, None))[2]
-        if fd and fd not in native_textures and isinstance(r[25], list) and any(r[25]):
-            native_textures[fd] = r[25]
+        if fd and isinstance(r[25], list) and any(r[25]):
+            model_variations.setdefault(fd, []).append(r[25])
+
+    def native_textures(fd):
+        """A variation set for the model that reads in full, else its first."""
+        sets = model_variations.get(fd, [])
+        for v in sets:
+            if all(readable(x) for x in v if x):
+                return v
+        return sets[0] if sets else []
 
     def load_model(fd):
         """fd when the client holds that model (noting its name), else None."""
@@ -586,7 +611,7 @@ def build(s, dungeon_id, cfg, stats_only=False):
             print(f"{entry} {name}: no display row this client knows -> "
                   f"stand-in {ok_models[alt]}")
             model_fdid, scale, extra_id = alt, 1.0, None
-            variations = native_textures.get(alt, [])
+            variations = native_textures(alt)
         else:
             model_fdid = cmd.rows[row[1]][2]
             scale = f32(row[4]) or 1.0
@@ -600,7 +625,7 @@ def build(s, dungeon_id, cfg, stats_only=False):
                 continue
             print(f"{entry} {name}: model {model_fdid} not in the local client -> "
                   f"stand-in {ok_models[alt]}")
-            variations = native_textures.get(alt, [])
+            variations = native_textures(alt)
             # the missing model's bounding height is still in the table:
             # size the stand-in to it (Rattlegore is not a seven-metre titan)
             try:
@@ -682,22 +707,44 @@ def build(s, dungeon_id, cfg, stats_only=False):
                 if i not in textures:
                     flat_colors[i] = HAIR_FALLBACK_RGBA
         else:
-            vi = 0
+            # a character model standing in without a bake (HumanMale for
+            # the Scarlet named casters) still needs a skin: its race's own
+            mname = ok_models.get(model_fdid, "").lower()
+            char_folder = next((f for f in RACE_FOLDER.values()
+                                if f and mname.startswith(f)), "")
+            char_sex = "female" if mname.endswith("female") else "male"
             for i, tex in enumerate(model.textures):
-                fd = None
+                cands = []
                 if tex["type"] == 0 and i < len(model.txid) and model.txid[i]:
-                    fd = model.txid[i]
+                    cands = [model.txid[i]]
                 elif tex["type"] in (11, 12, 13):
-                    while vi < len(variations) and not variations[vi]:
-                        vi += 1
-                    if vi < len(variations):
-                        fd = variations[vi]
-                        vi += 1
+                    # positional: type 11 is the row's first variation, 12
+                    # the second, 13 the third. The creature's own row first,
+                    # then every other row that uses the model, for a file
+                    # the local client actually has
+                    k = tex["type"] - 11
+                    cands = [variations[k] if k < len(variations) else 0]
+                    cands += [v[k] for v in model_variations.get(model_fdid, [])
+                              if k < len(v)]
+                elif tex["type"] == 1 and char_folder:
+                    cands = [s.root.fdid_for_path(
+                        f"character/{char_folder}/{char_sex}/"
+                        f"{char_folder}{char_sex}skin00_00.blp")]
+                elif tex["type"] == 6 and char_folder:
+                    cands = [s.root.fdid_for_path(f"character/{char_folder}/hair00_00.blp")]
+                cands = [c for c in cands if c]
+                fd = next((c for c in cands if readable(c)), None)
+                if fd is None and cands:
+                    # skins of one model are numbered together: a neighbour
+                    # of the missing file is another skin of the same set
+                    fd = nearest_blp(s, cands[0])
                 if fd:
-                    try:
-                        textures[i] = blp_to_png(s.read_fdid(fd))
-                    except CascError:
-                        pass
+                    textures[i] = blp_to_png(s.read_fdid(fd))
+                elif cands or tex["type"] in (1, 2, 6, 11, 12, 13):
+                    # nothing readable: a flat dark slot beats untextured white
+                    flat_colors[i] = HAIR_FALLBACK_RGBA
+                    print(f"!! {entry} {name}: texture slot {i} (type {tex['type']}) "
+                          f"unresolved, wanted {cands[:1] or 'a file the tables do not name'}")
 
         attachments = []
         specs = hand_tuned.get(entry)

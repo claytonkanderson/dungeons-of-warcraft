@@ -35,6 +35,7 @@ def extract_wmo(s, fdid, name, out_dir, vc_scale):
         except CascError as e:
             print(f"  group {gi} unavailable: {e}")
     textures = {}
+    from build_creatures import nearest_blp
     for m in root.materials:
         for key in ("texture1",):
             fdid_t = m[key]
@@ -42,7 +43,16 @@ def extract_wmo(s, fdid, name, out_dir, vc_scale):
                 try:
                     textures[fdid_t] = blp_to_png(s.read_fdid(fdid_t))
                 except CascError as e:
-                    print(f"  texture {fdid_t}: {e}")
+                    # not in the local client (the Anniversary client streams
+                    # on demand): a tile set is numbered together, so the
+                    # neighbouring file is the same family of stone or wood,
+                    # and beats leaving the faces untextured white
+                    alt = nearest_blp(s, fdid_t)
+                    if alt:
+                        textures[fdid_t] = blp_to_png(s.read_fdid(alt))
+                        print(f"!! texture {fdid_t} not local; using neighbour {alt}")
+                    else:
+                        print(f"!! texture {fdid_t}: {e} (faces left bare)")
     # the liquid surfaces' tiling textures, keyed by file id like the rest
     for tf in LIQUID_TEXTURES.values():
         if tf not in textures:

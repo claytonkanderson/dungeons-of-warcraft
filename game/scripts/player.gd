@@ -17,6 +17,13 @@ const STAMINA_MAX := 100.0
 const STAMINA_DRAIN := 8.0       # per second while running
 const STAMINA_REGEN := 12.0
 const JUMP_VEL := 7.5            # ~1.3 m hop against the 22 m/s^2 gravity
+# Water (the WMO pools, see world.water_surface_at). Past SWIM_DEPTH of
+# water over the feet the body floats and steers with the look; above
+# WADE_DEPTH it only wades, slowed. WoW's swim is a little under walking.
+const SWIM_SPEED := 3.2
+const SWIM_ACCEL := 14.0
+const SWIM_DEPTH := 1.25
+const WADE_DEPTH := 0.5
 
 # Breadcrumbs behind the player, for the Unstuck command. Only spots they
 # demonstrably walked away from are kept, so wedging into scenery stops the
@@ -26,6 +33,8 @@ const SAFE_TRAIL := 8            # roughly the last few seconds of walking
 
 var yaw := 0.0
 var pitch := 0.0
+var swimming := false
+var water_y := NAN               # the surface over the body this tick, NAN when dry
 var stamina := STAMINA_MAX
 var action_skill := ["Attack", "Attack"]   # LMB, RMB
 var attack_time := 0.0          # seconds remaining in the current attack
@@ -305,38 +314,71 @@ func _physics_process(dt: float) -> void:
 		var regen := 1.0 + float(gs.mods.get("regen-stam", 0)) / 100.0
 		stamina = min(gs.stamina_max(), stamina + STAMINA_REGEN * regen * dt)
 
+	# water over the feet: wading slows, deeper than the float line swims
+	var world := get_parent()
+	water_y = world.water_surface_at(global_position) if world.has_method("water_surface_at") else NAN
+	var depth: float = water_y - global_position.y if not is_nan(water_y) else -1.0
+	swimming = depth > SWIM_DEPTH
+	if not swimming and depth > WADE_DEPTH:
+		speed *= 0.6
+
 	var wish := Vector3.ZERO
 	if input != Vector2.ZERO:
 		input = input.normalized()
 		wish = Basis(Vector3.UP, yaw) * Vector3(input.x, 0.0, input.y)
 
-	var hv := Vector3(velocity.x, 0, velocity.z)
-	if wish != Vector3.ZERO:
-		hv = hv.move_toward(wish * speed, ACCEL * dt)
-	else:
-		hv = hv.move_toward(Vector3.ZERO, FRICTION * dt)
-	velocity.x = hv.x
-	velocity.z = hv.z
-
 	var sfx := get_node("/root/Sfx")
-	if is_on_floor():
-		velocity.y = 0.0
+	var hv := Vector3(velocity.x, 0, velocity.z)
+	if swimming:
+		# the forward stick follows the look: down to dive, up to rise;
+		# strafing stays level; Space swims straight up
+		var dir := Vector3.ZERO
+		if input != Vector2.ZERO:
+			dir = Basis(Vector3.UP, yaw) * Vector3(input.x, 0.0, input.y * cos(pitch))
+			dir.y = sin(pitch) * -input.y
 		if Input.is_key_pressed(KEY_SPACE) and not ui_locked:
-			velocity.y = JUMP_VEL
-			sfx.event_ui("step_%s_%s" % [surface, "run" if want_run else "walk"],
-					STEP_TRIM)
+			dir.y += 1.0
+		if dir.length() > 1.0:
+			dir = dir.normalized()
+		var target: Vector3 = dir * SWIM_SPEED * gs.run_speed_factor()
+		# buoyant: with no vertical input the body drifts up to the float
+		# line rather than hanging where a dive or a fall left it
+		var over := depth - SWIM_DEPTH
+		if dir.y == 0.0:
+			target.y = clampf(over * 1.5, 0.0, 1.2)
+		velocity = velocity.move_toward(target, SWIM_ACCEL * dt)
+		# the surface: rising stops at the float line; Space there is a
+		# hop, enough to land on a bank at the water's edge
+		if velocity.y > 0.0 and over < 0.1:
+			velocity.y = JUMP_VEL * 0.6 \
+					if Input.is_key_pressed(KEY_SPACE) and not ui_locked else 0.0
+		floor_snap_length = 0.0
+		move_and_slide()
 	else:
-		velocity.y -= GRAVITY * dt
-	var grounded := is_on_floor()
-	move_and_slide()
-	if grounded:
-		Stepper.climb(self, hv, dt)     # stairs: lift over risers the slide caught on
+		if wish != Vector3.ZERO:
+			hv = hv.move_toward(wish * speed, ACCEL * dt)
+		else:
+			hv = hv.move_toward(Vector3.ZERO, FRICTION * dt)
+		velocity.x = hv.x
+		velocity.z = hv.z
+		if is_on_floor():
+			velocity.y = 0.0
+			if Input.is_key_pressed(KEY_SPACE) and not ui_locked:
+				velocity.y = JUMP_VEL
+				sfx.event_ui("step_%s_%s" % [surface, "run" if want_run else "walk"],
+						STEP_TRIM)
+		else:
+			velocity.y -= GRAVITY * dt
+		var grounded := is_on_floor()
+		move_and_slide()
+		if grounded:
+			Stepper.climb(self, hv, dt)     # stairs: lift over risers the slide caught on
 
 	# footsteps and landing. Distance-driven cadence, so it speeds up with the
 	# player rather than ticking on a fixed timer; the surface picks the D2
 	# footstep set (see EVENTS in export_sounds.py). event_ui keeps them
 	# non-positional — they are the player's own feet, always at the listener.
-	var on_floor := is_on_floor()
+	var on_floor := is_on_floor() and not swimming   # no footfalls under water
 	var ground_speed := Vector2(velocity.x, velocity.z).length()
 	if on_floor and ground_speed > 0.6:
 		_step_dist += ground_speed * dt

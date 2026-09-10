@@ -154,8 +154,13 @@ func _refresh() -> void:
 			pb.stretch_mode = TextureButton.STRETCH_SCALE
 			pb.focus_mode = Control.FOCUS_NONE
 			var key := str(r[1])
-			pb.pressed.connect(func():
-				gs.allocate_stat(key)
-				_refresh())
+			# on the press, not the release: the sheet is rebuilt on every
+			# hp_changed, and Replenish Life or poison emit that each tick,
+			# so a button waiting for its release was freed before it came
+			pb.gui_input.connect(func(ev):
+				if ev is InputEventMouseButton and ev.pressed \
+						and ev.button_index == MOUSE_BUTTON_LEFT:
+					gs.allocate_stat(key)
+					_refresh())
 			panel.content.add_child(pb)
 			_nodes.append(pb)

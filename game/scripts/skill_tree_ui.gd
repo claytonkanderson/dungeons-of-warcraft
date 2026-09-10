@@ -17,8 +17,14 @@ const SOCKET_Y0 := 15.0
 const SOCKET_PITCH_Y := 68.2
 # the spare socket bottom-right (Normal Attack) and the chrome's top box,
 # where D2 shows the unspent skill points
-const ATTACK_RECT := Rect2(172, 386, 31, 31)
-const THROW_RECT := Rect2(133, 386, 31, 31)   # left of it: Throw (javelins)
+# Normal Attack sits in the plate each lattice leaves free at the bottom
+# (measured on skltree_1..3: the bow page keeps it at the right, the
+# passive page between the outer sockets, the javelin page at the left,
+# since Pierce / Lightning Fury fill row 6 there); Throw goes beside it
+const PLATE_Y := 386.0
+const PLATE := 31.0
+const ATTACK_X := [172.0, 101.0, 16.0]
+const THROW_X := [133.0, 64.0, 49.0]
 const POINTS_BOX := Rect2(250, 61, 49, 25)
 # tab plates in the chrome column: 87x99 at x 228, y 111 / 219 / 327
 const TAB_X := 228.0
@@ -34,6 +40,7 @@ var open := false
 var tab := 0
 var panel: D2Panel
 var tooltip: Label
+var _tip_bg: ColorRect   # the box behind the tooltip: white text over the cave was unreadable
 var _lattice := {}
 var _chrome: TextureRect
 var _nodes := []
@@ -58,7 +65,13 @@ func _ready() -> void:
 	_chrome.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_chrome.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.content.add_child(_chrome)
+	_tip_bg = ColorRect.new()
+	_tip_bg.color = Color(0.0, 0.0, 0.0, 0.8)
+	_tip_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tip_bg.visible = false
+	add_child(_tip_bg)
 	tooltip = Label.new()
+	tooltip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	get_node("/root/D2Font").style(tooltip, 16)
 	tooltip.add_theme_color_override("font_color", Color(1, 1, 1))
 	tooltip.add_theme_color_override("font_outline_color", Color(0, 0, 0))
@@ -85,7 +98,7 @@ func toggle() -> void:
 		panel.fit(get_viewport().get_visible_rect().size, true)
 		_rebuild()
 	else:
-		tooltip.visible = false
+		_hide_tip()
 
 
 func _amazon_skills_on_page(page: int) -> Array:
@@ -180,8 +193,8 @@ func _rebuild() -> void:
 	# hotkey, same gestures as any learned skill
 	var atk_sheet = db.load_sheet("ui/skilliconpanel")
 	if atk_sheet != null:
-		for basic in [["Attack", 2, ATTACK_RECT, "Normal Attack"],
-				["Throw", 6, THROW_RECT, "Throw (javelins)"]]:
+		for basic in [["Attack", 2, Rect2(ATTACK_X[tab], PLATE_Y, PLATE, PLATE), "Normal Attack"],
+				["Throw", 6, Rect2(THROW_X[tab], PLATE_Y, PLATE, PLATE), "Throw (javelins)"]]:
 			var bname: String = basic[0]
 			var brect: Rect2 = basic[2]
 			_icon(atk_sheet, int(basic[1]), brect)
@@ -233,12 +246,17 @@ func _hotkey_badge(skill: String, rect: Rect2) -> void:
 func _show_tip(s: String, rect: Rect2) -> void:
 	tooltip.text = s
 	tooltip.visible = true
-	# to the left of the page, level with the socket
-	tooltip.position = panel.to_screen(rect.position) - Vector2(tooltip.size.x + 12, 0)
+	# to the left of the page, level with the socket, boxed like D2's own
+	var sz: Vector2 = tooltip.get_minimum_size()
+	tooltip.position = panel.to_screen(rect.position) - Vector2(sz.x + 16, 0)
+	_tip_bg.position = tooltip.position - Vector2(6, 4)
+	_tip_bg.size = sz + Vector2(12, 8)
+	_tip_bg.visible = true
 
 
 func _hide_tip() -> void:
 	tooltip.visible = false
+	_tip_bg.visible = false
 	_hover_skill = ""
 
 
