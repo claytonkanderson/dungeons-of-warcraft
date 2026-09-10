@@ -20,6 +20,7 @@ Music="*res://scripts/music.gd"
 WowSfx="*res://scripts/wow_sfx.gd"
 Dungeons="*res://scripts/dungeons.gd"
 Replay="*res://scripts/replay.gd"
+Net="*res://scripts/net.gd"
 
 [display]
 

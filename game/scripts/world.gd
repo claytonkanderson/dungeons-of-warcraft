@@ -14,6 +14,8 @@ var spawn_yaw := 0.0
 var floor_y := -200.0
 var monsters: Array = []
 var puppet := false             # a replay drives the world (replay.gd)
+var _ghosts: Node3D             # other players' missiles, drawn only (net.gd)
+var _ghost_arrows: Array = []
 var arrows: Array = []
 var enemy_missiles: Array = []
 var ground_items: Array = []
@@ -119,14 +121,33 @@ func _open_door(d: Dictionary, boom := false, silent := false) -> void:
 
 
 func _try_interact() -> bool:
-	var gs := get_node("/root/GameState")
-	for it in interactables:
+	for i in range(interactables.size()):
+		var it: Dictionary = interactables[i]
 		if it["used"]:
 			continue
 		var node: Node3D = it["node"]
 		if player.global_position.distance_to(node.global_position) > INTERACT_RANGE:
 			continue
-		var pos := node.global_position
+		if Net.is_client():
+			# the host opens it and the stream shows it opened
+			it["used"] = true
+			Net.interact.rpc_id(1, i)
+		else:
+			use_interactable(i)
+		return true
+	return false
+
+
+func use_interactable(idx: int) -> void:
+	if idx < 0 or idx >= interactables.size():
+		return
+	var it: Dictionary = interactables[idx]
+	if it["used"]:
+		return
+	var gs := get_node("/root/GameState")
+	var node: Node3D = it["node"]
+	var pos := node.global_position
+	if true:
 		match str(it["kind"]):
 			"door":
 				for d in doors:
@@ -174,8 +195,6 @@ func _try_interact() -> bool:
 				vg.drop("gold", randi_range(30, 90))
 				vg.global_position = pos + Vector3(0, 0.05, 0.3)
 				ground_items.append(vg)
-		return true
-	return false
 var hud_node: HUD
 var inv_ui: InventoryUI
 var tree_ui: SkillTreeUI
@@ -307,6 +326,10 @@ func _ready() -> void:
 	# or under --replay the world is puppeted from the log
 	Replay.arm(self, player)
 	player.refresh_attack_style()
+	if Net.active():
+		Net.attach_world(self)
+		hud_node.show_area("Co-op: %d in the session" % Net.player_count(),
+				Color(0.8, 0.9, 0.6), 3.0)
 
 	# every verification mode keeps the window minimized under --offscreen,
 	# so probes can run while the machine is in use
@@ -376,6 +399,9 @@ func _ready() -> void:
 		get_tree().quit()
 	elif OS.get_cmdline_user_args().has("--swim-test"):
 		await _swim_test()
+		get_tree().quit()
+	elif OS.get_cmdline_user_args().has("--net-test"):
+		await _net_test()
 		get_tree().quit()
 	elif OS.get_cmdline_user_args().has("--replay-test"):
 		await _replay_test()
@@ -567,6 +593,50 @@ func _ui_test() -> void:
 	toggle_menu()
 	await _ui_shot(shots + "/ui_menu.png")
 	print("ui captures done")
+
+
+func _net_test() -> void:
+	## A co-op session on one machine: --host --net-test in one window,
+	## --join=127.0.0.1 --net-test in another. Reports for 25 s: peers,
+	## the stream, the other Amazons, a creature's place as each side sees
+	## it; the joiner walks a few metres so its pose is seen to arrive.
+	var role := "host" if Net.is_host() else "joiner"
+	var hold := func(code: int, down: bool):
+		var ev := InputEventKey.new()
+		ev.keycode = code
+		ev.physical_keycode = code
+		ev.pressed = down
+		Input.parse_input_event(ev)
+	for f in range(25 * 60):
+		# both sides walk for a while, so poses and the stream carry something
+		if f == (5 if Net.is_client() else 12) * 60:
+			hold.call(KEY_W, true)
+		if f == (8 if Net.is_client() else 15) * 60:
+			hold.call(KEY_W, false)
+		if Net.is_client() and f == 10 * 60 and not Net.remote_players().is_empty():
+			# a look at the host's Amazon, to shots/: the puppet and its name
+			var rp = Net.remote_players()[0]
+			var to: Vector3 = rp.global_position - player.global_position
+			player.yaw = atan2(-to.x, -to.z)
+			player.pitch = -0.1
+			for w in range(3):
+				await get_tree().process_frame
+			var shots := ProjectSettings.globalize_path("res://../shots")
+			DirAccess.make_dir_recursive_absolute(shots)
+			await Cli.capture(get_viewport(), shots + "/net_joiner.png")
+		if f % 300 == 0:
+			var others := []
+			for rp in Net.remote_players():
+				others.append("%s@%s" % [rp.pname, rp.global_position.snapped(Vector3(0.1, 0.1, 0.1))])
+			var mob = monsters[0] if not monsters.is_empty() else null
+			var mob_s := "%s@%s hp %.0f" % [mob.cname, mob.global_position.snapped(
+					Vector3(0.1, 0.1, 0.1)), mob.hp] if mob != null else "none"
+			print("NET-TEST %s t=%ds peers %d tick %d sent %d got %d applied %d me@%s others %s mob0 %s" % [
+					role, f / 60, Net.player_count(), Replay.tick, Net._sent, Net._got,
+					Replay.live_received,
+					player.global_position.snapped(Vector3(0.1, 0.1, 0.1)), others, mob_s])
+		await get_tree().physics_frame
+	print("NET-TEST %s done" % role)
 
 
 func _swim_test() -> void:
@@ -997,8 +1067,12 @@ func _spawn_player(gs) -> void:
 	cam.position.y = Player.EYE
 	player.add_child(cam)
 	# always the dungeon's own entrance: saves carry the character, not a
-	# position, so entering a dungeon always starts it from the beginning
+	# position, so entering a dungeon always starts it from the beginning.
+	# A co-op party stands in a row across the entrance.
 	player.position = spawn
+	if Net.active():
+		var side := Vector3(cos(spawn_yaw), 0.0, -sin(spawn_yaw))
+		player.position += side * (Net.player_index() - 0.5 * (Net.player_count() - 1)) * 1.0
 	player.yaw = spawn_yaw
 	player.fire_action.connect(_on_fire)
 	add_child(player)
@@ -1072,6 +1146,12 @@ func _spawn_creatures(entries: Array) -> void:
 		mob.set_meta("entry", int(c["entry"]))
 		mob.target = player
 		mob.died.connect(_on_monster_died)
+		mob.rid = monsters.size()
+		if Net.is_host():
+			# D2: half again the life for every player past the first
+			var pf := 1.0 + 0.5 * (Net.player_count() - 1)
+			mob.hp_max *= pf
+			mob.hp = mob.hp_max
 		monsters.append(mob)
 		count += 1
 	print("creatures placed: %d" % count)
@@ -1084,7 +1164,45 @@ func combat_targets() -> Array:
 			friendlies.erase(f)
 		else:
 			out.append(f)
+	if Net.is_host():
+		out.append_array(Net.remote_players())
 	return out
+
+
+func player_struck(dmg: float, ar: float, mlevel: int, impact_kind: String,
+		missile: bool, etype: String) -> float:
+	## A creature's blow or missile at this machine's Amazon: D2's to-hit
+	## roll against her defence, then dodge or avoid, then the shield, then
+	## the damage through her reductions. Returns the thorns the attacker
+	## takes (melee only; a missile's sender is out of reach).
+	var gs := get_node("/root/GameState")
+	var defense: float = gs.player_defense() \
+			+ float(gs.mods.get("ac-miss" if missile else "ac-hth", 0))
+	var chance := GameState.chance_to_hit(ar, defense, mlevel, gs.level)
+	if randf() >= chance:
+		return 0.0
+	if randf() < (gs.avoid_chance() if missile else gs.dodge_chance()):
+		return 0.0
+	var at: Vector3 = player.global_position + Vector3(0, 1.0, 0)
+	if randf() < gs.block_chance():
+		# the shield takes it: a clang, the arm busy for a moment, no damage
+		get_node("/root/Sfx").event("blade_impact", at)
+		player.on_block()
+		return 0.0
+	if missile:
+		get_node("/root/Sfx").event("player_gethit", at, 0.4)
+		if etype == "cold":
+			player.chill(2.0)
+	else:
+		get_node("/root/WowSfx").impact(impact_kind, at, 0.9)
+		get_node("/root/Sfx").event("player_gethit", at, 0.5)
+	if gs.take_damage(dmg, etype if etype != "" else "phys", missile):
+		player.die()
+	else:
+		player.on_hurt(dmg)
+	if missile:
+		return 0.0
+	return float(gs.mods.get("thorns", 0)) + float(gs.mods.get("light-thorns", 0))
 
 
 # ---------------------------------------------------------------------------
@@ -1107,32 +1225,23 @@ func spawn_enemy_missile(origin: Vector3, dir: Vector3, mob: WowCreature) -> voi
 func _update_enemy_missiles(dt: float) -> void:
 	if enemy_missiles.is_empty():
 		return
-	var gs := get_node("/root/GameState")
+	var others: Array = Net.remote_players() if Net.is_host() else []
 	for m in enemy_missiles.duplicate():
 		var node: BillboardAnim = m["node"]
 		node.global_position += m["vel"] * dt
 		m["life"] -= dt
 		var to_p := player.global_position + Vector3(0, 1.0, 0) - node.global_position
 		if to_p.length() < 0.85:
-			var chance := GameState.chance_to_hit(m["ar"],
-					gs.player_defense() + float(gs.mods.get("ac-miss", 0)),
-					int(m["mlvl"]), gs.level)
-			if randf() < chance and randf() >= gs.avoid_chance() \
-					and randf() < gs.block_chance():
-				# blocked: D2 shields stop missiles as well as blows
-				get_node("/root/Sfx").event("blade_impact", node.global_position)
-				player.on_block()
-			elif randf() < chance and randf() >= gs.avoid_chance():
-				get_node("/root/Sfx").event("player_gethit", node.global_position, 0.4)
-				var et := str(m["etype"])
-				if et == "cold":
-					player.chill(2.0)
-				if gs.take_damage(m["dmg"], et if et != "" else "phys", true) \
-						and player.has_method("die"):
-					player.die()
-				else:
-					player.on_hurt(float(m["dmg"]))
+			player_struck(float(m["dmg"]), float(m["ar"]), int(m["mlvl"]), "",
+					true, str(m["etype"]))
 			m["life"] = 0.0
+		else:
+			for rp in others:
+				if (rp.global_position + Vector3(0, 1.0, 0)).distance_to(node.global_position) < 0.85:
+					rp.struck(float(m["dmg"]), float(m["ar"]), int(m["mlvl"]), "",
+							true, str(m["etype"]))
+					m["life"] = 0.0
+					break
 		if m["life"] <= 0.0:
 			if str(m.get("explode", "")) != "":
 				var boom := BillboardAnim.new()
@@ -1200,7 +1309,7 @@ func _hit_monster(mob: WowCreature, ranged: bool, extra: float, thrown := false,
 	for et in parts:
 		parts[et] = float(parts[et]) * _melee_mult
 	if h["noheal"]:
-		mob.noheal = true
+		mob.mark_noheal()
 	if float(h["slow_pct"]) > 0.0:
 		mob.slow(3.0, clampf(1.0 - float(h["slow_pct"]) / 100.0, 0.25, 0.9))
 	if float(h["freeze"]) > 0.0:
@@ -1460,6 +1569,10 @@ func _launch_arrow(gs, skill: String, origin: Vector3, d2: Vector3) -> void:
 			"skill": skill, "edmg": edmg, "etype": etype, "explode": explode,
 			"homing": skill == "Guided Arrow",
 			"thrown": skill == "Throw" or skill in THROW_SKILLS})
+	if Net.is_client():
+		# the host's own missiles reach the others through the stream; a
+		# joiner's are its own, so the others get a ghost of each
+		Net.fx_arrow.rpc(cel, origin, d2)
 	get_node("/root/Sfx").event(
 		"xbow_fire" if player.weapon_class == "xbw" else "bow_fire", origin)
 
@@ -1484,9 +1597,42 @@ func _run_swings() -> void:
 	_swings = keep
 
 
+func ghost_arrow(cel: String, origin: Vector3, dir: Vector3) -> void:
+	## Another player's missile, flown straight for its lifetime and drawn
+	## only: what it hits is decided where it was fired
+	if _ghosts == null:
+		_ghosts = Node3D.new()
+		_ghosts.name = "Ghosts"
+		add_child(_ghosts)
+	var node := BillboardAnim.new()
+	_ghosts.add_child(node)
+	node.play("missiles/" + cel, true, "center")
+	node.global_position = origin + dir * 0.5
+	node.facing = atan2(dir.x, dir.z)
+	_ghost_arrows.append({"node": node, "vel": dir * ARROW_SPEED, "life": 3.0})
+
+
+func _update_ghosts(dt: float) -> void:
+	if _ghost_arrows.is_empty():
+		return
+	var space := get_world_3d().direct_space_state
+	for g in _ghost_arrows.duplicate():
+		var node: BillboardAnim = g["node"]
+		var to: Vector3 = node.global_position + g["vel"] * dt
+		var q := PhysicsRayQueryParameters3D.create(node.global_position, to)
+		q.exclude = [player.get_rid()]
+		g["life"] -= dt
+		if g["life"] <= 0.0 or space.intersect_ray(q):
+			_ghost_arrows.erase(g)
+			node.queue_free()
+			continue
+		node.global_position = to
+
+
 func _physics_process(dt: float) -> void:
 	if puppet:
 		return
+	_update_ghosts(dt)
 	_run_swings()
 	_update_enemy_missiles(dt)
 	if player != null:
@@ -1611,13 +1757,53 @@ func _on_monster_died(dead: WowCreature) -> void:
 	for dr in doors:
 		if not dr["open"] and str(dr.get("rule", {}).get("boss", "")) == dead.cname:
 			_open_door(dr)
-	# the final boss marks the dungeon complete and advances the ladder
+	# the final boss marks the dungeon complete and advances the ladder,
+	# for every player in the session
 	if dead.is_final_boss:
-		var gsd := get_node("/root/GameState")
-		if gsd.complete_dungeon():
-			gsd.save_game(player)
-			hud_node.show_area("%s conquered!" % get_node("/root/Dungeons")
-					.display_name(gsd.current_dungeon), Color(0.3, 0.95, 0.3), 7.0)
+		on_dungeon_complete()
+		if Net.is_host():
+			Net.dungeon_complete.rpc()
+
+
+func on_dungeon_complete() -> void:
+	var gsd := get_node("/root/GameState")
+	if gsd.complete_dungeon():
+		gsd.save_game(player)
+		hud_node.show_area("%s conquered!" % get_node("/root/Dungeons")
+				.display_name(gsd.current_dungeon), Color(0.3, 0.95, 0.3), 7.0)
+
+
+func spawn_drop(code: String, gold: int, inst: Dictionary, pos: Vector3) -> GroundItem:
+	## A drop the host owns from here on (the stream carries it to everyone)
+	var gi := GroundItem.new()
+	add_child(gi)
+	if gold > 0:
+		gi.drop("gold", gold)
+	elif inst.is_empty():
+		gi.drop(code)
+	else:
+		gi.drop_instance(inst)
+	gi.global_position = pos
+	ground_items.append(gi)
+	return gi
+
+
+func receive_item(code: String, gold: int, inst: Dictionary) -> void:
+	## The host handed this player the drop they asked for
+	var gs := get_node("/root/GameState")
+	var sfx := get_node("/root/Sfx")
+	if gold > 0:
+		gs.add_gold(gold)
+		sfx.event_ui("gold_drop")
+	elif gs.is_potion(code) and gs.belt_add(code):
+		sfx.event_ui("potion_belt")
+	elif gs.inv_try_add(code, inst):
+		sfx.event_ui("pickup")
+	else:
+		# no room after all: back onto the floor at the feet
+		if hud_node != null:
+			hud_node.show_area("Inventory full")
+		Net.drop_item.rpc_id(1, code, 0, inst, player.global_position + Vector3(0, 0.02, 0))
 
 
 func _item_test() -> void:
@@ -2158,6 +2344,9 @@ func _pickup_nearest() -> void:
 				best = gi
 	if best == null:
 		return
+	if Net.is_client():
+		Net.request_pickup(best)     # the host hands it over (receive_item)
+		return
 	var gs := get_node("/root/GameState")
 	var sfx := get_node("/root/Sfx")
 	if best.gold_amount > 0:
@@ -2201,17 +2390,14 @@ func drop_entry(entry: Dictionary) -> void:
 	## An item dragged out of the inventory lands at the amazon's feet.
 	var gs := get_node("/root/GameState")
 	gs.inv_items.erase(entry)
-	var gi := GroundItem.new()
-	add_child(gi)
 	var inst: Dictionary = entry.get("inst", {})
-	if inst.is_empty():
-		gi.drop(str(entry.get("code", "")))
-	else:
-		gi.drop_instance(inst)
 	var fwd: Vector3 = -player.global_transform.basis.z
-	gi.global_position = player.global_position \
+	var at: Vector3 = player.global_position \
 			+ Vector3(fwd.x, 0, fwd.z).normalized() * 1.2 + Vector3(0, 0.02, 0)
-	ground_items.append(gi)
+	if Net.is_client():
+		Net.drop_item.rpc_id(1, str(entry.get("code", "")), 0, inst, at)
+	else:
+		spawn_drop(str(entry.get("code", "")), 0, inst, at)
 	gs.inventory_changed.emit()
 
 
@@ -2371,6 +2557,8 @@ func _visible_items(cam: Camera3D) -> Array:
 
 func _exit_tree() -> void:
 	Replay.end_session()      # the world is going: close the log, drop the puppets
+	if Net.active():
+		Net.leave_dungeon()   # back to the lobby, everyone
 
 
 func _notification(what: int) -> void:

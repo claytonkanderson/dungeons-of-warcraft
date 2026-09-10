@@ -35,6 +35,8 @@ var yaw := 0.0
 var pitch := 0.0
 var swimming := false
 var water_y := NAN               # the surface over the body this tick, NAN when dry
+var running := false             # this tick's stride, for the pose other players see
+var _pose_tick := 0
 var stamina := STAMINA_MAX
 var action_skill := ["Attack", "Attack"]   # LMB, RMB
 var attack_time := 0.0          # seconds remaining in the current attack
@@ -399,6 +401,21 @@ func _physics_process(dt: float) -> void:
 		_safe.append(global_position)
 		if _safe.size() > SAFE_TRAIL:
 			_safe.pop_front()
+
+	# co-op: where this Amazon is, for the others' puppets of her
+	running = want_run and input != Vector2.ZERO
+	_pose_tick += 1
+	if _pose_tick % Net.POSE_EVERY == 0 and Net.active():
+		Net.send_pose(self)
+
+
+func pose_mode() -> String:
+	## the Amazon sheet the others draw: attacking, running, walking, standing
+	if attack_time > 0.0:
+		return "a1"
+	if Vector2(velocity.x, velocity.z).length() > 0.6:
+		return "ru" if running else "wl"
+	return "nu"
 
 
 func unstuck() -> bool:

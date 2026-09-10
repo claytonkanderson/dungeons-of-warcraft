@@ -106,6 +106,28 @@ Run `DungeonsOfWarcraft.exe`, create a character, pick Ragefire Chasm, go.
 | in water | look down to dive, up to rise; Space swims up, and hops out at the surface |
 | Alt | show loot labels |
 | F9 | manual save |
+
+## Playing together
+
+Up to four can clear a dungeon together, straight between your machines.
+Everyone needs the game and the dungeon built on their own PC (it is
+their own character, from their own save, that comes along; a clear
+counts for everyone's ladder).
+
+- **Host**: click HOST CO-OP on the menu. The lobby shows the address to
+  send your friends; the game asks the router to open UDP 24601 by itself
+  (UPnP). If it says the mapping was refused or no router answered,
+  forward UDP 24601 to your PC in the router's settings. Windows will ask
+  to allow the game through the firewall: allow it on private and public
+  networks. Pick the dungeon and START SESSION takes everyone in.
+- **Join**: click JOIN CO-OP, paste the host's address, Connect. On the
+  host's own network use one of the LAN addresses the host's lobby lists.
+  The host starts the dungeon; you load in beside them.
+
+The host runs the creatures and the drops. Drops are free for all, as in
+a Diablo II party, and every kill pays everyone. Monsters carry half
+again their life for each extra player. Leaving the dungeon returns the
+whole session to the lobby; the host quitting ends it.
 | F11 | fullscreen |
 | Esc | close panels, then the menu |
 

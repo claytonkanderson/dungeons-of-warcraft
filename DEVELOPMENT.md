@@ -163,6 +163,8 @@ run_game.bat -- --what-here                 # placements enclosing the spawn
 run_game.bat -- --perf-test                 # look, sprint and crowd frame times
 run_game.bat -- --walk-test / --stair-test  # footing probes
 run_game.bat -- --swim-test --dungeon=blackfathom-deeps   # drop into the deepest pool, swim up and along
+run_game.bat -- --host --dungeon=deadmines --net-test      # co-op probe: host a session, open the dungeon, report for 25 s
+run_game.bat -- --join=127.0.0.1 --net-test                # co-op probe: join it (a second window), walk, screenshot the host's Amazon
 run_game.bat -- --topdown=<abs path>.png   # a view straight down on the whole dungeon
 run_game.bat -- --tour=90                   # a recorded survey glide (python tour_videos.py renders one per dungeon)
 run_game.bat -- --replay-test               # a scripted session, recorded (see below)
@@ -176,6 +178,34 @@ force their own draws), and `offdesk.bat` does the same without minimizing
 (for anything that must render real frames: the combat test and the perf
 probe; `perf.bat` is that plus `--perf-test`). Both take the same
 arguments as `run_game.bat`.
+
+## Co-op
+
+`net.gd` (autoloaded as `Net`) is the session: ENet host or client on UDP
+24601, UPnP mapping renewed every five minutes, the public address from
+the internet's side, a lobby roster, and the RPCs the dungeon needs. The
+host owns the dungeon and reuses the session recorder: `replay.gd` samples
+what changed each tick (creatures, projectiles, drops, doors, chests) and,
+when hosting, sends every line to the joiners as well as, optionally,
+writing it to the log. A joiner's `Replay` runs in `LIVE` mode: the lines
+arrive, are played as puppetry a few ticks behind the newest, and the
+joiner's own Amazon and HUD are left alone. A late arrival is sent one
+line holding the whole state first.
+
+Each player simulates their own Amazon and their own missiles and skills;
+a blow on a creature is forwarded to the host (`WowCreature.remote`), and
+the host's creatures pick targets among every player, sending a blow at
+another player's Amazon to that player to roll their own defence
+(`world.player_struck`). Drops are asked for and handed over; experience
+from a kill goes to everyone. The other Amazons are `remote_player.gd`
+billboards placed from 20 Hz poses. Both ends give each other two
+minutes of silence before dropping the link, because a world build
+freezes a machine for ten to thirty seconds.
+
+`--host` and `--join=<ip>` start a session from the command line, and
+`--net-test` reports on it (peers, ticks, lines sent and applied, where
+each side sees the other and a creature) for 25 seconds; two windows on
+one machine through 127.0.0.1 exercise the whole path.
 
 ## Recording and replaying a session
 

@@ -3,6 +3,10 @@ extends Control
 ## in their own gear on the left, the roster in the middle, the vanilla
 ## dungeon ladder on the right, over the artwork of whichever dungeon is
 ## highlighted. Test/automation flags fall straight through into the world.
+##
+## Co-op: HOST opens a session and the lobby takes the left column (the
+## address to send, who is in); JOIN asks for the host's address. The host
+## picks the dungeon and START takes everyone in together (net.gd).
 
 const GOLD := Color(0.85, 0.72, 0.35)
 const GOLD_DIM := Color(0.55, 0.48, 0.3)
@@ -34,15 +38,28 @@ var _bg_fade: TextureRect
 var _bg_shown := ""
 var _bg_cache := {}
 var _ui_tex := {}
+var _lobby: Control
+var _lobby_status: Label
+var _lobby_players: VBoxContainer
+var _lobby_ip: LineEdit
+var _lobby_connect: Button
+var _lobby_leave: Button
+var _host_btn: Button
+var _join_btn: Button
+var _joining := false           # JOIN pressed: the address field is up
 
 @onready var gs := get_node("/root/GameState")
 @onready var dg := get_node("/root/Dungeons")
 
 
 func _ready() -> void:
-	# automation flags bypass the menu entirely (legacy/test save slot)
+	# automation flags bypass the menu entirely (legacy/test save slot);
+	# a session from the command line goes through the lobby below
 	Cli.warn_unknown()
+	var session_flag: bool = Cli.has("--host") or Cli.value("--join=") != ""
 	for a in OS.get_cmdline_user_args():
+		if session_flag:
+			break
 		if str(a) in ["--combat-test", "--ui-test", "--fps-probe",
 				"--walk-test", "--fresh"] or str(a).begins_with("--shots=") \
 				or str(a).begins_with("--at=") \
@@ -54,7 +71,31 @@ func _ready() -> void:
 	get_node("/root/Music").set_menu()
 	gs.migrate_legacy_save()
 	_build()
+	Net.roster_changed.connect(_lobby_refresh)
+	Net.status_changed.connect(_lobby_refresh)
+	Net.launched.connect(_on_launched)
+	Net.session_ended.connect(_on_session_ended)
+	Net.start_refused.connect(func(_who, _did, _why): _refresh())
+	# --host / --join=<ip>: straight into a session (with --dungeon= the
+	# host opens that dungeon at once; a joiner is taken in when it is)
+	if Cli.has("--host") or Cli.value("--join=") != "":
+		_pick_any_character()
+		if Cli.has("--host"):
+			var err := Net.host()
+			if err != "":
+				printerr("host: %s" % err)
+			var did := Cli.value("--dungeon=")
+			if did != "" and not dg.entry(did).is_empty():
+				sel_dungeon = did
+				Net.request_start.call_deferred(did)
+		else:
+			_joining = true
+			var jerr := Net.join(Cli.value("--join="))
+			if jerr != "":
+				printerr("join: %s" % jerr)
 	_refresh()
+	if Net.last_error != "":
+		_lobby_refresh()
 	for a in OS.get_cmdline_user_args():
 		if str(a).begins_with("--menu-shot="):
 			if Cli.offscreen():
@@ -249,15 +290,70 @@ func _build() -> void:
 
 	# ---- bottom bar ----
 	_enter_btn = _button("ENTER  DUNGEON", 18, _on_enter)
-	_enter_btn.position = Vector2(460, BUTTON_Y)
+	_enter_btn.position = Vector2(80, BUTTON_Y)
 	_enter_btn.size = Vector2(256, 35)
 	_skin(_enter_btn, "menubutton", 4, 2)
 	add_child(_enter_btn)
+	_host_btn = _button("HOST  CO-OP", 18, _on_host)
+	_host_btn.position = Vector2(356, BUTTON_Y)
+	_host_btn.size = Vector2(256, 35)
+	_skin(_host_btn, "menubutton", 4, 2)
+	add_child(_host_btn)
+	_join_btn = _button("JOIN  CO-OP", 18, _on_join)
+	_join_btn.position = Vector2(632, BUTTON_Y)
+	_join_btn.size = Vector2(256, 35)
+	_skin(_join_btn, "menubutton", 4, 2)
+	add_child(_join_btn)
 	var quit := _button("QUIT", 18, func(): get_tree().quit())
-	quit.position = Vector2(780, BUTTON_Y)
+	quit.position = Vector2(908, BUTTON_Y)
 	quit.size = Vector2(256, 35)
 	_skin(quit, "menubutton", 4, 2)
 	add_child(quit)
+
+	# ---- the lobby, over the paperdoll while a session is up ----
+	_lobby = Control.new()
+	_lobby.position = DOLL_PANEL.position
+	_lobby.size = DOLL_PANEL.size
+	_lobby.visible = false
+	add_child(_lobby)
+	var lbg := ColorRect.new()
+	lbg.color = Color(0.03, 0.025, 0.02, 0.92)
+	lbg.size = DOLL_PANEL.size
+	_lobby.add_child(lbg)
+	var lhead := _label("CO-OP", 24, WHITE)
+	lhead.position = Vector2(0, 10)
+	lhead.size.x = DOLL_PANEL.size.x
+	_lobby.add_child(lhead)
+	_lobby_status = _label("", 12, GOLD)
+	_lobby_status.position = Vector2(10, 46)
+	_lobby_status.size = Vector2(DOLL_PANEL.size.x - 20, 150)
+	_lobby_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_lobby_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_lobby_status.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	_lobby.add_child(_lobby_status)
+	_lobby_ip = LineEdit.new()
+	_lobby_ip.placeholder_text = "host's address"
+	_lobby_ip.position = Vector2(10, 200)
+	_lobby_ip.size = Vector2(DOLL_PANEL.size.x - 20, 30)
+	_lobby_ip.visible = false
+	_lobby.add_child(_lobby_ip)
+	_lobby_connect = _button("Connect", 14, _on_connect)
+	_lobby_connect.position = Vector2(10, 236)
+	_lobby_connect.size = Vector2(DOLL_PANEL.size.x - 20, 30)
+	_lobby_connect.visible = false
+	_lobby.add_child(_lobby_connect)
+	var phead := _label("IN THE SESSION", 14, WHITE)
+	phead.position = Vector2(0, 280)
+	phead.size.x = DOLL_PANEL.size.x
+	_lobby.add_child(phead)
+	_lobby_players = VBoxContainer.new()
+	_lobby_players.position = Vector2(14, 304)
+	_lobby_players.size = Vector2(DOLL_PANEL.size.x - 28, 150)
+	_lobby.add_child(_lobby_players)
+	_lobby_leave = _button("Leave session", 14, _on_leave)
+	_lobby_leave.position = Vector2(10, DOLL_PANEL.size.y - 44)
+	_lobby_leave.size = Vector2(DOLL_PANEL.size.x - 20, 30)
+	_lobby.add_child(_lobby_leave)
 
 
 func _char_data(slug: String) -> Dictionary:
@@ -404,7 +500,113 @@ func _refresh() -> void:
 	_backdrop(sel_dungeon)
 	var can_play: bool = sel_char != "" \
 			and dg.status(sel_dungeon, done) in ["available", "complete"]
-	_enter_btn.disabled = not can_play
+	if Net.is_host():
+		_enter_btn.text = "START  SESSION"
+		_enter_btn.disabled = not can_play
+	elif Net.is_client() or _joining:
+		_enter_btn.text = "HOST  STARTS"
+		_enter_btn.disabled = true
+	else:
+		_enter_btn.text = "ENTER  DUNGEON"
+		_enter_btn.disabled = not can_play
+	_host_btn.disabled = Net.role != Net.Role.OFF or _joining
+	_join_btn.disabled = Net.role != Net.Role.OFF or _joining
+	_lobby_refresh()
+
+
+func _pick_any_character() -> void:
+	## --host / --join= from the command line: whoever was played last, or
+	## the first on the roster, or a fresh one
+	var chars: Array = gs.list_characters()
+	if chars.is_empty():
+		sel_char = gs.create_character("Amazon")
+	else:
+		sel_char = str(chars[0].slug)
+		for c in chars:
+			if str(c.slug) == str(gs.character):
+				sel_char = str(gs.character)
+	gs.select_character(sel_char)     # the roster shows the real level
+
+
+func _lobby_refresh() -> void:
+	var up: bool = Net.role != Net.Role.OFF or _joining
+	_lobby.visible = up
+	_doll.visible = not up
+	_doll_name.visible = not up
+	_doll_level.visible = not up
+	if not up:
+		return
+	var text := Net.status
+	if _joining and Net.role == Net.Role.OFF:
+		text = "Paste the host's address and Connect. On the host's own network, one of its LAN addresses."
+		if Net.last_error != "":
+			text = Net.last_error + "\n\n" + text
+	_lobby_status.text = text
+	_lobby_ip.visible = _joining and Net.role == Net.Role.OFF
+	_lobby_connect.visible = _lobby_ip.visible
+	for n in _lobby_players.get_children():
+		n.queue_free()
+	var ids: Array = Net.roster.keys()
+	ids.sort()
+	for id in ids:
+		var r: Dictionary = Net.roster[id]
+		var row := _label("%s  (level %d)%s" % [str(r.get("name", "?")), int(r.get("level", 1)),
+				"  host" if int(id) == 1 else ""], 14, GOLD if int(id) == Net.my_id() else WHITE)
+		row.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		_lobby_players.add_child(row)
+	if ids.is_empty() and not _joining:
+		var w := _label("nobody yet", 14, GREY)
+		w.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		_lobby_players.add_child(w)
+
+
+func _on_host() -> void:
+	if sel_char == "" or not gs.select_character(sel_char):
+		return
+	Net.last_error = ""
+	var err := Net.host()
+	if err != "":
+		Net.last_error = err
+	_refresh()
+
+
+func _on_join() -> void:
+	if sel_char == "" or not gs.select_character(sel_char):
+		return
+	Net.last_error = ""
+	_joining = true
+	_refresh()
+	_lobby_ip.grab_focus()
+
+
+func _on_connect() -> void:
+	Net.last_error = ""
+	var err := Net.join(_lobby_ip.text)
+	if err != "":
+		Net.last_error = err
+	_refresh()
+
+
+func _on_leave() -> void:
+	_joining = false
+	Net.leave()
+	_refresh()
+
+
+func _on_launched(did: String) -> void:
+	if sel_char == "":
+		_pick_any_character()
+	_enter(did)
+
+
+func _on_session_ended(_why: String) -> void:
+	_joining = Net.last_error != "" and _joining
+	if Cli.has("--net-test"):
+		print("NET-TEST session ended at the menu: %s" % Net.last_error)
+		get_tree().quit()
+		return
+	if is_inside_tree():
+		_refresh()
 
 
 func _on_create() -> void:
@@ -440,7 +642,12 @@ func _enter(did: String) -> void:
 
 
 func _on_enter() -> void:
-	_enter(sel_dungeon)
+	if Net.is_host():
+		Net.request_start(sel_dungeon)
+	elif Net.is_client():
+		return
+	else:
+		_enter(sel_dungeon)
 
 
 func _unhandled_key_input(e: InputEvent) -> void:
