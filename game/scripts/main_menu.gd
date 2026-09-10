@@ -41,6 +41,7 @@ var _ui_tex := {}
 var _lobby: Control
 var _lobby_status: Label
 var _lobby_players: GridContainer
+var _lobby_phead: Label
 var _lobby_ip: LineEdit
 var _lobby_connect: Button
 var _lobby_leave: Button
@@ -334,19 +335,20 @@ func _build() -> void:
 	_lobby.add_child(_lobby_status)
 	_lobby_ip = LineEdit.new()
 	_lobby_ip.placeholder_text = "host's address"
-	_lobby_ip.position = Vector2(10, 200)
+	_lobby_ip.position = Vector2(10, 150)
 	_lobby_ip.size = Vector2(DOLL_PANEL.size.x - 20, 30)
 	_lobby_ip.visible = false
+	_lobby_ip.text_submitted.connect(func(_t): _on_connect())   # Enter connects too
 	_lobby.add_child(_lobby_ip)
 	_lobby_connect = _button("Connect", 14, _on_connect)
-	_lobby_connect.position = Vector2(10, 236)
+	_lobby_connect.position = Vector2(10, 186)
 	_lobby_connect.size = Vector2(DOLL_PANEL.size.x - 20, 30)
 	_lobby_connect.visible = false
 	_lobby.add_child(_lobby_connect)
-	var phead := _label("IN THE SESSION", 14, WHITE)
-	phead.position = Vector2(0, 216)
-	phead.size.x = DOLL_PANEL.size.x
-	_lobby.add_child(phead)
+	_lobby_phead = _label("IN THE SESSION", 14, WHITE)
+	_lobby_phead.position = Vector2(0, 216)
+	_lobby_phead.size.x = DOLL_PANEL.size.x
+	_lobby.add_child(_lobby_phead)
 	# two by two: each Amazon at the paperdoll's own pixel size, her name
 	# under her, four fitting above the leave button
 	_lobby_players = GridContainer.new()
@@ -355,6 +357,9 @@ func _build() -> void:
 	_lobby_players.size = Vector2(DOLL_PANEL.size.x - 20, 226)
 	_lobby_players.add_theme_constant_override("h_separation", 4)
 	_lobby_players.add_theme_constant_override("v_separation", 2)
+	# the grid is drawn after the address field and button; it must not
+	# take their clicks (it swallowed Connect for the first testers)
+	_lobby_players.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_lobby.add_child(_lobby_players)
 	_lobby_leave = _button("Leave session", 14, _on_leave)
 	_lobby_leave.position = Vector2(10, DOLL_PANEL.size.y - 34)
@@ -550,6 +555,9 @@ func _lobby_refresh() -> void:
 	_lobby_status.text = text
 	_lobby_ip.visible = _joining and Net.role == Net.Role.OFF
 	_lobby_connect.visible = _lobby_ip.visible
+	# nobody to list until the connection is up
+	_lobby_phead.visible = not _lobby_ip.visible
+	_lobby_players.visible = not _lobby_ip.visible
 	for n in _lobby_players.get_children():
 		n.queue_free()
 	var ids: Array = Net.roster.keys()
