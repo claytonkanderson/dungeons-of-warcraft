@@ -204,7 +204,19 @@ func leave(why := "") -> void:
 func _me() -> Dictionary:
 	var gs := get_node("/root/GameState")
 	return {"name": str(gs.char_name), "level": int(gs.level),
-			"wclass": "bow"}
+			"wclass": "bow", "gear": gear_codes()}
+
+
+func gear_codes() -> Dictionary:
+	## What this character wears, by slot and item code: enough for the
+	## others' menus to draw her in it
+	var gs := get_node("/root/GameState")
+	var out := {}
+	for slot in gs.equipped:
+		var e = gs.equipped[slot]
+		if e is Dictionary and str(e.get("code", "")) != "":
+			out[str(slot)] = {"code": str(e["code"])}
+	return out
 
 
 func _local_ips() -> Array:
@@ -253,7 +265,7 @@ func _on_connected() -> void:
 	_patient(1)
 	_set_status("Connected. Waiting for the host to start a dungeon.")
 	var me := _me()
-	hello.rpc_id(1, me["name"], me["level"], me["wclass"])
+	hello.rpc_id(1, me["name"], me["level"], me["wclass"], me["gear"])
 
 
 func _on_connection_failed() -> void:
@@ -283,11 +295,11 @@ func _host_status() -> String:
 # ---------------------------------------------------------------- lobby
 
 @rpc("any_peer", "call_remote", "reliable")
-func hello(pname: String, level: int, wclass: String) -> void:
+func hello(pname: String, level: int, wclass: String, gear: Dictionary) -> void:
 	if not is_host():
 		return
 	var id := multiplayer.get_remote_sender_id()
-	roster[id] = {"name": pname, "level": level, "wclass": wclass}
+	roster[id] = {"name": pname, "level": level, "wclass": wclass, "gear": gear}
 	log_it("%s (level %d) joined as peer %d" % [pname, level, id])
 	set_roster.rpc(roster)
 	roster_changed.emit()

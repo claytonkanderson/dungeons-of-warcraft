@@ -32,6 +32,7 @@ const FLAGS := {
 	"--host": "host a co-op session from the start (with --dungeon= the dungeon opens at once)",
 	"--join=": "<ip>          join a co-op session at that address from the start",
 	"--net-test": "diagnostic: with --host or --join=, report the session for 25 s, quit",
+	"--ally-test": "diagnostic: cast Valkyrie and Decoy, report and capture them, quit",
 	"--mob-shot=": "<entry>    diagnostic: capture a creature alive and dead, quit",
 	"--mob-name=": "<name>     with --mob-shot: match by name instead",
 	"--mob-dist=": "<m>        with --mob-shot: stand this far away (5)",
@@ -65,7 +66,7 @@ static func hide_window() -> void:
 	# frames: the perf probe and the combat test keep their off-desktop
 	# window open instead (launch those through offdesk.bat / perf.bat)
 	if not has("--perf-test") and not has("--combat-test") and not has("--swim-test") \
-			and not has("--net-test"):
+			and not has("--net-test") and not has("--ally-test"):
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_MINIMIZED)
 
 

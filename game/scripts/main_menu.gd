@@ -40,7 +40,7 @@ var _bg_cache := {}
 var _ui_tex := {}
 var _lobby: Control
 var _lobby_status: Label
-var _lobby_players: VBoxContainer
+var _lobby_players: GridContainer
 var _lobby_ip: LineEdit
 var _lobby_connect: Button
 var _lobby_leave: Button
@@ -100,7 +100,8 @@ func _ready() -> void:
 		if str(a).begins_with("--menu-shot="):
 			if Cli.offscreen():
 				Cli.hide_window()
-			for i in range(12):
+			# a session flag: long enough for a joiner to connect before the shot
+			for i in range(600 if session_flag else 12):
 				await get_tree().process_frame
 			await Cli.capture(get_viewport(), str(a).substr(12))
 			get_tree().quit()
@@ -343,15 +344,20 @@ func _build() -> void:
 	_lobby_connect.visible = false
 	_lobby.add_child(_lobby_connect)
 	var phead := _label("IN THE SESSION", 14, WHITE)
-	phead.position = Vector2(0, 280)
+	phead.position = Vector2(0, 216)
 	phead.size.x = DOLL_PANEL.size.x
 	_lobby.add_child(phead)
-	_lobby_players = VBoxContainer.new()
-	_lobby_players.position = Vector2(14, 304)
-	_lobby_players.size = Vector2(DOLL_PANEL.size.x - 28, 150)
+	# two by two: each Amazon at the paperdoll's own pixel size, her name
+	# under her, four fitting above the leave button
+	_lobby_players = GridContainer.new()
+	_lobby_players.columns = 2
+	_lobby_players.position = Vector2(10, 236)
+	_lobby_players.size = Vector2(DOLL_PANEL.size.x - 20, 226)
+	_lobby_players.add_theme_constant_override("h_separation", 4)
+	_lobby_players.add_theme_constant_override("v_separation", 2)
 	_lobby.add_child(_lobby_players)
 	_lobby_leave = _button("Leave session", 14, _on_leave)
-	_lobby_leave.position = Vector2(10, DOLL_PANEL.size.y - 44)
+	_lobby_leave.position = Vector2(10, DOLL_PANEL.size.y - 34)
 	_lobby_leave.size = Vector2(DOLL_PANEL.size.x - 20, 30)
 	_lobby.add_child(_lobby_leave)
 
@@ -550,10 +556,22 @@ func _lobby_refresh() -> void:
 	ids.sort()
 	for id in ids:
 		var r: Dictionary = Net.roster[id]
-		var row := _label("%s  (level %d)%s" % [str(r.get("name", "?")), int(r.get("level", 1)),
-				"  host" if int(id) == 1 else ""], 14, GOLD if int(id) == Net.my_id() else WHITE)
-		row.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		# each Amazon in her own gear beside her name, as the paperdoll draws
+		# the selected character, at a third of its size
+		var row := VBoxContainer.new()
+		row.custom_minimum_size = Vector2(108, 112)
+		row.add_theme_constant_override("separation", 0)
+		var doll = preload("res://scripts/paperdoll.gd").new()
+		doll.px_scale = 0                    # fitted: helms and weapons make the canvas taller than a row
+		doll.custom_minimum_size = Vector2(108, 84)
+		doll.size = Vector2(108, 84)
+		row.add_child(doll)
+		var caption := _label("%s\nlevel %d%s" % [str(r.get("name", "?")), int(r.get("level", 1)),
+				", host" if int(id) == 1 else ""], 12, GOLD if int(id) == Net.my_id() else WHITE)
+		caption.custom_minimum_size = Vector2(108, 28)
+		row.add_child(caption)
 		_lobby_players.add_child(row)
+		doll.show_character(r.get("gear", {}))   # once in the tree: the manifest loads in _ready
 	if ids.is_empty() and not _joining:
 		var w := _label("nobody yet", 14, GREY)
 		w.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT

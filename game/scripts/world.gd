@@ -403,6 +403,9 @@ func _ready() -> void:
 	elif OS.get_cmdline_user_args().has("--net-test"):
 		await _net_test()
 		get_tree().quit()
+	elif OS.get_cmdline_user_args().has("--ally-test"):
+		await _ally_test()
+		get_tree().quit()
 	elif OS.get_cmdline_user_args().has("--replay-test"):
 		await _replay_test()
 		get_tree().quit()
@@ -593,6 +596,48 @@ func _ui_test() -> void:
 	toggle_menu()
 	await _ui_shot(shots + "/ui_menu.png")
 	print("ui captures done")
+
+
+func _ally_test() -> void:
+	## Cast Valkyrie, then Decoy, from the entrance: where each stands, what
+	## sheet she plays, and a capture of her (shots/ally_<kind>.png).
+	var gs := get_node("/root/GameState")
+	var shots := ProjectSettings.globalize_path("res://../shots")
+	DirAccess.make_dir_recursive_absolute(shots)
+	for skill in ["Valkyrie", "Decoy"]:
+		gs.skills[skill] = 5
+		gs.mana = gs.mana_max
+		player.action_skill[1] = skill
+		var cam: Camera3D = player.get_node("Camera3D")
+		player.pitch = 0.0
+		var origin := cam.global_position
+		var dir := -cam.global_transform.basis.z
+		var before := friendlies.size()
+		_on_fire(1, origin, dir)
+		print("ALLY-TEST %s: cost %.0f, mana now %.0f, friendlies %d -> %d" % [
+				skill, gs.mana_cost(skill), gs.mana, before, friendlies.size()])
+		for f in range(40):
+			await get_tree().physics_frame
+		for a in friendlies:
+			if not is_instance_valid(a):
+				continue
+			var sheet_ok: bool = a.anim != null and a.anim.sheet != null
+			print("ALLY-TEST %s: %s at %s (player at %s, %.1f m off), hp %.0f, life %.0f s, sheet %s ok=%s, visible=%s" % [
+					skill, a.kind, a.global_position.snapped(Vector3(0.1, 0.1, 0.1)),
+					player.global_position.snapped(Vector3(0.1, 0.1, 0.1)),
+					a.global_position.distance_to(player.global_position), a.hp, a.lifetime,
+					a.anim.rel if a.anim != null else "-", sheet_ok, a.anim.visible if a.anim != null else false])
+			var to: Vector3 = a.global_position + Vector3(0, 0.9, 0) - cam.global_position
+			player.yaw = atan2(-to.x, -to.z)
+			player.pitch = clampf(asin(to.normalized().y), -0.6, 0.6)
+			for w in range(3):
+				await get_tree().process_frame
+			await Cli.capture(get_viewport(), shots + "/ally_%s.png" % a.kind)
+		for a in friendlies.duplicate():
+			if is_instance_valid(a):
+				a.queue_free()
+			friendlies.erase(a)
+		await get_tree().physics_frame
 
 
 func _net_test() -> void:
@@ -1399,6 +1444,7 @@ func _on_fire(slot: int, origin: Vector3, dir: Vector3) -> void:
 	if skill in ["Decoy", "Dopplezon", "Valkyrie"]:
 		var cost: float = gs.mana_cost(skill)
 		if gs.mana < cost:
+			_no_mana()
 			return
 		gs.mana -= cost
 		var lvl: int = maxi(1, gs.skill_level(skill))
@@ -1415,6 +1461,7 @@ func _on_fire(slot: int, origin: Vector3, dir: Vector3) -> void:
 	if skill in CAST_SKILLS:
 		var ccost: float = gs.mana_cost(skill)
 		if gs.mana < ccost:
+			_no_mana()
 			return
 		gs.mana -= ccost
 		var csn: Dictionary = gs.skill_numbers(skill, gs.skill_level(skill))
@@ -1522,6 +1569,13 @@ func _on_fire(slot: int, origin: Vector3, dir: Vector3) -> void:
 		if count > 1:
 			spread = deg_to_rad(-4.0 * (count - 1) * 0.5 + 4.0 * i)
 		_launch_arrow(gs, skill, origin, dir.rotated(Vector3.UP, spread))
+
+
+func _no_mana() -> void:
+	## D2 says so aloud; a cast that quietly did nothing read as a broken skill
+	if hud_node != null:
+		hud_node.show_area("Not enough mana", Color(0.6, 0.7, 1.0), 1.2)
+	get_node("/root/Sfx").event_ui("button")
 
 
 func _launch_arrow(gs, skill: String, origin: Vector3, d2: Vector3) -> void:

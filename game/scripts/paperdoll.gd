@@ -16,7 +16,7 @@ const BODY := {"Torso": "TR", "Legs": "LG", "rArm": "RA", "lArm": "LA",
 		"rSPad": "S1", "lSPad": "S2"}
 const ARMOR_CLASS := ["LIT", "MED", "HVY"]
 
-var px_scale := 3
+var px_scale := 3                # 0: scale to fit the control's size
 var manifest: Dictionary = {}
 
 var _layers := {}                # strip key -> Image
@@ -159,7 +159,8 @@ func show_character(equipped: Dictionary) -> void:
 	# much taller than a bow does, so the same Amazon shrank a whole pixel
 	# step when she changed weapons. The body is the same height in all of
 	# them; anything a long weapon adds beyond the panel is clipped.
-	px_scale = 3
+	if px_scale > 0:
+		px_scale = 3          # a fitted doll (0, the co-op roster) keeps fitting
 	clip_contents = true
 	queue_redraw()
 
@@ -180,7 +181,9 @@ func _draw() -> void:
 	if _frames.is_empty():
 		return
 	var tex: Texture2D = _frames[int(_frame) % _frames.size()]
-	var w := _canvas.x * px_scale
-	var h := _canvas.y * px_scale
+	var sc: float = float(px_scale) if px_scale > 0 \
+			else minf(size.x / maxf(1.0, _canvas.x), size.y / maxf(1.0, _canvas.y))
+	var w: float = _canvas.x * sc
+	var h: float = _canvas.y * sc
 	# feet on the bottom edge, centred horizontally
 	draw_texture_rect(tex, Rect2((size.x - w) * 0.5, size.y - h, w, h), false)
