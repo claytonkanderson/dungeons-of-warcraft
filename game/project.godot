@@ -21,6 +21,7 @@ WowSfx="*res://scripts/wow_sfx.gd"
 Dungeons="*res://scripts/dungeons.gd"
 Replay="*res://scripts/replay.gd"
 Net="*res://scripts/net.gd"
+GearSheets="*res://scripts/gear_sheets.gd"
 
 [display]
 

@@ -124,7 +124,9 @@ counts for everyone's ladder).
   host's own network use one of the LAN addresses the host's lobby lists.
   The host starts the dungeon; you load in beside them.
 
-The host runs the creatures and the drops. Drops are free for all, as in
+You see each other as Diablo II Amazons in whatever each of you has on,
+in the lobby and in the dungeon. The host runs the creatures and the
+drops. Drops are free for all, as in
 a Diablo II party, and every kill pays everyone. Monsters carry half
 again their life for each extra player. Leaving the dungeon returns the
 whole session to the lobby; the host quitting ends it.

@@ -45,6 +45,16 @@ func load_sheet(rel: String) -> Sheet:
 	return s
 
 
+func new_sheet() -> Sheet:
+	return Sheet.new()
+
+
+func register(rel: String, sheet: Sheet) -> void:
+	## A sheet made at runtime (gear_sheets.gd), playable by its key like
+	## one loaded from disk
+	_cache[rel] = sheet
+
+
 func gamedata() -> Dictionary:
 	if _cache.has("::gamedata"):
 		return _cache["::gamedata"]

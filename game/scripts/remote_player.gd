@@ -10,6 +10,7 @@ var peer_id := 0
 var pname := ""
 var mode := "nu"
 var wclass := "bow"
+var gear := {}                  # slot -> {code}: she is drawn wearing it
 var _target := Vector3.ZERO
 var _yaw := 0.0
 var _have_pose := false
@@ -37,9 +38,25 @@ func _ready() -> void:
 	_set_sheet()
 
 
+func set_gear(g: Dictionary) -> void:
+	gear = g
+	_sheet = ""
+	if _anim != null:
+		_set_sheet()
+
+
 func _set_sheet() -> void:
-	## the Amazon sheet for the pose: am_<mode>_<weapon class>, falling back
-	## to the unarmed and then the bow set when the export lacks one
+	## the Amazon in her own gear when the layer sheets are exported
+	## (gear_sheets.gd), else the bare sheet for the pose:
+	## am_<mode>_<weapon class>, falling back to the unarmed and then the
+	## bow set when the export lacks one
+	if not gear.is_empty():
+		var key: String = GearSheets.sheet_for(gear, mode)
+		if key != "":
+			if key != _sheet:
+				_anim.play(key, mode != "dt")
+				_sheet = key
+			return
 	for wc in [wclass, "hth", "bow"]:
 		for md in [mode, "nu"]:
 			var rel := "amazon/am_%s_%s" % [md, wc]

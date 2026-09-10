@@ -30,6 +30,7 @@ def build():
     export_missiles.build()
     export_amazon.build()
     export_paperdoll.build()
+    export_paperdoll.build_layers()
     export_monsters.ROSTER = {"VK": "valkyrie"}
     export_monsters.build()
     export_items.build()

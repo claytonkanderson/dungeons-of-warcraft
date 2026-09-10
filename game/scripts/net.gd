@@ -78,6 +78,27 @@ func _ready() -> void:
 	_renew_timer.wait_time = RENEW_SEC
 	_renew_timer.timeout.connect(_renew_tick)
 	add_child(_renew_timer)
+	get_node("/root/GameState").equipment_changed.connect(_on_my_gear_changed)
+
+
+func _on_my_gear_changed() -> void:
+	## what this Amazon wears reaches everyone's copy of her
+	if not active():
+		return
+	var g := gear_codes()
+	if roster.has(my_id()):
+		roster[my_id()]["gear"] = g
+	gear_changed.rpc(g)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func gear_changed(g: Dictionary) -> void:
+	var id := multiplayer.get_remote_sender_id()
+	if roster.has(id):
+		roster[id]["gear"] = g
+	if remote.has(id) and is_instance_valid(remote[id]):
+		remote[id].set_gear(g)
+	roster_changed.emit()
 
 
 func _exit_tree() -> void:
@@ -315,6 +336,8 @@ func set_roster(r: Dictionary) -> void:
 	roster = {}
 	for k in r:
 		roster[int(k)] = r[k]
+		if remote.has(int(k)) and is_instance_valid(remote[int(k)]):
+			remote[int(k)].set_gear(r[k].get("gear", {}))
 	roster_changed.emit()
 
 
@@ -414,6 +437,7 @@ func _ensure_remote(id: int):
 	var rp = load("res://scripts/remote_player.gd").new()
 	rp.peer_id = id
 	rp.pname = name_of(id)
+	rp.gear = roster.get(id, {}).get("gear", {})
 	world.add_child(rp)
 	rp.global_position = world.spawn
 	remote[id] = rp

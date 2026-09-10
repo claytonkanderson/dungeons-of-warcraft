@@ -165,6 +165,7 @@ run_game.bat -- --walk-test / --stair-test  # footing probes
 run_game.bat -- --swim-test --dungeon=blackfathom-deeps   # drop into the deepest pool, swim up and along
 run_game.bat -- --host --dungeon=deadmines --net-test      # co-op probe: host a session, open the dungeon, report for 25 s
 run_game.bat -- --join=127.0.0.1 --net-test                # co-op probe: join it (a second window), walk, screenshot the host's Amazon
+run_game.bat -- --ally-test --dungeon=deadmines            # cast Valkyrie and Decoy, report and capture them
 run_game.bat -- --topdown=<abs path>.png   # a view straight down on the whole dungeon
 run_game.bat -- --tour=90                   # a recorded survey glide (python tour_videos.py renders one per dungeon)
 run_game.bat -- --replay-test               # a scripted session, recorded (see below)
@@ -201,6 +202,16 @@ from a kill goes to everyone. The other Amazons are `remote_player.gd`
 billboards placed from 20 Hz poses. Both ends give each other two
 minutes of silence before dropping the link, because a world build
 freezes a machine for ten to thirty seconds.
+
+The other Amazons are drawn in their own gear. `export_paperdoll.py`'s
+`build_layers()` (a stage of `build_assets.py`, about 740 sheets and 50 MB
+under `assets/amazon/layers`) cuts every equipment layer for every
+direction of the idle, walk, run and attack animations; `gear_sheets.gd`
+(autoloaded as `GearSheets`) stacks them the way the menu paperdoll does,
+once per outfit and animation, and registers the result with `SpriteDB`
+for the puppet to play. Each player's worn item codes travel with the
+lobby roster and again whenever they change. Without the layer export the
+puppets fall back to the bare Amazon sheets.
 
 `--host` and `--join=<ip>` start a session from the command line, and
 `--net-test` reports on it (peers, ticks, lines sent and applied, where
