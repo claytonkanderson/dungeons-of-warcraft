@@ -74,10 +74,34 @@ CONTROLS
   T                   skill tree (click +1, ctrl+click bind LMB,
                       right-click bind RMB, hover + F1-F5 bind hotkey)
   I / C               inventory / character sheet
-  E                   interact / pick up   Alt         loot labels
+  E                   interact / pick up the item under the crosshair
+  Alt                 loot labels
   1-4                 belt potions         F1-F5       swap RMB skill
   F9                  manual save          F11         fullscreen
   Esc                 menu / close panels
+
+PLAYING TOGETHER (co-op, up to four)
+
+  Everyone needs this download and their own assets built (setup.exe),
+  and brings their own character. It is a direct connection between
+  your PCs: one of you hosts, the others join by the host's address.
+
+  Host:  click HOST CO-OP on the menu. The lobby shows the address to
+         send your friends; the game opens UDP port 24601 on your router
+         by itself (UPnP). If it says the mapping was refused or no
+         router answered, forward UDP 24601 to your PC in the router's
+         settings. When Windows asks to allow the game through the
+         firewall, allow it on private AND public networks. Pick the
+         dungeon and click START SESSION once everyone is in.
+  Join:  click JOIN CO-OP, paste the host's address, Connect. On the
+         host's own network, use one of the LAN addresses its lobby
+         lists instead.
+
+  Drops are free for all and every kill pays everyone, as in a Diablo II
+  party. Monsters have half again their life for each extra player.
+  Leaving the dungeon returns the whole session to the lobby; the host
+  quitting ends it. If a dungeon shows "not built" for a friend, they
+  need to rerun setup.exe.
 
 CURRENT LIMITATIONS
 
