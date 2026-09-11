@@ -260,6 +260,25 @@ Co-op peers exchange their versions in the lobby; a mismatch is shown on
 both sides, since the creature lists and messages only line up between
 the same build.
 
+### Cutting a release
+
+1. Bump `const VERSION` in `game/scripts/version.gd`. The release tag is
+   `v<version>`; a game only updates to a version above its own.
+2. If an asset export changed shape, bump that stage in
+   `pipeline/versions.py`; players' games rebuild only the bumped stages
+   on their next launch.
+3. `python pipeline/build_dist.py --publish` exports both executables,
+   zips them as `dist/DungeonsOfWarcraft-<version>-<yyyymmdd-hhmm>.zip`
+   and creates the GitHub release with the zip attached (`gh` must be
+   logged in: `winget install GitHub.cli`, then `gh auth login` once).
+   `--only docs --publish` zips and publishes executables already built.
+4. `python pipeline/test_update.py` proves the loop: it exports a
+   throwaway executable stamped one version lower into `dist/updtest`
+   with the checkout's assets linked in and launches it. At the menu it
+   should say "Updating to <version>: downloading", restart, and the
+   folder's executable should then match `dist/DungeonsOfWarcraft/`'s
+   (the script prints both hashes). `--no-launch` only stages it.
+
 ## Recording and replaying a session
 
 `run_game.bat` records every session (it passes `--record`); players are
