@@ -267,7 +267,8 @@ the same build.
 2. If an asset export changed shape, bump that stage in
    `pipeline/versions.py`; players' games rebuild only the bumped stages
    on their next launch.
-3. `python pipeline/build_dist.py --publish` exports both executables,
+3. `python pipeline/build_dist.py --publish --notes-file dist/notes-<version>.md`
+   exports both executables,
    zips them as `dist/DungeonsOfWarcraft-<version>-<yyyymmdd-hhmm>.zip`
    and creates the GitHub release with the zip attached (`gh` must be
    logged in: `winget install GitHub.cli`, then `gh auth login` once).

@@ -147,7 +147,7 @@ def stamp_export_version(version):
     p.write_text(s)
 
 
-def publish(zip_path, version):
+def publish(zip_path, version, notes_file=""):
     """A GitHub release v<version> carrying the zip, through the gh CLI;
     the game's updater reads the latest release and its .zip asset."""
     tag = f"v{version}"
@@ -157,9 +157,10 @@ def publish(zip_path, version):
               f"  attaching {zip_path}\n"
               f"(or: winget install GitHub.cli; gh auth login; then rerun with --publish)")
         return
+    notes = ["--notes-file", notes_file] if notes_file else [
+        "--notes", f"Build {zip_path.stem}. The game updates itself from this release."]
     run(["gh", "release", "create", tag, str(zip_path), "--title",
-         f"Dungeons of Warcraft {version}", "--notes",
-         f"Build {zip_path.stem}. The game updates itself from this release."])
+         f"Dungeons of Warcraft {version}"] + notes)
     print(f"published {tag}")
 
 
@@ -196,6 +197,8 @@ def main():
                     help="skip the time-stamped zip of the shipped files")
     ap.add_argument("--publish", action="store_true",
                     help="after the zip: create the GitHub release the game updates from")
+    ap.add_argument("--notes-file", default="",
+                    help="with --publish: a Markdown file for the release notes")
     args = ap.parse_args()
     version = game_version()
     print(f"version {version}")
@@ -214,7 +217,7 @@ def main():
     if not args.no_zip:
         z = make_zip()
         if args.publish:
-            publish(z, version)
+            publish(z, version, args.notes_file)
 
 
 if __name__ == "__main__":
