@@ -35,6 +35,18 @@ def md5(p):
     return hashlib.md5(p.read_bytes()).hexdigest()[:12]
 
 
+def export():
+    """The game executable into dist/, the export's own output kept for
+    the error (a game running from dist/ locks the file, for one)."""
+    r = subprocess.run([sys.executable, str(HERE / "build_dist.py"), "--only", "exe",
+                        "--no-zip"], capture_output=True, text=True)
+    if r.returncode != 0:
+        print(r.stdout[-3000:])
+        print(r.stderr[-3000:])
+        sys.exit("the export failed (see above). Is DungeonsOfWarcraft.exe running "
+                 f"from {DIST}? Close it and retry.")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -63,8 +75,7 @@ def main():
     print(f"exporting a throwaway executable at {lower} (the release is {cur})")
     VERSION_GD.write_text(src.replace(f'VERSION := "{cur}"', f'VERSION := "{lower}"'))
     try:
-        subprocess.run([sys.executable, str(HERE / "build_dist.py"), "--only", "exe",
-                        "--no-zip"], check=True, capture_output=True)
+        export()
         if TEST.exists():
             shutil.rmtree(TEST)
         (TEST / "_build").mkdir(parents=True)
@@ -75,8 +86,7 @@ def main():
     finally:
         # the checkout keeps its version, and dist/ its release build
         VERSION_GD.write_text(src)
-        subprocess.run([sys.executable, str(HERE / "build_dist.py"), "--only", "exe",
-                        "--no-zip"], check=True, capture_output=True)
+        export()
     old = md5(TEST / "DungeonsOfWarcraft.exe")
     print(f"staged {TEST}: executable {old} ({lower}); the release build is {released} ({cur})")
     if args.no_launch:
