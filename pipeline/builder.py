@@ -27,6 +27,8 @@ product database, the registry, the usual folders); the window pre-fills
 them and the command line uses them when --d2/--wow are omitted.
 """
 import argparse
+import subprocess
+import multiprocessing
 import json
 import os
 import re
@@ -74,7 +76,12 @@ AC_URL = ("https://raw.githubusercontent.com/azerothcore/azerothcore-wotlk/"
 _progress = {"done": 0, "total": 0, "cb": None}
 
 
-def stage(label):
+def stage(label, weight=1.0):
+    """A new stage counts one step; weight 0 is a line of progress inside
+    one (the dungeons' pool reports through the callback itself)."""
+    if weight <= 0.0:
+        print(f"\n--- {label} ---")
+        return
     _progress["done"] += 1
     done, total = _progress["done"], max(_progress["total"], _progress["done"])
     print(f"\n--- [{done}/{total}] {label} ---")
@@ -389,7 +396,7 @@ def run_d2_stages():
 D2_STAGE_COUNT = 11      # the stages above plus set bonuses
 
 
-def run_wow_stages(only=""):
+def run_wow_stages(only="", jobs=0):
     sys.path.insert(0, str(HERE))
     # the D2 stages import their own module also named "config"; make sure
     # the WoW stages resolve pipeline/config.py fresh
@@ -397,17 +404,44 @@ def run_wow_stages(only=""):
     import build_dungeon
     import build_audio
     import build_backdrops
+    import build_parallel
     from casc import Storage
     from dungeon_config import DUNGEONS
     stage("World of Warcraft: opening the local game storage")
     s = Storage()
-    for did, cfg in DUNGEONS.items():
-        if only and did != only:
-            continue
+    if only:
         t0 = time.time()
-        stage("World of Warcraft: " + did.replace("-", " ").title())
-        build_dungeon.build(s, did, cfg)
+        stage("World of Warcraft: " + only.replace("-", " ").title())
+        build_dungeon.build(s, only, DUNGEONS[only])
         print(f"    ({time.time() - t0:.0f}s)")
+    else:
+        # the dungeons several at a time (build_parallel); the bar and the
+        # line follow their finishes, weighted by how long each one takes
+        out_dir = Path(os.environ["DOW_ASSETS"])
+        os.environ["DOW_PARALLEL"] = "1"
+        est = build_parallel.estimates(out_dir)
+        total_w = sum(est.get(d, build_parallel.DEFAULT_EST) for d in DUNGEONS)
+        jobs = jobs or build_parallel.default_jobs()
+        base = _progress["done"] + 1     # the pool counts as one stage, below
+
+        def report(n, total, running, eta):
+            now = ", ".join(d.replace("-", " ") for d in running[:4])
+            label = (f"Dungeons {n} of {total} - about {eta / 60:.0f} min left"
+                     + (f" - now: {now}" if now else ""))
+            stage(label, weight=0.0)   # a line, not a new stage
+            frac = (base - 1 + n / float(total) * len(DUNGEONS)) \
+                / max(1.0, float(_progress["total"]))
+            if _progress["cb"]:
+                try:
+                    _progress["cb"](label, base + n, _progress["total"], frac)
+                except Exception:
+                    pass
+
+        stage(f"World of Warcraft: {len(DUNGEONS)} dungeons with {jobs} workers "
+              f"(about {total_w / jobs / 60:.0f} min)")
+        build_parallel.build_all(DUNGEONS, out_dir, jobs, report)
+        _progress["done"] += len(DUNGEONS)
+        os.environ.pop("DOW_PARALLEL", None)
     stage("World of Warcraft: menu backdrops")
     build_backdrops.build(s)
     stage("World of Warcraft: soundscape")
@@ -417,11 +451,11 @@ def run_wow_stages(only=""):
 def wow_stage_count(only=""):
     sys.path.insert(0, str(HERE))
     from dungeon_config import DUNGEONS
-    return 1 + (1 if only else len(DUNGEONS)) + 2
+    return 1 + (1 if only else len(DUNGEONS) + 1) + 2
 
 
 def run_build(d2, wow, out="", ac="", skip_d2=False, skip_wow=False,
-              only_dungeon="", refresh_ac=False):
+              only_dungeon="", refresh_ac=False, jobs=0):
     """Run the asset build. Both the CLI and the picker call this; it assumes
     d2/wow already passed check_d2/check_wow (the picker validates first, the
     CLI calls the checks below). Progress goes to stdout, which the picker
@@ -458,7 +492,7 @@ def run_build(d2, wow, out="", ac="", skip_d2=False, skip_wow=False,
     if not skip_d2:
         run_d2_stages()
     if not skip_wow:
-        run_wow_stages(only_dungeon)
+        run_wow_stages(only_dungeon, jobs)
     print(f"\nALL DONE in {(time.time() - t0) / 60:.1f} min -> {out_dir}")
     print("Launch the game — the dungeon ladder is waiting.")
 
@@ -509,9 +543,26 @@ def run_gui():
                            "included — the assets are built here on your PC.")
     header.pack(fill="x")
 
+    # the two pickers stay folded away while both games are where Setup
+    # found them; a line says so, and Change… unfolds them
+    found_bar = tk.Frame(root, padx=12)
+    found_lbl = tk.Label(found_bar, anchor="w", fg="#177245")
+    found_lbl.pack(side="left")
     rows = tk.Frame(root, padx=12)
-    rows.pack(fill="x")
     rows.columnconfigure(1, weight=1)
+    shown = {"rows": False}
+
+    def show_rows(on):
+        if on and not shown["rows"]:
+            rows.pack(fill="x", after=found_bar)
+            shown["rows"] = True
+        elif not on and shown["rows"]:
+            rows.pack_forget()
+            shown["rows"] = False
+
+    tk.Button(found_bar, text="Change…", command=lambda: show_rows(True)).pack(
+        side="right")
+    found_bar.pack(fill="x")
 
     d2_var = tk.StringVar(value=state["d2"])
     wow_var = tk.StringVar(value=state["wow"])
@@ -528,6 +579,11 @@ def run_gui():
                           fg=("#177245" if not msg2 else "#a11"))
         can = not msg and not msg2 and not state["running"]
         build_btn.config(state=("normal" if can else "disabled"))
+        if not msg and not msg2:
+            found_lbl.config(text="Found Diablo II and World of Warcraft.")
+        else:
+            found_lbl.config(text="")
+            show_rows(True)
 
     def browse(var, exe_name):
         # The field shows the game's .exe; game_root() turns it into the
@@ -603,9 +659,24 @@ def run_gui():
 
     bar = tk.Frame(root, padx=12, pady=8)
     bar.pack(fill="x")
-    status_lbl = tk.Label(bar, text="", anchor="w", wraplength=440,
+    status_lbl = tk.Label(bar, text="", anchor="w", wraplength=400,
                           justify="left")
     status_lbl.pack(side="left")
+    game_exe = BESIDE_EXE / "DungeonsOfWarcraft.exe"
+
+    def play():
+        try:
+            subprocess.Popen([str(game_exe)], cwd=str(BESIDE_EXE), close_fds=True)
+        except OSError as e:
+            status_lbl.config(text=f"Could not start the game: {e}", fg="#a11")
+            return
+        root.destroy()
+
+    play_btn = tk.Button(bar, text="Play", command=play, state="disabled")
+    if game_exe.exists():
+        play_btn.pack(side="right", padx=(8, 0))
+        if (BUILD_DIR / "assets" / "gamedata.json").exists():
+            play_btn.config(state="normal")    # built before: straight in
     build_btn = tk.Button(bar, text="Build assets")
     build_btn.pack(side="right")
     tk.Button(bar, text="Detect installs", command=detect_both).pack(
@@ -645,8 +716,8 @@ def run_gui():
     def worker(d2, wow):
         old_out, old_err = sys.stdout, sys.stderr
         sys.stdout = sys.stderr = _Tee(old_out)
-        _progress["cb"] = lambda label, done, total: q.put(
-            ("__stage__", label, done, total))
+        _progress["cb"] = lambda label, done, total, frac=None: q.put(
+            ("__stage__", label, done, total, frac))
         ok = True
         try:
             run_build(d2, wow)
@@ -671,8 +742,16 @@ def run_gui():
         build_lbl.config(text="Building game at %s\nfrom %s\nand %s"
                          % (BUILD_DIR / "assets", d2, wow))
         stage_lbl.config(text="Starting…")
-        pbar.config(value=0, maximum=1)
-        status_lbl.config(text="This takes 5–10 minutes.", fg="#333")
+        pbar.config(value=0, maximum=1000)
+        state["t0"] = time.time()
+        sys.path.insert(0, str(HERE))
+        import build_parallel
+        jobs = build_parallel.default_jobs()
+        est = build_parallel.estimates(BUILD_DIR / "assets")
+        mins = (sum(est.values()) / jobs + 120) / 60.0
+        status_lbl.config(text=f"About {mins:.0f} minutes on this PC "
+                          f"({jobs} dungeons at a time).", fg="#333")
+        play_btn.config(state="disabled")
         threading.Thread(target=worker, args=(d2, wow), daemon=True).start()
 
     build_btn.config(command=start_build)
@@ -682,19 +761,27 @@ def run_gui():
             while True:
                 item = q.get_nowait()
                 if isinstance(item, tuple) and item and item[0] == "__stage__":
-                    _, label, done, total = item
-                    pbar.config(maximum=total, value=done - 1)
-                    stage_lbl.config(text=f"{done} of {total}: {label}")
+                    _, label, done, total, frac = item
+                    if frac is None:
+                        frac = (done - 1) / max(1.0, float(total))
+                    pbar.config(maximum=1000, value=int(1000 * min(1.0, frac)))
+                    el = int(time.time() - state.get("t0", time.time()))
+                    stage_lbl.config(text=f"{label}   ({el // 60}:{el % 60:02d} elapsed)",
+                                     fg="#666")
                     continue
                 if isinstance(item, tuple) and item and item[0] == "__done__":
                     state["running"] = False
                     ok = item[1]
                     if ok:
                         pbar.config(value=pbar["maximum"])
-                        stage_lbl.config(text="Finished.")
+                        el = int(time.time() - state.get("t0", time.time()))
+                        stage_lbl.config(text=f"Finished in {el // 60} min {el % 60} s.")
+                        if game_exe.exists():
+                            play_btn.config(state="normal")
                     status_lbl.config(
-                        text=("Done — close this and run DungeonsOfWarcraft.exe"
-                              if ok else "Build failed — see setup.log "
+                        text=("Done — press Play." if ok and game_exe.exists()
+                              else "Done — run DungeonsOfWarcraft.exe." if ok
+                              else "Build failed — see setup.log "
                               "(the Open log button)."),
                         fg=("#177245" if ok else "#a11"))
                     refresh()
@@ -734,6 +821,9 @@ def attach_console():
 
 
 def main():
+    # the frozen setup.exe re-launches itself for each build worker;
+    # this is where such a launch turns into a worker instead of a window
+    multiprocessing.freeze_support()
     if len(sys.argv) > 1:
         attach_console()
     ap = argparse.ArgumentParser(description=__doc__,
@@ -760,6 +850,9 @@ def main():
     ap.add_argument("--skip-wow", action="store_true",
                     help="skip the WoW stages (dungeons, backdrops, audio)")
     ap.add_argument("--only-dungeon", default="", help=argparse.SUPPRESS)
+    ap.add_argument("--jobs", type=int, default=0,
+                    help="dungeons built at a time (default: one per core "
+                         "but one, at most six)")
     args = ap.parse_args()
 
     # Everything printed from here on is also written to setup.log beside the
@@ -828,7 +921,8 @@ def main():
              'window, or pass --d2 "…" --wow "…" to build from the command line.')
 
     run_build(args.d2, args.wow, args.out, args.ac,
-              args.skip_d2, args.skip_wow, args.only_dungeon, args.refresh_ac)
+              args.skip_d2, args.skip_wow, args.only_dungeon, args.refresh_ac,
+              args.jobs)
 
 
 if __name__ == "__main__":

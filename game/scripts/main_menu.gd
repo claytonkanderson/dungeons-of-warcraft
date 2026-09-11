@@ -97,6 +97,9 @@ func _ready() -> void:
 	_refresh()
 	if Net.last_error != "":
 		_lobby_refresh()
+	# back from a dungeon with the session still up: the roster shows the
+	# level this character is at now
+	Net.announce()
 	for a in OS.get_cmdline_user_args():
 		if str(a).begins_with("--menu-shot="):
 			if Cli.offscreen():
@@ -312,6 +315,34 @@ func _build() -> void:
 	_skin(quit, "menubutton", 4, 2)
 	add_child(quit)
 
+	# master volume, top right: reachable before anything else plays long
+	var st := get_node("/root/Settings")
+	var vl := _label("VOLUME", 14, GOLD_DIM)
+	vl.position = Vector2(1060, 96)
+	vl.size = Vector2(80, 20)
+	add_child(vl)
+	var vs := HSlider.new()
+	vs.min_value = 0.0
+	vs.max_value = 1.0
+	vs.step = 0.05
+	vs.value = float(st.master)
+	vs.position = Vector2(1140, 98)
+	vs.size = Vector2(110, 16)
+	vs.focus_mode = Control.FOCUS_NONE
+	var track := StyleBoxFlat.new()
+	track.bg_color = Color(0.08, 0.06, 0.04)
+	track.border_color = GOLD_DIM
+	track.set_border_width_all(1)
+	track.content_margin_top = 3
+	track.content_margin_bottom = 3
+	vs.add_theme_stylebox_override("slider", track)
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = Color(0.72, 0.58, 0.25)
+	vs.add_theme_stylebox_override("grabber_area", fill)
+	vs.add_theme_stylebox_override("grabber_area_highlight", fill)
+	vs.value_changed.connect(func(v): st.set_volume("master", v))
+	add_child(vs)
+
 	# ---- the lobby, over the paperdoll while a session is up ----
 	_lobby = Control.new()
 	_lobby.position = DOLL_PANEL.position
@@ -335,6 +366,7 @@ func _build() -> void:
 	_lobby.add_child(_lobby_status)
 	_lobby_ip = LineEdit.new()
 	_lobby_ip.placeholder_text = "host's address"
+	_lobby_ip.text = get_node("/root/Settings").host_ip   # the last one joined
 	_lobby_ip.position = Vector2(10, 150)
 	_lobby_ip.size = Vector2(DOLL_PANEL.size.x - 20, 30)
 	_lobby_ip.visible = false
@@ -610,6 +642,8 @@ func _on_connect() -> void:
 	var err := Net.join(_lobby_ip.text)
 	if err != "":
 		Net.last_error = err
+	else:
+		get_node("/root/Settings").set_host_ip(_lobby_ip.text.strip_edges())
 	_refresh()
 
 

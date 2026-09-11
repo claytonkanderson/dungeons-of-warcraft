@@ -15,6 +15,8 @@ var floor_y := -200.0
 var monsters: Array = []
 var puppet := false             # a replay drives the world (replay.gd)
 var _ghosts: Node3D             # other players' missiles, drawn only (net.gd)
+var show_hitboxes := false      # 0: every body's capsule drawn (--hitboxes at start)
+var _arrow_sphere := SphereShape3D.new()   # an arrow's breadth for the creature test
 var _net_hits := 0              # joiner: blows landed on the host's creatures
 var _ghost_arrows: Array = []
 var arrows: Array = []
@@ -289,6 +291,8 @@ func _ready() -> void:
 		spawn = _at_override
 	_spawn_player(gs)
 	player.surface = str(placements.get("footstep", "stone"))
+	show_hitboxes = Cli.has("--hitboxes")
+	_arrow_sphere.radius = 0.3
 	_spawn_creatures(placements.get("creatures", []))
 	_spawn_gameobjects(placements)
 
@@ -1120,6 +1124,9 @@ func _spawn_player(gs) -> void:
 	cs.shape = cap
 	cs.position.y = 0.9
 	player.add_child(cs)
+	var pdbg := _debug_capsule(cap, cs.position, Color(0.3, 0.6, 1.0, 0.25))
+	pdbg.add_to_group("hitbox_debug")
+	player.add_child(pdbg)
 	var cam := Camera3D.new()
 	cam.name = "Camera3D"
 	cam.fov = 70.0
@@ -1181,9 +1188,11 @@ func _spawn_creatures(entries: Array) -> void:
 				aabb = aabb.merge(b)
 		var height: float = clampf(aabb.size.y * sc, 1.0, 4.0)
 		# no wider than the body is tall: a bat's bind pose spreads its
-		# wings five metres, which made a 0.6 m bat a 2.6 m wide capsule
+		# wings five metres, which made a 0.6 m bat a 2.6 m wide capsule.
+		# Otherwise a little under the mesh's own breadth: the capsule does
+		# not follow a lunge, so blows that visibly land must still count
 		var radius: float = clampf(minf(
-				maxf(aabb.size.x, aabb.size.z) * 0.5 * sc * 0.7, height * 0.45), 0.3, 1.3)
+				maxf(aabb.size.x, aabb.size.z) * 0.5 * sc * 0.85, height * 0.8), 0.45, 1.3)
 
 		var mob := WowCreature.new()
 		var cs := CollisionShape3D.new()
@@ -1191,14 +1200,18 @@ func _spawn_creatures(entries: Array) -> void:
 		cap.radius = radius
 		cap.height = maxf(height, radius * 2.1)
 		cs.shape = cap
-		cs.position.y = cap.height * 0.5
+		# where the mesh actually sits: a flyer authored a metre and a half
+		# up had its capsule at ankle height, with nothing in it
+		cs.position.y = maxf(cap.height * 0.5, (aabb.position.y + aabb.size.y * 0.5) * sc)
 		mob.add_child(cs)
+		mob.add_child(_debug_capsule(cap, cs.position, Color(0.2, 1.0, 0.3, 0.28)))
 		mob.add_child(model)
 		mob.position = Vector3(c["pos"][0], c["pos"][1] + 0.2, c["pos"][2])
 		mob.rotation.y = float(c["yaw"])
 		add_child(mob)
 		mob.setup(str(info.get("name", key)), info, _find_anim_player(model),
 				radius)
+		mob.body_radius = radius
 		# the pipeline assigns a voice family per model (with per-dungeon
 		# overrides); the entry map is only a fallback for older manifests
 		mob.voice = str(info.get("voice", VOICE_MAP.get(int(c["entry"]), "")))
@@ -1215,6 +1228,95 @@ func _spawn_creatures(entries: Array) -> void:
 		monsters.append(mob)
 		count += 1
 	print("creatures placed: %d" % count)
+
+
+func _debug_capsule(cap: CapsuleShape3D, at: Vector3, color: Color) -> MeshInstance3D:
+	## the body's capsule, drawn translucent through the model: the 0 key
+	## shows every one, to judge what a blow can land on
+	var dbg := MeshInstance3D.new()
+	dbg.name = "DebugCapsule"
+	var cm := CapsuleMesh.new()
+	cm.radius = cap.radius
+	cm.height = cap.height
+	dbg.mesh = cm
+	dbg.position = at
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.no_depth_test = true
+	dbg.material_override = mat
+	dbg.visible = show_hitboxes
+	return dbg
+
+
+func set_hitboxes(on: bool) -> void:
+	show_hitboxes = on
+	for n in get_tree().get_nodes_in_group("hitbox_debug"):
+		if is_instance_valid(n):
+			n.visible = on
+	for mob in monsters:
+		if is_instance_valid(mob):
+			var d: Node = mob.get_node_or_null("DebugCapsule")
+			if d != null:
+				d.visible = on
+	for f in friendlies:
+		if is_instance_valid(f):
+			var d: Node = f.get_node_or_null("DebugCapsule")
+			if d != null:
+				d.visible = on
+	if hud_node != null:
+		hud_node.show_area("Hitboxes %s" % ("on" if on else "off"), Color(0.7, 1.0, 0.7), 1.5)
+
+
+func _arrow_exclude() -> Array:
+	## a missile passes the player and her summons; it stops on everything else
+	var out: Array = [player.get_rid()]
+	for f in friendlies:
+		if is_instance_valid(f):
+			out.append(f.get_rid())
+	return out
+
+
+func _arrow_touch(space: PhysicsDirectSpaceState3D, from: Vector3, at: Vector3) -> WowCreature:
+	## The ray is a line and the arrow is not: a living creature within its
+	## breadth of the point it reached is hit, nearest to the shooter first.
+	var sp := PhysicsShapeQueryParameters3D.new()
+	sp.shape = _arrow_sphere
+	sp.transform = Transform3D(Basis(), at)
+	sp.exclude = _arrow_exclude()
+	var best: WowCreature = null
+	var bd := INF
+	for r in space.intersect_shape(sp, 8):
+		var c: Object = r["collider"]
+		if c is WowCreature and c.state != WowCreature.State.DEAD:
+			var d: float = from.distance_to(c.global_position)
+			if d < bd:
+				bd = d
+				best = c
+	return best
+
+
+func aimed_creature(from: Vector3, dir: Vector3, reach: float) -> WowCreature:
+	## The living creature under a line of aim, with an arrow's breadth of
+	## give: what the crosshair names and what a swing lands on.
+	var space := get_world_3d().direct_space_state
+	var q := PhysicsRayQueryParameters3D.create(from, from + dir * reach)
+	q.exclude = _arrow_exclude()
+	var ray := space.intersect_ray(q)
+	if ray and ray["collider"] is WowCreature and ray["collider"].state != WowCreature.State.DEAD:
+		return ray["collider"]
+	var span: float = from.distance_to(ray["position"]) if ray else reach
+	var sp := PhysicsShapeQueryParameters3D.new()
+	sp.shape = _arrow_sphere
+	sp.transform = Transform3D(Basis(), from)
+	sp.motion = dir * span
+	sp.exclude = _arrow_exclude()
+	var frac: PackedFloat32Array = space.cast_motion(sp)
+	if frac.size() < 2 or frac[1] >= 1.0:
+		return null
+	return _arrow_touch(space, from, from + dir * span * frac[1])
 
 
 func combat_targets() -> Array:
@@ -1444,9 +1546,13 @@ func _melee_swing(origin: Vector3, dir: Vector3) -> void:
 			continue
 		var to: Vector3 = mob.global_position - player.global_position
 		to.y = 0.0
-		if to.length() > p.x + mob.attack_range - 2.0:
+		# to the body's edge, not its centre: a broad creature pressed
+		# against the player fills the view and must be in reach
+		var r: float = mob.body_radius
+		if to.length() - r > p.x:
 			continue
-		if flat_dir.angle_to(to.normalized()) > p.y:
+		var pad := atan(r / maxf(0.2, to.length()))
+		if flat_dir.angle_to(to.normalized()) - pad > p.y:
 			continue
 		_hit_monster(mob, false, 0.0)
 		if not connected:
@@ -1742,10 +1848,14 @@ func _physics_process(dt: float) -> void:
 		var from: Vector3 = node.global_position
 		var to: Vector3 = from + a["vel"] * dt
 		var q := PhysicsRayQueryParameters3D.create(from, to)
-		q.exclude = [player.get_rid()]
-		var hit := space.intersect_ray(q)
-		if hit:
-			var col: Object = hit["collider"]
+		q.exclude = _arrow_exclude()
+		var ray := space.intersect_ray(q)
+		var col: Object = ray["collider"] if ray else null
+		var hit_pos: Vector3 = ray["position"] if ray else to
+		if col == null:
+			# the ray is a line; the arrow is not
+			col = _arrow_touch(space, from, to)
+		if col != null:
 			if col is WowCreature and col.state != WowCreature.State.DEAD:
 				# an arrow that physically connects always hits — the FPS aim
 				# replaces D2's attack-rating roll for missiles
@@ -1770,9 +1880,9 @@ func _physics_process(dt: float) -> void:
 				_hit_monster(col, true, extra, bool(a.get("thrown", false)),
 						str(a.get("etype", "")))
 				if hsn.has("chain"):
-					_chain_lightning(hit["position"], col, int(hsn["chain"]), hsn["bolt"])
-				get_node("/root/Sfx").event("arrow_impact", hit["position"])
-				_skill_impact(a, hit["position"])
+					_chain_lightning(hit_pos, col, int(hsn["chain"]), hsn["bolt"])
+				get_node("/root/Sfx").event("arrow_impact", hit_pos)
+				_skill_impact(a, hit_pos)
 				if randf() < gs.pierce_chance():
 					continue    # arrow pierces through
 			var explode := str(a.get("explode", ""))
@@ -1780,7 +1890,7 @@ func _physics_process(dt: float) -> void:
 				var boom := BillboardAnim.new()
 				add_child(boom)
 				boom.play("missiles/" + explode, false, "center")
-				boom.global_position = hit["position"]
+				boom.global_position = hit_pos
 				boom.finished.connect(boom.queue_free)
 			arrows.erase(a)
 			node.queue_free()
@@ -1834,6 +1944,18 @@ func _on_monster_died(dead: WowCreature) -> void:
 		on_dungeon_complete()
 		if Net.is_host():
 			Net.dungeon_complete.rpc()
+
+
+func on_session_lost(why: String) -> void:
+	## The host is gone: the creatures are puppets with no one moving them,
+	## so this dungeon is over. Say so, then back to the menu.
+	if hud_node != null:
+		hud_node.show_area(why + " - back to the menu", Color(1.0, 0.55, 0.3), 3.0)
+	get_node("/root/GameState").save_game(player)
+	var t := get_tree().create_timer(3.0)
+	t.timeout.connect(func():
+		if is_inside_tree():
+			get_tree().change_scene_to_file("res://scenes/menu.tscn"))
 
 
 func on_dungeon_complete() -> void:
@@ -2496,6 +2618,8 @@ func _unhandled_input(e: InputEvent) -> void:
 			get_node("/root/GameState").save_game(player)
 			if hud_node != null:
 				hud_node.show_area("Saved")
+		elif e.keycode == KEY_0:
+			set_hitboxes(not show_hitboxes)
 		elif e.keycode == KEY_I:
 			_ui_action("ui:inv")
 		elif e.keycode == KEY_T:
@@ -2570,14 +2694,9 @@ func _process(_dt: float) -> void:
 	else:
 		hud_node.hide_item_labels()
 	# creature under the crosshair -> D2-style name + health plate up top
-	var from := cam2.global_position
-	var q := PhysicsRayQueryParameters3D.create(
-		from, from - cam2.global_transform.basis.z * 45.0)
-	q.exclude = [player.get_rid()]
-	var hit := get_world_3d().direct_space_state.intersect_ray(q)
-	if hit and hit["collider"] is WowCreature \
-			and hit["collider"].state != WowCreature.State.DEAD:
-		hud_node.show_target(hit["collider"])
+	var aimed := aimed_creature(cam2.global_position, -cam2.global_transform.basis.z, 45.0)
+	if aimed != null:
+		hud_node.show_target(aimed)
 	else:
 		hud_node.hide_target()
 	# name whatever E would act on from here

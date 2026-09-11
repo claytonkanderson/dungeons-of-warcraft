@@ -36,6 +36,8 @@ static func spawn(world_node, at: Vector3, skind: String, sn: Dictionary) -> All
 	cs.shape = cap
 	cs.position.y = 0.8
 	a.add_child(cs)
+	if world_node.has_method("_debug_capsule"):
+		a.add_child(world_node._debug_capsule(cap, cs.position, Color(1.0, 0.9, 0.3, 0.25)))
 	var an := BillboardAnim.new()
 	an.name = "BillboardAnim"
 	a.add_child(an)

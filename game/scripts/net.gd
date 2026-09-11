@@ -268,9 +268,31 @@ func _on_peer_connected(id: int) -> void:
 
 
 func _patient(id: int) -> void:
+	## while the other side may be building a world: minutes of silence
 	var p := peer.get_peer(id) if peer != null else null
 	if p != null:
 		p.set_timeout(32, TIMEOUT_MIN_MS, TIMEOUT_MAX_MS)
+
+
+func _brisk(id: int) -> void:
+	## in play: a dropped link is noticed within seconds, not minutes
+	var p := peer.get_peer(id) if peer != null else null
+	if p != null:
+		p.set_timeout(32, 6000, 15000)
+
+
+func announce() -> void:
+	## Back in the lobby: the roster shows the level the dungeon left this
+	## character at, not the one it joined with
+	if not active():
+		return
+	var me := _me()
+	if is_host():
+		roster[1] = me
+		set_roster.rpc(roster)
+		roster_changed.emit()
+	else:
+		hello.rpc_id(1, me["name"], me["level"], me["wclass"], me["gear"])
 
 
 func _on_peer_disconnected(id: int) -> void:
@@ -304,6 +326,8 @@ func _on_connection_failed() -> void:
 
 func _on_server_disconnected() -> void:
 	last_error = "The host left the session."
+	if world != null:
+		world.on_session_lost("The host left the session")
 	leave("the host went away")
 
 
@@ -393,6 +417,12 @@ func prepared(did: String, ok: bool) -> void:
 func go(did: String) -> void:
 	session_dungeon = did
 	log_it("starting %s" % did)
+	# everyone is about to build a world: patience all round
+	if is_host():
+		for p in multiplayer.get_peers():
+			_patient(int(p))
+	else:
+		_patient(1)
 	launched.emit(did)
 
 
@@ -407,6 +437,7 @@ func attach_world(w) -> void:
 	if is_client():
 		var me := _me()
 		world_ready.rpc_id(1, me["name"], me["wclass"])
+		_brisk(1)     # built: from here a lost host shows within seconds
 	elif is_host():
 		# players already in the lobby: their puppets stand at the entrance
 		# until their poses arrive
@@ -474,6 +505,7 @@ func world_ready(pname: String, wclass: String) -> void:
 		return
 	var id := multiplayer.get_remote_sender_id()
 	log_it("%s is in the dungeon: sending the state" % pname)
+	_brisk(id)
 	if roster.has(id):
 		roster[id]["wclass"] = wclass
 	var rp = _ensure_remote(id)
@@ -533,8 +565,10 @@ func send_pose(p) -> void:
 	## Every player: where their Amazon is, for everyone else's puppet
 	if not active():
 		return
+	var gs := get_node("/root/GameState")
 	pose.rpc([p.global_position.x, p.global_position.y, p.global_position.z,
-			p.yaw, p.pitch, p.pose_mode(), p.weapon_class])
+			p.yaw, p.pitch, p.pose_mode(), p.weapon_class,
+			clampf(gs.hp / maxf(1.0, gs.hp_max), 0.0, 1.0)])
 
 
 @rpc("any_peer", "call_remote", "unreliable_ordered", CHANNEL_POSE)
@@ -549,7 +583,7 @@ func host_pose(a: Array) -> void:
 	## Client: the host's own Amazon comes through the stream's "p" record
 	var rp = _ensure_remote(1)
 	if rp != null:
-		rp.apply_pose([a[0], a[1], a[2], a[3], a[4], "nu", "bow"], true)
+		rp.apply_pose([a[0], a[1], a[2], a[3], a[4], "nu", "bow", -1.0], true)
 
 
 const CREATURE_METHODS := ["take_hit", "take_damage", "slow", "freeze", "knockback",

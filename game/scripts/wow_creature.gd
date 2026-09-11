@@ -60,6 +60,9 @@ var noheal := false          # "Prevents Monster Heal" has landed on it
 var _since_hit := 99.0       # seconds since the last damage, for regeneration
 var puppet := false          # a replay places it; no AI, no physics (replay.gd)
 var remote := false          # a co-op joiner's copy: blows at it go to the host (net.gd)
+var body_radius := 0.5       # the capsule's, for reach measured to the body
+var _burn_acc := 0.0         # damage over time, applied twice a second
+var _burn_tick := 0.0
 var rid := -1                # index in world.monsters: the stream's creature id
 
 # D2 monsters slowly regenerate; here a creature left alone for a while heals
@@ -269,9 +272,10 @@ const CORPSE_SECONDS := 30.0
 var _corpse_t := -1.0
 
 
-func take_damage(dmg: float, etype := "phys") -> void:
+func take_damage(dmg: float, etype := "phys", quiet := false) -> void:
+	## quiet: a tick of damage over time, which neither grunts nor staggers
 	if remote:
-		Net.forward_creature(self, "take_damage", [dmg, etype])
+		Net.forward_creature(self, "take_damage", [dmg, etype, quiet])
 		return
 	if state == State.DEAD:
 		return
@@ -298,6 +302,8 @@ func take_damage(dmg: float, etype := "phys") -> void:
 	if passive:
 		# a kicked critter finally fights back
 		passive = false
+	if quiet:
+		return
 	get_node("/root/WowSfx").voice(voice, "wound", global_position, 0.4)
 	# bosses shrug off most hits instead of being stun-locked
 	if is_boss and randf() > 0.25:
@@ -437,8 +443,15 @@ func _physics_process(dt: float) -> void:
 			if anim != null:
 				anim.speed_scale = 1.0
 	if _burn_t > 0.0:
+		# poison, burning and bleeding: gathered and landed twice a second.
+		# Applied every tick it grunted and flinched sixty times a second
 		_burn_t -= dt
-		take_damage(_burn_dps * dt)
+		_burn_acc += _burn_dps * dt
+		_burn_tick -= dt
+		if _burn_tick <= 0.0 or _burn_t <= 0.0:
+			_burn_tick = 0.5
+			take_damage(_burn_acc, "phys", true)
+			_burn_acc = 0.0
 		if _burn_t <= 0.0:
 			_burn_dps = 0.0
 	_retarget_t -= dt

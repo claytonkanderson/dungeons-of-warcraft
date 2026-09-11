@@ -35,6 +35,7 @@ const FLAGS := {
 	"--join=": "<ip>          join a co-op session at that address from the start",
 	"--net-test": "diagnostic: with --host or --join=, report the session for 25 s, quit",
 	"--ally-test": "diagnostic: cast Valkyrie and Decoy, report and capture them, quit",
+	"--hitboxes": "start with the creature hitboxes drawn (the 0 key toggles them in play)",
 	"--mob-shot=": "<entry>    diagnostic: capture a creature alive and dead, quit",
 	"--mob-name=": "<name>     with --mob-shot: match by name instead",
 	"--mob-dist=": "<m>        with --mob-shot: stand this far away (5)",

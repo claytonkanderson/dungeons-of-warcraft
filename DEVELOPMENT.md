@@ -136,6 +136,18 @@ textures (`LIQUID_TEXTURES` in `wmo_export.py`).
 Creature voices are assigned per model family in `voice_sets.py`;
 `probe_voices.py --merge` searches the client for new families.
 
+### Building in parallel
+
+`builder.py` (and so `setup.exe`) builds the dungeons several at a time
+through `build_parallel.py`: a process pool, one CASC storage per worker,
+the longest dungeons first, each worker's output written to the log as
+one block prefixed with the dungeon id. `--jobs N` sets the width
+(default one per core but one, at most six; a 32-minute single-core build
+takes about 7 minutes at six). Per-dungeon times are kept in
+`build_times.json` beside the assets and drive the next run's estimate
+and the window's progress line. The only shared output, the ambience
+table in `audio.json`, is merged by the parent after the pool drains.
+
 ## Running from a checkout
 
 ```bash
@@ -166,6 +178,8 @@ run_game.bat -- --swim-test --dungeon=blackfathom-deeps   # drop into the deepes
 run_game.bat -- --host --dungeon=deadmines --net-test      # co-op probe: host a session, open the dungeon, report for 25 s
 run_game.bat -- --join=127.0.0.1 --net-test                # co-op probe: join it (a second window), walk, screenshot the host's Amazon
 run_game.bat -- --ally-test --dungeon=deadmines            # cast Valkyrie and Decoy, report and capture them
+run_game.bat -- --hitboxes --dungeon=deadmines             # start with every body's capsule drawn (0 toggles it in play)
+run_game.bat -- --host --port=24611 --no-upnp --net-test   # a probe session on another port, beside a live one
 run_game.bat -- --topdown=<abs path>.png   # a view straight down on the whole dungeon
 run_game.bat -- --tour=90                   # a recorded survey glide (python tour_videos.py renders one per dungeon)
 run_game.bat -- --replay-test               # a scripted session, recorded (see below)

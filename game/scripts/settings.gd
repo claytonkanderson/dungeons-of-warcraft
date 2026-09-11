@@ -4,13 +4,17 @@ extends Node
 
 const PATH := "user://settings.json"
 
-var master := 1.0
-var music := 1.0
-var effects := 1.0
+# A fresh install starts well under full scale: the title theme at 0 dB
+# on every bus was the first thing a new player heard
+const DEF := {"master": 0.7, "music": 0.5, "effects": 0.85}
+var master: float = DEF["master"]
+var music: float = DEF["music"]
+var effects: float = DEF["effects"]
 # record each session to user://sessions (see replay.gd), read when a
 # dungeon is entered. Off for players and not in any menu: run_game.bat
 # passes --record, and "record_sessions": true in settings.json also works.
 var record_sessions := false
+var host_ip := ""             # the last co-op address joined, for the lobby field
 
 
 func _ready() -> void:
@@ -24,10 +28,11 @@ func _ready() -> void:
 	if f != null:
 		var d: Variant = JSON.parse_string(f.get_as_text())
 		if d is Dictionary:
-			master = clampf(float(d.get("master", 1.0)), 0.0, 1.0)
-			music = clampf(float(d.get("music", 1.0)), 0.0, 1.0)
-			effects = clampf(float(d.get("effects", 1.0)), 0.0, 1.0)
+			master = clampf(float(d.get("master", DEF["master"])), 0.0, 1.0)
+			music = clampf(float(d.get("music", DEF["music"])), 0.0, 1.0)
+			effects = clampf(float(d.get("effects", DEF["effects"])), 0.0, 1.0)
 			record_sessions = bool(d.get("record_sessions", false))
+			host_ip = str(d.get("host_ip", ""))
 	_apply()
 
 
@@ -55,8 +60,14 @@ func set_volume(which: String, v: float) -> void:
 	_save()
 
 
+func set_host_ip(ip: String) -> void:
+	host_ip = ip
+	_save()
+
+
 func _save() -> void:
 	var f := FileAccess.open(PATH, FileAccess.WRITE)
 	if f != null:
 		f.store_string(JSON.stringify({"master": master, "music": music,
-				"effects": effects, "record_sessions": record_sessions}))
+				"effects": effects, "record_sessions": record_sessions,
+				"host_ip": host_ip}))

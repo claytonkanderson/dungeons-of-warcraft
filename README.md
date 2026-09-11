@@ -71,7 +71,7 @@ the game's folder contains `Data\` and a `.build.info` file naming
 2. **Run `setup.exe`.** It looks for both games on its own; if a field is
    empty or wrong, browse to `Diablo II.exe` and to `World of Warcraft
    Launcher.exe`. Click **Build assets** and wait for the bar to fill
-   (5–10 minutes, about 600 MB, no internet needed). Windows SmartScreen
+   (about 10 minutes on a 4-core PC, about 600 MB, no internet needed). Windows SmartScreen
    may warn that the file is unsigned: choose *More info → Run anyway*.
 
 ![The setup window mid-build](docs/img/setup.png)
@@ -106,6 +106,7 @@ Run `DungeonsOfWarcraft.exe`, create a character, pick Ragefire Chasm, go.
 | in water | look down to dive, up to rise; Space swims up, and hops out at the surface |
 | Alt | show loot labels |
 | F9 | manual save |
+| 0 | draw every body's hitbox (a debug view) |
 
 ## Playing together
 

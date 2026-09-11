@@ -35,7 +35,7 @@ Windows with about 2 GB free (no internet connection is needed):
      Before building, turn OFF "play while downloading" in Battle.net and
      wait for the full install.
 
-FIRST RUN - build the assets (5-10 minutes, ~600 MB):
+FIRST RUN - build the assets (about 10 minutes on a 4-core PC, ~600 MB):
 
   Double-click setup.exe. It looks for both games on its own and fills in
   the two paths; if one is empty or wrong, use Browse to pick

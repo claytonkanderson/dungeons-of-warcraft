@@ -12,6 +12,7 @@ import argparse
 import json
 import math
 import re
+import os
 import struct
 
 from config import OUT
@@ -341,6 +342,9 @@ def cull_trees_through_walls(out, out_dir, heights):
         kept.append(d)
     out["doodads"] = kept
     return culled
+
+
+LAST_AMBIENCE = {}      # did -> ambience file written by this process
 
 
 def build(s, did, cfg):
@@ -766,16 +770,24 @@ def build(s, did, cfg):
                 continue
             name = p.rsplit("/", 1)[-1]
             try:
-                (audio_dir / name).write_bytes(s.read_path(p))
-                amb_file = name
-                print(f"ambience: {name}")
-                break
+                data = s.read_path(p)
             except (CascError, KeyError):
                 continue
+            # two dungeons can share a loop and, built side by side, write
+            # it at once: through a private temp file, swapped in whole
+            tmp = audio_dir / f"{name}.{os.getpid()}.tmp"
+            tmp.write_bytes(data)
+            os.replace(tmp, audio_dir / name)
+            amb_file = name
+            print(f"ambience: {name}")
+            break
         if amb_file:
             break
+    LAST_AMBIENCE[did] = amb_file
+    # the dungeon -> loop table: merged here when built alone, by the
+    # parent after a parallel build
     manifest_path = audio_dir / "audio.json"
-    if manifest_path.exists():
+    if manifest_path.exists() and not os.environ.get("DOW_PARALLEL"):
         man = json.loads(manifest_path.read_text())
         byd = man.get("dungeon_ambience", {})
         if amb_file:
