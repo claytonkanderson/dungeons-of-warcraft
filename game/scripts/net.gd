@@ -1,4 +1,5 @@
 extends Node
+const VersionInfo := preload("res://scripts/version.gd")   # by path: a new class_name is not in the class cache until the editor scans
 ## Autoloaded as Net: co-op sessions over the internet, straight between the
 ## players' machines (no server in between). One player hosts; the host's
 ## router is asked to open the port through UPnP and the host's public
@@ -232,7 +233,7 @@ func leave(why := "") -> void:
 func _me() -> Dictionary:
 	var gs := get_node("/root/GameState")
 	return {"name": str(gs.char_name), "level": int(gs.level),
-			"wclass": "bow", "gear": gear_codes()}
+			"wclass": "bow", "gear": gear_codes(), "ver": VersionInfo.VERSION}
 
 
 func gear_codes() -> Dictionary:
@@ -292,7 +293,7 @@ func announce() -> void:
 		set_roster.rpc(roster)
 		roster_changed.emit()
 	else:
-		hello.rpc_id(1, me["name"], me["level"], me["wclass"], me["gear"])
+		hello.rpc_id(1, me["name"], me["level"], me["wclass"], me["gear"], me["ver"])
 
 
 func _on_peer_disconnected(id: int) -> void:
@@ -315,7 +316,7 @@ func _on_connected() -> void:
 	_patient(1)
 	_set_status("Connected. Waiting for the host to start a dungeon.")
 	var me := _me()
-	hello.rpc_id(1, me["name"], me["level"], me["wclass"], me["gear"])
+	hello.rpc_id(1, me["name"], me["level"], me["wclass"], me["gear"], me["ver"])
 
 
 func _on_connection_failed() -> void:
@@ -347,12 +348,17 @@ func _host_status() -> String:
 # ---------------------------------------------------------------- lobby
 
 @rpc("any_peer", "call_remote", "reliable")
-func hello(pname: String, level: int, wclass: String, gear: Dictionary) -> void:
+func hello(pname: String, level: int, wclass: String, gear: Dictionary, ver := "") -> void:
 	if not is_host():
 		return
 	var id := multiplayer.get_remote_sender_id()
-	roster[id] = {"name": pname, "level": level, "wclass": wclass, "gear": gear}
-	log_it("%s (level %d) joined as peer %d" % [pname, level, id])
+	roster[id] = {"name": pname, "level": level, "wclass": wclass, "gear": gear, "ver": ver}
+	log_it("%s (level %d, game %s) joined as peer %d" % [pname, level, ver, id])
+	if ver != VersionInfo.VERSION:
+		# the same build on both ends is what keeps the creature lists and
+		# the messages lined up: say so where the host can see it
+		_set_status("%s is on version %s, this is %s: update before playing together"
+				% [pname, ver if ver != "" else "an older one", VersionInfo.VERSION])
 	set_roster.rpc(roster)
 	roster_changed.emit()
 	if session_dungeon != "":

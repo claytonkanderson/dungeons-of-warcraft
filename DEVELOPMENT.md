@@ -232,6 +232,32 @@ puppets fall back to the bare Amazon sheets.
 each side sees the other and a creature) for 25 seconds; two windows on
 one machine through 127.0.0.1 exercise the whole path.
 
+## Versions, releases and the updater
+
+`game/scripts/version.gd` holds the game's version. `build_dist.py` stamps
+it into the export, names the zip
+`DungeonsOfWarcraft-<version>-<yyyymmdd-hhmm>.zip`, and with `--publish`
+creates the GitHub release `v<version>` carrying it (through the `gh`
+CLI: `winget install GitHub.cli` and `gh auth login` once). The shipped
+game (`updater.gd`, autoloaded as `Updater`) looks up the newest release
+when the menu opens, downloads a newer zip beside itself, unpacks the two
+programs and hands over to a batch file that swaps them in after the
+process exits and starts the game again; a line on the menu says so.
+Offline it plays as is; `--no-update` turns it off.
+
+The assets carry versions too. `pipeline/versions.py` names every build
+stage and its version; bump a stage when its output changes shape.
+`builder.py` writes what it built into `_build/assets/build_manifest.json`
+stage by stage, and `build_dist.py` generates `asset_versions.gd` from the
+same table, so the game knows which versions it expects. When they differ
+the game starts `setup.exe --rebuild-stale --then-play`, which redoes only
+the stages that moved and starts the game again (`--after-rebuild`, so a
+stage that still fails is reported rather than retried forever).
+
+Co-op peers exchange their versions in the lobby; a mismatch is shown on
+both sides, since the creature lists and messages only line up between
+the same build.
+
 ## Recording and replaying a session
 
 `run_game.bat` records every session (it passes `--record`); players are

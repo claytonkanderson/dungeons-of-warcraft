@@ -22,6 +22,7 @@ Dungeons="*res://scripts/dungeons.gd"
 Replay="*res://scripts/replay.gd"
 Net="*res://scripts/net.gd"
 GearSheets="*res://scripts/gear_sheets.gd"
+Updater="*res://scripts/updater.gd"
 
 [display]
 

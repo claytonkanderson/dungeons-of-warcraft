@@ -36,6 +36,8 @@ const FLAGS := {
 	"--net-test": "diagnostic: with --host or --join=, report the session for 25 s, quit",
 	"--ally-test": "diagnostic: cast Valkyrie and Decoy, report and capture them, quit",
 	"--hitboxes": "start with the creature hitboxes drawn (the 0 key toggles them in play)",
+	"--no-update": "do not look for a newer release or stale assets at the menu",
+	"--after-rebuild": "setup.exe just rebuilt the assets: report what is still stale instead of rebuilding again",
 	"--mob-shot=": "<entry>    diagnostic: capture a creature alive and dead, quit",
 	"--mob-name=": "<name>     with --mob-shot: match by name instead",
 	"--mob-dist=": "<m>        with --mob-shot: stand this far away (5)",

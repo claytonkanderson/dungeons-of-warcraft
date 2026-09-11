@@ -1,4 +1,5 @@
 extends Control
+const VersionInfo := preload("res://scripts/version.gd")   # by path: a new class_name is not in the class cache until the editor scans
 ## "Dungeons of Warcraft" — the launch menu: the selected character standing
 ## in their own gear on the left, the roster in the middle, the vanilla
 ## dungeon ladder on the right, over the artwork of whichever dungeon is
@@ -48,6 +49,7 @@ var _lobby_leave: Button
 var _host_btn: Button
 var _join_btn: Button
 var _joining := false           # JOIN pressed: the address field is up
+var _update_lbl: Label
 
 @onready var gs := get_node("/root/GameState")
 @onready var dg := get_node("/root/Dungeons")
@@ -100,6 +102,10 @@ func _ready() -> void:
 	# back from a dungeon with the session still up: the roster shows the
 	# level this character is at now
 	Net.announce()
+	# the shipped game keeps itself current: a line at the bottom says how
+	Updater.status_changed.connect(_update_line)
+	_update_line()
+	Updater.start()
 	for a in OS.get_cmdline_user_args():
 		if str(a).begins_with("--menu-shot="):
 			if Cli.offscreen():
@@ -314,6 +320,17 @@ func _build() -> void:
 	quit.size = Vector2(256, 35)
 	_skin(quit, "menubutton", 4, 2)
 	add_child(quit)
+
+	_update_lbl = _label("", 13, GOLD_DIM)
+	_update_lbl.position = Vector2(80, 700)
+	_update_lbl.size = Vector2(700, 18)
+	_update_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	add_child(_update_lbl)
+	var ver := _label("v" + VersionInfo.VERSION, 13, GREY)
+	ver.position = Vector2(1060, 700)
+	ver.size = Vector2(190, 18)
+	ver.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	add_child(ver)
 
 	# master volume, top right: reachable before anything else plays long
 	var st := get_node("/root/Settings")
@@ -557,6 +574,11 @@ func _refresh() -> void:
 	_lobby_refresh()
 
 
+func _update_line() -> void:
+	if _update_lbl != null:
+		_update_lbl.text = Updater.status
+
+
 func _pick_any_character() -> void:
 	## --host / --join= from the command line: whoever was played last, or
 	## the first on the roster, or a fresh one
@@ -606,8 +628,12 @@ func _lobby_refresh() -> void:
 		doll.custom_minimum_size = Vector2(108, 84)
 		doll.size = Vector2(108, 84)
 		row.add_child(doll)
-		var caption := _label("%s\nlevel %d%s" % [str(r.get("name", "?")), int(r.get("level", 1)),
-				", host" if int(id) == 1 else ""], 12, GOLD if int(id) == Net.my_id() else WHITE)
+		var rver := str(r.get("ver", ""))
+		var mismatch: bool = rver != "" and rver != VersionInfo.VERSION
+		var caption := _label("%s\nlevel %d%s%s" % [str(r.get("name", "?")), int(r.get("level", 1)),
+				", host" if int(id) == 1 else "",
+				("\nversion " + rver) if mismatch else ""], 12,
+				Color(1.0, 0.5, 0.3) if mismatch else (GOLD if int(id) == Net.my_id() else WHITE))
 		caption.custom_minimum_size = Vector2(108, 28)
 		row.add_child(caption)
 		_lobby_players.add_child(row)

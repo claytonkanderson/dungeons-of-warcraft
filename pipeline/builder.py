@@ -355,7 +355,42 @@ def ensure_ac(ac_dir, cache, refresh=False):
     return cache
 
 
-def run_d2_stages():
+def _manifest_path():
+    return Path(os.environ["DOW_ASSETS"]) / "build_manifest.json"
+
+
+def read_manifest(out_dir):
+    try:
+        return json.loads((Path(out_dir) / "build_manifest.json").read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def _mark_done(key):
+    """A stage finished: its version goes into the manifest the game reads."""
+    sys.path.insert(0, str(HERE))
+    import versions
+    p = _manifest_path()
+    man = read_manifest(p.parent) or {}
+    st = man.get("stages", {})
+    st[key] = versions.STAGES[key]
+    man["stages"] = st
+    man["built"] = time.strftime("%Y-%m-%d %H:%M")
+    try:
+        p.write_text(json.dumps(man, indent=1))
+    except OSError as e:
+        print(f"!! could not write {p}: {e}")
+
+
+def stale_stages(out_dir):
+    """The stages the assets beside the game lack or hold at an older
+    version (every one, when there are no assets yet)."""
+    sys.path.insert(0, str(HERE))
+    import versions
+    return versions.stale(read_manifest(out_dir))
+
+
+def run_d2_stages(only_stages=None):
     sys.path.insert(0, str(HERE / "d2"))
     import export_tables
     import export_ui
@@ -367,37 +402,39 @@ def run_d2_stages():
     import export_affixes
     import export_statdisplay
     import export_sounds
+    import export_setbonus
     stages = [
-        ("game tables", export_tables.build),
-        ("D2 interface art", export_ui.build),
-        ("missile sprites", export_missiles.build),
-        ("Amazon animation sheets", export_amazon.build),
-        ("menu paperdoll layers", export_paperdoll.build),
-        ("Amazon gear layers for co-op", export_paperdoll.build_layers),
-        ("summon sprites", lambda: (
+        ("d2:tables", "game tables", export_tables.build),
+        ("d2:ui", "D2 interface art", export_ui.build),
+        ("d2:missiles", "missile sprites", export_missiles.build),
+        ("d2:amazon", "Amazon animation sheets", export_amazon.build),
+        ("d2:paperdoll", "menu paperdoll layers", export_paperdoll.build),
+        ("d2:layers", "Amazon gear layers for co-op", export_paperdoll.build_layers),
+        ("d2:monsters", "summon sprites", lambda: (
             setattr(export_monsters, "ROSTER", {"VK": "valkyrie"}),
             export_monsters.build())),
-        ("item catalog + art", export_items.build),
-        ("uniques / sets / affixes", export_affixes.build),
-        ("item stat text + fonts", lambda: (
+        ("d2:items", "item catalog + art", export_items.build),
+        ("d2:affixes", "uniques / sets / affixes", export_affixes.build),
+        ("d2:statdisplay", "item stat text + fonts", lambda: (
             export_statdisplay.export_fonts(),
             export_statdisplay.export_statdisplay())),
-        ("D2 sound effects", export_sounds.build),
+        ("d2:sounds", "D2 sound effects", export_sounds.build),
+        ("d2:setbonus", "set bonuses", export_setbonus.main),
     ]
-    for label, fn in stages:
+    for key, label, fn in stages:
+        if only_stages is not None and key not in only_stages:
+            continue
         t0 = time.time()
         stage(f"Diablo II: {label}")
         fn()
+        _mark_done(key)
         print(f"    ({time.time() - t0:.0f}s)")
-    import export_setbonus
-    stage("Diablo II: set bonuses")
-    export_setbonus.main()
 
 
 D2_STAGE_COUNT = 12      # the stages above plus set bonuses
 
 
-def run_wow_stages(only="", jobs=0):
+def run_wow_stages(only="", jobs=0, only_stages=None):
     sys.path.insert(0, str(HERE))
     # the D2 stages import their own module also named "config"; make sure
     # the WoW stages resolve pipeline/config.py fresh
@@ -408,9 +445,14 @@ def run_wow_stages(only="", jobs=0):
     import build_parallel
     from casc import Storage
     from dungeon_config import DUNGEONS
+    want = lambda k: only_stages is None or k in only_stages
+    if not (want("wow:dungeons") or want("wow:backdrops") or want("wow:soundscape")):
+        return
     stage("World of Warcraft: opening the local game storage")
     s = Storage()
-    if only:
+    if not want("wow:dungeons"):
+        pass
+    elif only:
         t0 = time.time()
         stage("World of Warcraft: " + only.replace("-", " ").title())
         build_dungeon.build(s, only, DUNGEONS[only])
@@ -440,23 +482,37 @@ def run_wow_stages(only="", jobs=0):
 
         stage(f"World of Warcraft: {len(DUNGEONS)} dungeons with {jobs} workers "
               f"(about {total_w / jobs / 60:.0f} min)")
-        build_parallel.build_all(DUNGEONS, out_dir, jobs, report)
+        results = build_parallel.build_all(DUNGEONS, out_dir, jobs, report)
         _progress["done"] += len(DUNGEONS)
         os.environ.pop("DOW_PARALLEL", None)
-    stage("World of Warcraft: menu backdrops")
-    build_backdrops.build(s)
-    stage("World of Warcraft: soundscape")
-    build_audio.main()
+        if all(results.values()):
+            _mark_done("wow:dungeons")
+    if want("wow:backdrops"):
+        stage("World of Warcraft: menu backdrops")
+        build_backdrops.build(s)
+        _mark_done("wow:backdrops")
+    if want("wow:soundscape"):
+        stage("World of Warcraft: soundscape")
+        build_audio.main()
+        _mark_done("wow:soundscape")
 
 
-def wow_stage_count(only=""):
+def wow_stage_count(only="", only_stages=None):
     sys.path.insert(0, str(HERE))
     from dungeon_config import DUNGEONS
-    return 1 + (1 if only else len(DUNGEONS) + 1) + 2
+    want = lambda k: only_stages is None or k in only_stages
+    n = 0
+    if want("wow:dungeons"):
+        n += 1 if only else len(DUNGEONS) + 1
+    if want("wow:backdrops"):
+        n += 1
+    if want("wow:soundscape"):
+        n += 1
+    return (1 + n) if n else 0
 
 
 def run_build(d2, wow, out="", ac="", skip_d2=False, skip_wow=False,
-              only_dungeon="", refresh_ac=False, jobs=0):
+              only_dungeon="", refresh_ac=False, jobs=0, only_stages=None):
     """Run the asset build. Both the CLI and the picker call this; it assumes
     d2/wow already passed check_d2/check_wow (the picker validates first, the
     CLI calls the checks below). Progress goes to stdout, which the picker
@@ -487,18 +543,20 @@ def run_build(d2, wow, out="", ac="", skip_d2=False, skip_wow=False,
     os.environ["DOW_AC_DIR"] = str(ac_dir)
 
     _progress["done"] = 0
-    _progress["total"] = (0 if skip_d2 else D2_STAGE_COUNT) \
-        + (0 if skip_wow else wow_stage_count(only_dungeon))
+    d2_count = D2_STAGE_COUNT if only_stages is None \
+        else sum(1 for k in only_stages if k.startswith("d2:"))
+    _progress["total"] = (0 if skip_d2 else d2_count) \
+        + (0 if skip_wow else wow_stage_count(only_dungeon, only_stages))
     t0 = time.time()
     if not skip_d2:
-        run_d2_stages()
+        run_d2_stages(only_stages)
     if not skip_wow:
-        run_wow_stages(only_dungeon, jobs)
+        run_wow_stages(only_dungeon, jobs, only_stages)
     print(f"\nALL DONE in {(time.time() - t0) / 60:.1f} min -> {out_dir}")
     print("Launch the game — the dungeon ladder is waiting.")
 
 
-def run_gui():
+def run_gui(auto_stages=None, then_play=False):
     """The setup window: pick the two install folders, watch the build run.
     Shown when the executable is launched with no arguments (a double-click).
     Returns False if a desktop/Tk is unavailable, so the caller can fall back
@@ -666,8 +724,10 @@ def run_gui():
     game_exe = BESIDE_EXE / "DungeonsOfWarcraft.exe"
 
     def play():
+        # after a rebuild the game is told so, and does not send us round again
+        args = [str(game_exe)] + (["--", "--after-rebuild"] if auto_stages is not None else [])
         try:
-            subprocess.Popen([str(game_exe)], cwd=str(BESIDE_EXE), close_fds=True)
+            subprocess.Popen(args, cwd=str(BESIDE_EXE), close_fds=True)
         except OSError as e:
             status_lbl.config(text=f"Could not start the game: {e}", fg="#a11")
             return
@@ -721,7 +781,7 @@ def run_gui():
             ("__stage__", label, done, total, frac))
         ok = True
         try:
-            run_build(d2, wow)
+            run_build(d2, wow, only_stages=auto_stages)
         except SystemExit:          # fail() inside the build; message already logged
             ok = False
         except Exception as e:
@@ -740,8 +800,12 @@ def run_gui():
         d2, wow = game_root(d2_var.get()), game_root(wow_var.get())
         state["running"] = True
         build_btn.config(state="disabled")
-        build_lbl.config(text="Building game at %s\nfrom %s\nand %s"
-                         % (BUILD_DIR / "assets", d2, wow))
+        if auto_stages is not None:
+            build_lbl.config(text="Updating the assets for game %s: %d of %d stages\nfrom %s\nand %s"
+                             % (game_version(), len(auto_stages), stage_total(), d2, wow))
+        else:
+            build_lbl.config(text="Building game at %s\nfrom %s\nand %s"
+                             % (BUILD_DIR / "assets", d2, wow))
         stage_lbl.config(text="Starting…")
         pbar.config(value=0, maximum=1000)
         state["t0"] = time.time()
@@ -779,6 +843,8 @@ def run_gui():
                         stage_lbl.config(text=f"Finished in {el // 60} min {el % 60} s.")
                         if game_exe.exists():
                             play_btn.config(state="normal")
+                            if then_play:
+                                root.after(800, play)
                     status_lbl.config(
                         text=("Done — press Play." if ok and game_exe.exists()
                               else "Done — run DungeonsOfWarcraft.exe." if ok
@@ -797,8 +863,31 @@ def run_gui():
 
     refresh()
     root.after(80, drain)
+    if auto_stages is not None:
+        # the game sent us: start at once if both installs are known
+        if str(build_btn["state"]) == "normal":
+            root.after(300, start_build)
+        else:
+            status_lbl.config(text="Point Setup at both games, then Build assets.", fg="#a11")
     root.mainloop()
     return True
+
+
+def game_version():
+    """The game's version, from its own source (the release build's
+    product version comes from the same line)."""
+    try:
+        import re
+        src = (HERE.parent / "game" / "scripts" / "version.gd").read_text()
+        return re.search(r'VERSION := "([^"]+)"', src).group(1)
+    except Exception:
+        return "?"
+
+
+def stage_total():
+    sys.path.insert(0, str(HERE))
+    import versions
+    return len(versions.STAGES)
 
 
 def attach_console():
@@ -854,6 +943,11 @@ def main():
     ap.add_argument("--jobs", type=int, default=0,
                     help="dungeons built at a time (default: one per core "
                          "but one, at most six)")
+    ap.add_argument("--rebuild-stale", action="store_true",
+                    help="redo only the asset stages this game version wants "
+                         "at a newer version (the game runs this itself)")
+    ap.add_argument("--then-play", action="store_true",
+                    help="with --rebuild-stale: start the game when done")
     args = ap.parse_args()
 
     # Everything printed from here on is also written to setup.log beside the
@@ -907,8 +1001,14 @@ def main():
     # the window only for a bare double-click; any flag at all (a dungeon
     # to rebuild, --skip-d2 ...) means a scripted run, which must never
     # block on a window
-    if len(sys.argv) == 1:
-        if run_gui():
+    stale = None
+    if args.rebuild_stale:
+        stale = stale_stages(Path(args.out) if args.out else BUILD_DIR / "assets")
+        print(f"stale stages: {', '.join(stale) if stale else 'none'}")
+        if not stale and not args.then_play:
+            return
+    if len(sys.argv) == 1 or (args.rebuild_stale and not args.d2 and not args.wow):
+        if run_gui(auto_stages=stale, then_play=args.then_play):
             return
     # command line: whatever was not given is looked for
     if not args.d2:
@@ -923,7 +1023,12 @@ def main():
 
     run_build(args.d2, args.wow, args.out, args.ac,
               args.skip_d2, args.skip_wow, args.only_dungeon, args.refresh_ac,
-              args.jobs)
+              args.jobs, stale)
+    if args.then_play:
+        game = BESIDE_EXE / "DungeonsOfWarcraft.exe"
+        if game.exists():
+            subprocess.Popen([str(game), "--", "--after-rebuild"], cwd=str(BESIDE_EXE),
+                             close_fds=True)
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ var effects: float = DEF["effects"]
 # passes --record, and "record_sessions": true in settings.json also works.
 var record_sessions := false
 var host_ip := ""             # the last co-op address joined, for the lobby field
+var last_version := ""        # the game version last run, for the "updated to" line
 
 
 func _ready() -> void:
@@ -33,6 +34,7 @@ func _ready() -> void:
 			effects = clampf(float(d.get("effects", DEF["effects"])), 0.0, 1.0)
 			record_sessions = bool(d.get("record_sessions", false))
 			host_ip = str(d.get("host_ip", ""))
+			last_version = str(d.get("last_version", ""))
 	_apply()
 
 
@@ -65,9 +67,15 @@ func set_host_ip(ip: String) -> void:
 	_save()
 
 
+func set_last_version(v: String) -> void:
+	if v != last_version:
+		last_version = v
+		_save()
+
+
 func _save() -> void:
 	var f := FileAccess.open(PATH, FileAccess.WRITE)
 	if f != null:
 		f.store_string(JSON.stringify({"master": master, "music": music,
 				"effects": effects, "record_sessions": record_sessions,
-				"host_ip": host_ip}))
+				"host_ip": host_ip, "last_version": last_version}))
