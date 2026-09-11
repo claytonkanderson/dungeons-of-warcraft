@@ -40,13 +40,18 @@ extends Node
 ## Playback interpolates positions between samples that are close in time,
 ## so a 20 Hz world sample still moves smoothly at 60 frames a second.
 
-enum Mode { OFF, RECORD, PLAY }
+# LIVE: a co-op joiner. The host's ticks arrive over the network (net.gd)
+# in this same format and are played as puppetry a few ticks behind, the
+# player's own Amazon and HUD left alone.
+enum Mode { OFF, RECORD, PLAY, LIVE }
 
 const FORMAT := 2
 const DIR := "user://sessions"
 const SAMPLE_EVERY := 3          # ticks between world samples (20 Hz at 60)
 const TAIL_TICKS := 60           # ticks a playback runs on past its last line
 const DORMANT_DIST := 45.0       # puppet creatures this far off stop animating
+const LIVE_JITTER := 6           # ticks a joiner plays behind the newest line
+const LIVE_KEEP := 120           # ticks of history a joiner keeps
 
 var mode: int = Mode.OFF
 var tick := -1                   # -1 until armed; the first tick is 0
@@ -87,6 +92,10 @@ var _bkeys := {}                 # bid -> [[t, arr], ...]
 var _bcur := {}
 var _bnodes := {}                # bid -> BillboardAnim
 var _inodes := {}                # iid -> GroundItem
+var _used: Array = []            # record: interactables used, mirrored like doors
+var stream := false              # RECORD: the host sends each tick to the joiners
+var _live_latest := -1           # LIVE: the newest host tick received
+var live_received := 0
 
 
 func _ready() -> void:
@@ -101,6 +110,10 @@ func recording() -> bool:
 
 func playing() -> bool:
 	return mode == Mode.PLAY
+
+
+func live() -> bool:
+	return mode == Mode.LIVE
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +182,14 @@ func begin_session(gs: Node) -> void:
 	## session is to be recorded. Idempotent within a session.
 	if mode != Mode.OFF:
 		return
+	if Net.is_client():
+		mode = Mode.LIVE          # the host's stream is this session's log
+		return
+	if Net.is_host():
+		# the host samples every tick for the joiners whether or not it
+		# keeps a file of its own
+		mode = Mode.RECORD
+		stream = true
 	if Cli.has("--no-record") or Cli.has("--replay="):
 		return
 	if not (Cli.has("--record") or get_node("/root/Settings").record_sessions):
@@ -197,10 +218,17 @@ func end_session() -> void:
 		_file.flush()
 		_file.close()
 		_file = null
-	if mode == Mode.RECORD:
+	if mode == Mode.RECORD and path != "":
 		print("session log closed: %s" % ProjectSettings.globalize_path(path))
 	if mode != Mode.PLAY:
 		mode = Mode.OFF
+	stream = false
+	path = ""
+	_live_latest = -1
+	_ticks.clear()
+	_pkeys.clear()
+	_ckeys.clear()
+	_bkeys.clear()
 	world = null
 	player = null
 
@@ -221,6 +249,9 @@ func arm(w: Node, p: Node) -> void:
 	_doors_open = []
 	for d in world.doors:
 		_doors_open.append(bool(d["open"]))
+	_used = []
+	for it in world.interactables:
+		_used.append(bool(it["used"]))
 	for i in range(world.monsters.size()):
 		_creatures[i] = world.monsters[i]
 	_ccur.clear()
@@ -235,6 +266,18 @@ func arm(w: Node, p: Node) -> void:
 		for mob in world.monsters:
 			mob.puppet = true
 		get_node("/root/GameState").set_physics_process(false)
+	elif mode == Mode.LIVE:
+		# the creatures are the host's: placed from the stream, and every
+		# blow at them goes there to be applied
+		for mob in world.monsters:
+			mob.puppet = true
+			mob.remote = true
+		_ticks.clear()
+		_pkeys.clear()
+		_ckeys.clear()
+		_bkeys.clear()
+		_live_latest = -1
+		live_received = 0
 	_armed = mode != Mode.OFF
 
 
@@ -257,11 +300,154 @@ func log_ui(flags: Array, state: Dictionary) -> void:
 func _physics_process(_dt: float) -> void:
 	if not _armed or world == null or not is_instance_valid(player):
 		return
+	if mode == Mode.LIVE:
+		_live_step()
+		return
 	tick += 1
 	if mode == Mode.RECORD:
 		_record_tick()
 	elif mode == Mode.PLAY:
 		_play_tick()
+
+
+func _live_step() -> void:
+	## A joiner's clock: one host tick per physics tick, a jitter buffer
+	## behind the newest line; held when the stream stalls, caught up in a
+	## few steps when it runs ahead (every tick is played, so nothing that
+	## happens once is skipped).
+	if _live_latest < 0:
+		return
+	var target := _live_latest - LIVE_JITTER
+	if tick < 0:
+		tick = target - 1
+	if tick >= target:
+		return
+	var steps := 1
+	if target - tick > LIVE_JITTER * 2:
+		steps = mini(target - tick, 10)
+	for i in range(steps):
+		tick += 1
+		_play_tick()
+	if tick % 300 == 0:
+		_prune_live()
+
+
+func live_line(line: Dictionary) -> void:
+	## Net: one of the host's ticks (or its whole state, for a late arrival)
+	if mode != Mode.LIVE or not line.has("t"):
+		return
+	var t := int(line["t"])
+	live_received += 1
+	if _ticks.has(t):
+		_ticks[t].merge(line, true)
+	else:
+		_ticks[t] = line
+	_live_latest = maxi(_live_latest, t)
+	if line.has("p"):
+		_pkeys.append([t, line["p"]])
+	if line.has("c"):
+		for rid in line["c"]:
+			if not _ckeys.has(rid):
+				_ckeys[rid] = []
+			_ckeys[rid].append([t, line["c"][rid]])
+	if line.has("b"):
+		for bid in line["b"]:
+			if not _bkeys.has(bid):
+				_bkeys[bid] = []
+			_bkeys[bid].append([t, line["b"][bid]])
+
+
+func _prune_live() -> void:
+	var cut := tick - LIVE_KEEP
+	for t in _ticks.keys():
+		if int(t) < cut:
+			_ticks.erase(t)
+	_pcur = _prune_keys(_pkeys, _pcur, cut)
+	for rid in _ckeys:
+		_ccur[rid] = _prune_keys(_ckeys[rid], int(_ccur.get(rid, 0)), cut)
+	for bid in _bkeys:
+		_bcur[bid] = _prune_keys(_bkeys[bid], int(_bcur.get(bid, 0)), cut)
+
+
+static func _prune_keys(keys: Array, cur: int, cut: int) -> int:
+	## drop keys older than cut, keeping the one the cursor is on
+	var drop := 0
+	while drop < cur and drop + 1 < keys.size() and int(keys[drop + 1][0]) < cut:
+		drop += 1
+	if drop > 0:
+		for i in range(drop):
+			keys.pop_front()
+		cur -= drop
+	return cur
+
+
+func snapshot_line() -> Dictionary:
+	## Host: everything a joiner arriving now needs, as one line of the
+	## stream: every creature, every drop on the floor, the doors open and
+	## the chests used so far.
+	var line := {"t": tick}
+	var cs := {}
+	var gone: Array = []
+	for rid in _creatures:
+		var mob = _creatures[rid]
+		if not is_instance_valid(mob) or mob.is_queued_for_deletion():
+			gone.append(rid)
+			continue
+		var a: Array = _v3(mob.global_position, 0.01)
+		a.append(snappedf(mob.rotation.y, 0.001))
+		a.append(mob.anim.current_animation if mob.anim != null else "")
+		a.append(snappedf(mob.anim.speed_scale, 0.01) if mob.anim != null else 1.0)
+		a.append(snappedf(mob.hp, 0.1))
+		cs[str(rid)] = a
+	line["c"] = cs
+	if not gone.is_empty():
+		line["c-"] = gone
+	var items := {}
+	for gi in world.ground_items:
+		if not is_instance_valid(gi) or gi.is_queued_for_deletion():
+			continue
+		var iid: int = gi.get_instance_id()
+		if not _item_ids.has(iid):
+			_item_ids[iid] = _item_next
+			_item_next += 1
+		var rec: Array = [gi.code, gi.gold_amount, gi.instance]
+		rec.append_array(_v3(gi.global_position, 0.01))
+		items[str(_item_ids[iid])] = rec
+	if not items.is_empty():
+		line["i"] = items
+	var opened: Array = []
+	for i in range(world.doors.size()):
+		if bool(world.doors[i]["open"]):
+			opened.append(i)
+	if not opened.is_empty():
+		line["d"] = opened
+	var used: Array = []
+	for i in range(world.interactables.size()):
+		if bool(world.interactables[i]["used"]):
+			used.append(i)
+	if not used.is_empty():
+		line["x"] = used
+	if not _last_p.is_empty():
+		line["p"] = _last_p
+	return line
+
+
+func creature_by_rid(rid: int):
+	## Host: the creature a joiner named (the stream's creature ids)
+	var mob = _creatures.get(rid)
+	if mob == null or not is_instance_valid(mob) or mob.is_queued_for_deletion():
+		return null
+	return mob
+
+
+func item_by_id(iid: int) -> GroundItem:
+	## Host: the drop a joiner named (the stream's item ids)
+	for inst_id in _item_ids:
+		if int(_item_ids[inst_id]) == iid:
+			var gi = instance_from_id(int(inst_id))
+			if gi is GroundItem and is_instance_valid(gi) and not gi.is_queued_for_deletion():
+				return gi
+	return null
 
 
 static func _v3(v: Vector3, step: float) -> Array:
@@ -305,8 +491,16 @@ func _record_tick() -> void:
 		line["s"] = _ui_line[1]
 		_ui_line = null
 	if line.size() > 1:
-		_file.store_line(JSON.stringify(line))
-	if tick % 300 == 0:
+		if _file != null:
+			_file.store_line(JSON.stringify(line))
+		if stream:
+			# the joiners need the world and the host's pose, not its panels
+			var out := line.duplicate()
+			for k in ["h", "l", "m", "u", "s"]:
+				out.erase(k)
+			if out.size() > 1:
+				Net.send_line(out)
+	if _file != null and tick % 300 == 0:
 		_file.flush()
 
 
@@ -385,6 +579,15 @@ func _sample_world(line: Dictionary) -> void:
 		_doors_open[i] = is_open
 	if not opened.is_empty():
 		line["d"] = opened
+	# chests, veins and cannons used (the joiners' prompts drop them)
+	var used: Array = []
+	for i in range(world.interactables.size()):
+		var u := bool(world.interactables[i]["used"])
+		if u and not _used[i]:
+			used.append(i)
+		_used[i] = u
+	if not used.is_empty():
+		line["x"] = used
 
 
 func _sample_billboard(owner: Node, bb: BillboardAnim, bs: Dictionary, seen: Dictionary) -> void:
@@ -427,17 +630,18 @@ static func _blend(keys: Array, cur: int, t: int) -> float:
 func _play_tick() -> void:
 	var line: Dictionary = _ticks.get(tick, {})
 	var gs := get_node("/root/GameState")
+	var is_live := mode == Mode.LIVE
 	# the character and the panels, before anything reads them
-	if line.has("s"):
+	if line.has("s") and not is_live:
 		gs.apply(line["s"], player)
 		player.refresh_attack_style()
-	if line.has("u"):
+	if line.has("u") and not is_live:
 		_set_panels(line["u"])
-	if line.has("m"):
+	if line.has("m") and not is_live:
 		_last_m = line["m"]
-	if line.has("m") or line.has("u"):
+	if (line.has("m") or line.has("u")) and not is_live:
 		_inject_cursor()
-	if line.has("h"):
+	if line.has("h") and not is_live:
 		var h: Array = line["h"]
 		gs.hp = float(h[0])
 		gs.mana = float(h[1])
@@ -448,14 +652,18 @@ func _play_tick() -> void:
 		gs.poison_t = 1.0 if float(h[6]) > 0.0 else 0.0
 		gs.hp_changed.emit()
 		gs.xp_changed.emit()
-	alt = line.has("l")
-	# the player
+	alt = line.has("l") and not is_live
+	# the player: the recording's own, or in a co-op session the host's
+	# Amazon as a puppet beside this player's own
 	if not _pkeys.is_empty():
 		_pcur = _seek(_pkeys, _pcur, tick)
 		var k: Array = _pkeys[_pcur][1]
-		player.global_position = Vector3(float(k[0]), float(k[1]), float(k[2]))
-		player.yaw = float(k[3])
-		player.pitch = float(k[4])
+		if is_live:
+			Net.host_pose(k)
+		else:
+			player.global_position = Vector3(float(k[0]), float(k[1]), float(k[2]))
+			player.yaw = float(k[3])
+			player.pitch = float(k[4])
 	# creatures: hold or blend between samples
 	for rid in _ckeys:
 		var keys: Array = _ckeys[rid]
@@ -549,6 +757,7 @@ func _play_tick() -> void:
 			else:
 				gi.drop(str(rec[0]), int(rec[1]))
 			gi.global_position = Vector3(float(rec[3]), float(rec[4]), float(rec[5]))
+			gi.set_meta("iid", int(str(iid)))
 			world.ground_items.append(gi)
 			_inodes[str(iid)] = gi
 	if line.has("i-"):
@@ -563,8 +772,14 @@ func _play_tick() -> void:
 		for i in line["d"]:
 			if int(i) < world.doors.size():
 				world._open_door(world.doors[int(i)], false, true)
+	if line.has("x"):
+		for i in line["x"]:
+			if int(i) < world.interactables.size():
+				world.interactables[int(i)]["used"] = true
 	if line.has("e"):
 		_play_events(line["e"])
+	if is_live:
+		return
 	if tick > _last_tick + TAIL_TICKS:
 		print("REPLAY done: %d ticks" % tick)
 		_armed = false
@@ -596,8 +811,13 @@ func _play_events(evs: Array) -> void:
 	var sfx := get_node("/root/Sfx")
 	var wsfx := get_node("/root/WowSfx")
 	var hud = world.hud_node
+	var is_live := mode == Mode.LIVE
 	for ev in evs:
 		var kind := str(ev[0])
+		# a joiner hears the world's sounds; the host's own footsteps, HUD
+		# flashes and zone titles are the host's
+		if is_live and not (kind in ["sfx", "smon", "voice", "imp"]):
+			continue
 		match kind:
 			"sfx":
 				sfx.event(str(ev[1]), Vector3(float(ev[2]), float(ev[3]), float(ev[4])))

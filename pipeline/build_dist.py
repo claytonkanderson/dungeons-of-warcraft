@@ -117,11 +117,31 @@ def copy_docs():
         print(f"  {dst}")
 
 
+SHIPPED = ["DungeonsOfWarcraft.exe", "setup.exe", "README.txt",
+           "LICENSE.txt", "THIRD-PARTY.txt"]
+
+
+def make_zip():
+    """dist/DungeonsOfWarcraft-<yyyymmdd-hhmm>.zip of the five shipped
+    files (never the _build folder a local setup run leaves beside them),
+    stamped with the build time so hand-outs tell apart."""
+    import zipfile
+    from datetime import datetime
+    name = OUT.parent / f"DungeonsOfWarcraft-{datetime.now():%Y%m%d-%H%M}.zip"
+    with zipfile.ZipFile(name, "w", zipfile.ZIP_DEFLATED) as z:
+        for f in SHIPPED:
+            z.write(OUT / f, f"DungeonsOfWarcraft/{f}")
+    print(f"\nzip: {name} ({name.stat().st_size / 1e6:.1f} MB)")
+    return name
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--only", choices=["exe", "setup", "docs"], default="",
                     help="build just one part (default: everything)")
+    ap.add_argument("--no-zip", action="store_true",
+                    help="skip the time-stamped zip of the shipped files")
     args = ap.parse_args()
     if args.only in ("", "exe"):
         build_exe()
@@ -133,6 +153,8 @@ def main():
     print(f"\ndist ready: {OUT}")
     for f in sorted(OUT.iterdir()):
         print(f"  {f.name:28} {f.stat().st_size / 1e6:8.1f} MB")
+    if not args.no_zip:
+        make_zip()
 
 
 if __name__ == "__main__":

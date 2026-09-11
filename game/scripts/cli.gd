@@ -29,6 +29,13 @@ const FLAGS := {
 	"--loot-test": "diagnostic: simulate drops per monster level and kind, quit",
 	"--loot-run": "diagnostic: expected loot from clearing the first four dungeons, quit",
 	"--swim-test": "diagnostic: drop into the dungeon's deepest pool, swim up and along, quit",
+	"--host": "host a co-op session from the start (with --dungeon= the dungeon opens at once)",
+	"--port=": "<n>           co-op on this UDP port instead of 24601 (a second session beside a live one)",
+	"--no-upnp": "co-op: do not ask the router to open the port",
+	"--join=": "<ip>          join a co-op session at that address from the start",
+	"--net-test": "diagnostic: with --host or --join=, report the session for 25 s, quit",
+	"--ally-test": "diagnostic: cast Valkyrie and Decoy, report and capture them, quit",
+	"--hitboxes": "start with the creature hitboxes drawn (the 0 key toggles them in play)",
 	"--mob-shot=": "<entry>    diagnostic: capture a creature alive and dead, quit",
 	"--mob-name=": "<name>     with --mob-shot: match by name instead",
 	"--mob-dist=": "<m>        with --mob-shot: stand this far away (5)",
@@ -61,7 +68,8 @@ static func hide_window() -> void:
 	# force their own draws) but useless for anything that waits on real
 	# frames: the perf probe and the combat test keep their off-desktop
 	# window open instead (launch those through offdesk.bat / perf.bat)
-	if not has("--perf-test") and not has("--combat-test") and not has("--swim-test"):
+	if not has("--perf-test") and not has("--combat-test") and not has("--swim-test") \
+			and not has("--net-test") and not has("--ally-test"):
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_MINIMIZED)
 
 

@@ -168,6 +168,13 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest = {"ambience": [], "music": [], "gap": [20, 60],
                 "ambience_db": -8.0, "music_db": -6.0}
+    # the dungeons' own loops, written by their builds: kept, not clobbered
+    try:
+        prior = json.loads((out_dir / "audio.json").read_text())
+        if prior.get("dungeon_ambience"):
+            manifest["dungeon_ambience"] = prior["dungeon_ambience"]
+    except (OSError, ValueError):
+        pass
     for group, paths in (("ambience", AMBIENCE), ("music", MUSIC)):
         for p in paths:
             name = p.rsplit("/", 1)[-1]

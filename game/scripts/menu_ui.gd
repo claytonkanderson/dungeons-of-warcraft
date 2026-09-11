@@ -158,15 +158,7 @@ func _build() -> void:
 		gs.save_game(world.player if world != null else null)
 		if world != null and world.hud_node != null:
 			world.hud_node.show_area("Saved")))
-	_box.add_child(_button("Load Game", func():
-		var gs := get_node("/root/GameState")
-		if gs.load_game(world.player if world != null else null):
-			if world != null:
-				world.player.refresh_attack_style()
-				if world.hud_node != null:
-					world.hud_node.show_area("Loaded")
-		elif world != null and world.hud_node != null:
-			world.hud_node.show_area("No save found")))
+	# no Load Game: the autosave every 15 s and Save & Exit make it moot
 	_box.add_child(_button("Unstuck", func():
 		if world != null:
 			world.unstuck_player()

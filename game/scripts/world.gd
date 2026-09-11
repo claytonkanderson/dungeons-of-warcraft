@@ -14,6 +14,11 @@ var spawn_yaw := 0.0
 var floor_y := -200.0
 var monsters: Array = []
 var puppet := false             # a replay drives the world (replay.gd)
+var _ghosts: Node3D             # other players' missiles, drawn only (net.gd)
+var show_hitboxes := false      # 0: every body's capsule drawn (--hitboxes at start)
+var _arrow_sphere := SphereShape3D.new()   # an arrow's breadth for the creature test
+var _net_hits := 0              # joiner: blows landed on the host's creatures
+var _ghost_arrows: Array = []
 var arrows: Array = []
 var enemy_missiles: Array = []
 var ground_items: Array = []
@@ -119,14 +124,33 @@ func _open_door(d: Dictionary, boom := false, silent := false) -> void:
 
 
 func _try_interact() -> bool:
-	var gs := get_node("/root/GameState")
-	for it in interactables:
+	for i in range(interactables.size()):
+		var it: Dictionary = interactables[i]
 		if it["used"]:
 			continue
 		var node: Node3D = it["node"]
 		if player.global_position.distance_to(node.global_position) > INTERACT_RANGE:
 			continue
-		var pos := node.global_position
+		if Net.is_client():
+			# the host opens it and the stream shows it opened
+			it["used"] = true
+			Net.interact.rpc_id(1, i)
+		else:
+			use_interactable(i)
+		return true
+	return false
+
+
+func use_interactable(idx: int) -> void:
+	if idx < 0 or idx >= interactables.size():
+		return
+	var it: Dictionary = interactables[idx]
+	if it["used"]:
+		return
+	var gs := get_node("/root/GameState")
+	var node: Node3D = it["node"]
+	var pos := node.global_position
+	if true:
 		match str(it["kind"]):
 			"door":
 				for d in doors:
@@ -174,8 +198,6 @@ func _try_interact() -> bool:
 				vg.drop("gold", randi_range(30, 90))
 				vg.global_position = pos + Vector3(0, 0.05, 0.3)
 				ground_items.append(vg)
-		return true
-	return false
 var hud_node: HUD
 var inv_ui: InventoryUI
 var tree_ui: SkillTreeUI
@@ -269,6 +291,8 @@ func _ready() -> void:
 		spawn = _at_override
 	_spawn_player(gs)
 	player.surface = str(placements.get("footstep", "stone"))
+	show_hitboxes = Cli.has("--hitboxes")
+	_arrow_sphere.radius = 0.3
 	_spawn_creatures(placements.get("creatures", []))
 	_spawn_gameobjects(placements)
 
@@ -307,6 +331,10 @@ func _ready() -> void:
 	# or under --replay the world is puppeted from the log
 	Replay.arm(self, player)
 	player.refresh_attack_style()
+	if Net.active():
+		Net.attach_world(self)
+		hud_node.show_area("Co-op: %d in the session" % Net.player_count(),
+				Color(0.8, 0.9, 0.6), 3.0)
 
 	# every verification mode keeps the window minimized under --offscreen,
 	# so probes can run while the machine is in use
@@ -376,6 +404,12 @@ func _ready() -> void:
 		get_tree().quit()
 	elif OS.get_cmdline_user_args().has("--swim-test"):
 		await _swim_test()
+		get_tree().quit()
+	elif OS.get_cmdline_user_args().has("--net-test"):
+		await _net_test()
+		get_tree().quit()
+	elif OS.get_cmdline_user_args().has("--ally-test"):
+		await _ally_test()
 		get_tree().quit()
 	elif OS.get_cmdline_user_args().has("--replay-test"):
 		await _replay_test()
@@ -567,6 +601,106 @@ func _ui_test() -> void:
 	toggle_menu()
 	await _ui_shot(shots + "/ui_menu.png")
 	print("ui captures done")
+
+
+func _ally_test() -> void:
+	## Cast Valkyrie, then Decoy, from the entrance: where each stands, what
+	## sheet she plays, and a capture of her (shots/ally_<kind>.png).
+	var gs := get_node("/root/GameState")
+	var shots := ProjectSettings.globalize_path("res://../shots")
+	DirAccess.make_dir_recursive_absolute(shots)
+	for skill in ["Valkyrie", "Decoy"]:
+		gs.skills[skill] = 5
+		gs.mana = gs.mana_max
+		player.action_skill[1] = skill
+		var cam: Camera3D = player.get_node("Camera3D")
+		player.pitch = 0.0
+		var origin := cam.global_position
+		var dir := -cam.global_transform.basis.z
+		var before := friendlies.size()
+		_on_fire(1, origin, dir)
+		print("ALLY-TEST %s: cost %.0f, mana now %.0f, friendlies %d -> %d" % [
+				skill, gs.mana_cost(skill), gs.mana, before, friendlies.size()])
+		for f in range(40):
+			await get_tree().physics_frame
+		for a in friendlies:
+			if not is_instance_valid(a):
+				continue
+			var sheet_ok: bool = a.anim != null and a.anim.sheet != null
+			print("ALLY-TEST %s: %s at %s (player at %s, %.1f m off), hp %.0f, life %.0f s, sheet %s ok=%s, visible=%s" % [
+					skill, a.kind, a.global_position.snapped(Vector3(0.1, 0.1, 0.1)),
+					player.global_position.snapped(Vector3(0.1, 0.1, 0.1)),
+					a.global_position.distance_to(player.global_position), a.hp, a.lifetime,
+					a.anim.rel if a.anim != null else "-", sheet_ok, a.anim.visible if a.anim != null else false])
+			var to: Vector3 = a.global_position + Vector3(0, 0.9, 0) - cam.global_position
+			player.yaw = atan2(-to.x, -to.z)
+			player.pitch = clampf(asin(to.normalized().y), -0.6, 0.6)
+			for w in range(3):
+				await get_tree().process_frame
+			await Cli.capture(get_viewport(), shots + "/ally_%s.png" % a.kind)
+		for a in friendlies.duplicate():
+			if is_instance_valid(a):
+				a.queue_free()
+			friendlies.erase(a)
+		await get_tree().physics_frame
+
+
+func _net_test() -> void:
+	## A co-op session on one machine: --host --net-test in one window,
+	## --join=127.0.0.1 --net-test in another. Reports for 25 s: peers,
+	## the stream, the other Amazons, a creature's place as each side sees
+	## it; the joiner walks a few metres so its pose is seen to arrive.
+	var role := "host" if Net.is_host() else "joiner"
+	var hold := func(code: int, down: bool):
+		var ev := InputEventKey.new()
+		ev.keycode = code
+		ev.physical_keycode = code
+		ev.pressed = down
+		Input.parse_input_event(ev)
+	# the host outlasts a joiner started a quarter minute after it
+	for f in range((45 if Net.is_host() else 22) * 60):
+		# both sides walk for a while, so poses and the stream carry something
+		if f == (2 if Net.is_client() else 12) * 60:
+			hold.call(KEY_W, true)
+		if f == (4 if Net.is_client() else 15) * 60:
+			hold.call(KEY_W, false)
+		# the joiner then stands before the first creature and shoots it: its
+		# life, as the host reports it, must fall
+		if Net.is_client() and f >= 6 * 60 and f < 18 * 60 and not monsters.is_empty() 				and is_instance_valid(monsters[0]):
+			var mob = monsters[0]
+			if f == 6 * 60:
+				var back: Vector3 = (player.global_position - mob.global_position).normalized()
+				player.global_position = mob.global_position + back * 3.0 + Vector3(0, 0.3, 0)
+				player.velocity = Vector3.ZERO
+			var to: Vector3 = mob.global_position + Vector3(0, 0.9, 0) - player.get_node("Camera3D").global_position
+			player.yaw = atan2(-to.x, -to.z)
+			player.pitch = clampf(asin(to.normalized().y), -0.7, 0.7)
+			if f % 40 == 0:
+				player._start_attack(0)
+		if Net.is_client() and f == 10 * 60 and not Net.remote_players().is_empty():
+			# a look at the host's Amazon, to shots/: the puppet and its name
+			var rp = Net.remote_players()[0]
+			var to: Vector3 = rp.global_position - player.global_position
+			player.yaw = atan2(-to.x, -to.z)
+			player.pitch = -0.1
+			for w in range(3):
+				await get_tree().process_frame
+			var shots := ProjectSettings.globalize_path("res://../shots")
+			DirAccess.make_dir_recursive_absolute(shots)
+			await Cli.capture(get_viewport(), shots + "/net_joiner.png")
+		if f % 300 == 0:
+			var others := []
+			for rp in Net.remote_players():
+				others.append("%s@%s" % [rp.pname, rp.global_position.snapped(Vector3(0.1, 0.1, 0.1))])
+			var mob = monsters[0] if not monsters.is_empty() and is_instance_valid(monsters[0]) else null
+			var mob_s := "%s@%s hp %.0f" % [mob.cname, mob.global_position.snapped(
+					Vector3(0.1, 0.1, 0.1)), mob.hp] if mob != null else "none"
+			print("NET-TEST %s t=%ds peers %d tick %d sent %d got %d applied %d hits %d calls %d me@%s others %s mob0 %s" % [
+					role, f / 60, Net.player_count(), Replay.tick, Net._sent, Net._got,
+					Replay.live_received, _net_hits, Net._calls,
+					player.global_position.snapped(Vector3(0.1, 0.1, 0.1)), others, mob_s])
+		await get_tree().physics_frame
+	print("NET-TEST %s done" % role)
 
 
 func _swim_test() -> void:
@@ -990,6 +1124,9 @@ func _spawn_player(gs) -> void:
 	cs.shape = cap
 	cs.position.y = 0.9
 	player.add_child(cs)
+	var pdbg := _debug_capsule(cap, cs.position, Color(0.3, 0.6, 1.0, 0.25))
+	pdbg.add_to_group("hitbox_debug")
+	player.add_child(pdbg)
 	var cam := Camera3D.new()
 	cam.name = "Camera3D"
 	cam.fov = 70.0
@@ -997,8 +1134,12 @@ func _spawn_player(gs) -> void:
 	cam.position.y = Player.EYE
 	player.add_child(cam)
 	# always the dungeon's own entrance: saves carry the character, not a
-	# position, so entering a dungeon always starts it from the beginning
+	# position, so entering a dungeon always starts it from the beginning.
+	# A co-op party stands in a row across the entrance.
 	player.position = spawn
+	if Net.active():
+		var side := Vector3(cos(spawn_yaw), 0.0, -sin(spawn_yaw))
+		player.position += side * (Net.player_index() - 0.5 * (Net.player_count() - 1)) * 1.0
 	player.yaw = spawn_yaw
 	player.fire_action.connect(_on_fire)
 	add_child(player)
@@ -1047,9 +1188,11 @@ func _spawn_creatures(entries: Array) -> void:
 				aabb = aabb.merge(b)
 		var height: float = clampf(aabb.size.y * sc, 1.0, 4.0)
 		# no wider than the body is tall: a bat's bind pose spreads its
-		# wings five metres, which made a 0.6 m bat a 2.6 m wide capsule
+		# wings five metres, which made a 0.6 m bat a 2.6 m wide capsule.
+		# Otherwise a little under the mesh's own breadth: the capsule does
+		# not follow a lunge, so blows that visibly land must still count
 		var radius: float = clampf(minf(
-				maxf(aabb.size.x, aabb.size.z) * 0.5 * sc * 0.7, height * 0.45), 0.3, 1.3)
+				maxf(aabb.size.x, aabb.size.z) * 0.5 * sc * 0.85, height * 0.8), 0.45, 1.3)
 
 		var mob := WowCreature.new()
 		var cs := CollisionShape3D.new()
@@ -1057,14 +1200,18 @@ func _spawn_creatures(entries: Array) -> void:
 		cap.radius = radius
 		cap.height = maxf(height, radius * 2.1)
 		cs.shape = cap
-		cs.position.y = cap.height * 0.5
+		# where the mesh actually sits: a flyer authored a metre and a half
+		# up had its capsule at ankle height, with nothing in it
+		cs.position.y = maxf(cap.height * 0.5, (aabb.position.y + aabb.size.y * 0.5) * sc)
 		mob.add_child(cs)
+		mob.add_child(_debug_capsule(cap, cs.position, Color(0.2, 1.0, 0.3, 0.28)))
 		mob.add_child(model)
 		mob.position = Vector3(c["pos"][0], c["pos"][1] + 0.2, c["pos"][2])
 		mob.rotation.y = float(c["yaw"])
 		add_child(mob)
 		mob.setup(str(info.get("name", key)), info, _find_anim_player(model),
 				radius)
+		mob.body_radius = radius
 		# the pipeline assigns a voice family per model (with per-dungeon
 		# overrides); the entry map is only a fallback for older manifests
 		mob.voice = str(info.get("voice", VOICE_MAP.get(int(c["entry"]), "")))
@@ -1072,9 +1219,104 @@ func _spawn_creatures(entries: Array) -> void:
 		mob.set_meta("entry", int(c["entry"]))
 		mob.target = player
 		mob.died.connect(_on_monster_died)
+		mob.rid = monsters.size()
+		if Net.is_host():
+			# D2: half again the life for every player past the first
+			var pf := 1.0 + 0.5 * (Net.player_count() - 1)
+			mob.hp_max *= pf
+			mob.hp = mob.hp_max
 		monsters.append(mob)
 		count += 1
 	print("creatures placed: %d" % count)
+
+
+func _debug_capsule(cap: CapsuleShape3D, at: Vector3, color: Color) -> MeshInstance3D:
+	## the body's capsule, drawn translucent through the model: the 0 key
+	## shows every one, to judge what a blow can land on
+	var dbg := MeshInstance3D.new()
+	dbg.name = "DebugCapsule"
+	var cm := CapsuleMesh.new()
+	cm.radius = cap.radius
+	cm.height = cap.height
+	dbg.mesh = cm
+	dbg.position = at
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.no_depth_test = true
+	dbg.material_override = mat
+	dbg.visible = show_hitboxes
+	return dbg
+
+
+func set_hitboxes(on: bool) -> void:
+	show_hitboxes = on
+	for n in get_tree().get_nodes_in_group("hitbox_debug"):
+		if is_instance_valid(n):
+			n.visible = on
+	for mob in monsters:
+		if is_instance_valid(mob):
+			var d: Node = mob.get_node_or_null("DebugCapsule")
+			if d != null:
+				d.visible = on
+	for f in friendlies:
+		if is_instance_valid(f):
+			var d: Node = f.get_node_or_null("DebugCapsule")
+			if d != null:
+				d.visible = on
+	if hud_node != null:
+		hud_node.show_area("Hitboxes %s" % ("on" if on else "off"), Color(0.7, 1.0, 0.7), 1.5)
+
+
+func _arrow_exclude() -> Array:
+	## a missile passes the player and her summons; it stops on everything else
+	var out: Array = [player.get_rid()]
+	for f in friendlies:
+		if is_instance_valid(f):
+			out.append(f.get_rid())
+	return out
+
+
+func _arrow_touch(space: PhysicsDirectSpaceState3D, from: Vector3, at: Vector3) -> WowCreature:
+	## The ray is a line and the arrow is not: a living creature within its
+	## breadth of the point it reached is hit, nearest to the shooter first.
+	var sp := PhysicsShapeQueryParameters3D.new()
+	sp.shape = _arrow_sphere
+	sp.transform = Transform3D(Basis(), at)
+	sp.exclude = _arrow_exclude()
+	var best: WowCreature = null
+	var bd := INF
+	for r in space.intersect_shape(sp, 8):
+		var c: Object = r["collider"]
+		if c is WowCreature and c.state != WowCreature.State.DEAD:
+			var d: float = from.distance_to(c.global_position)
+			if d < bd:
+				bd = d
+				best = c
+	return best
+
+
+func aimed_creature(from: Vector3, dir: Vector3, reach: float) -> WowCreature:
+	## The living creature under a line of aim, with an arrow's breadth of
+	## give: what the crosshair names and what a swing lands on.
+	var space := get_world_3d().direct_space_state
+	var q := PhysicsRayQueryParameters3D.create(from, from + dir * reach)
+	q.exclude = _arrow_exclude()
+	var ray := space.intersect_ray(q)
+	if ray and ray["collider"] is WowCreature and ray["collider"].state != WowCreature.State.DEAD:
+		return ray["collider"]
+	var span: float = from.distance_to(ray["position"]) if ray else reach
+	var sp := PhysicsShapeQueryParameters3D.new()
+	sp.shape = _arrow_sphere
+	sp.transform = Transform3D(Basis(), from)
+	sp.motion = dir * span
+	sp.exclude = _arrow_exclude()
+	var frac: PackedFloat32Array = space.cast_motion(sp)
+	if frac.size() < 2 or frac[1] >= 1.0:
+		return null
+	return _arrow_touch(space, from, from + dir * span * frac[1])
 
 
 func combat_targets() -> Array:
@@ -1084,7 +1326,45 @@ func combat_targets() -> Array:
 			friendlies.erase(f)
 		else:
 			out.append(f)
+	if Net.is_host():
+		out.append_array(Net.remote_players())
 	return out
+
+
+func player_struck(dmg: float, ar: float, mlevel: int, impact_kind: String,
+		missile: bool, etype: String) -> float:
+	## A creature's blow or missile at this machine's Amazon: D2's to-hit
+	## roll against her defence, then dodge or avoid, then the shield, then
+	## the damage through her reductions. Returns the thorns the attacker
+	## takes (melee only; a missile's sender is out of reach).
+	var gs := get_node("/root/GameState")
+	var defense: float = gs.player_defense() \
+			+ float(gs.mods.get("ac-miss" if missile else "ac-hth", 0))
+	var chance := GameState.chance_to_hit(ar, defense, mlevel, gs.level)
+	if randf() >= chance:
+		return 0.0
+	if randf() < (gs.avoid_chance() if missile else gs.dodge_chance()):
+		return 0.0
+	var at: Vector3 = player.global_position + Vector3(0, 1.0, 0)
+	if randf() < gs.block_chance():
+		# the shield takes it: a clang, the arm busy for a moment, no damage
+		get_node("/root/Sfx").event("blade_impact", at)
+		player.on_block()
+		return 0.0
+	if missile:
+		get_node("/root/Sfx").event("player_gethit", at, 0.4)
+		if etype == "cold":
+			player.chill(2.0)
+	else:
+		get_node("/root/WowSfx").impact(impact_kind, at, 0.9)
+		get_node("/root/Sfx").event("player_gethit", at, 0.5)
+	if gs.take_damage(dmg, etype if etype != "" else "phys", missile):
+		player.die()
+	else:
+		player.on_hurt(dmg)
+	if missile:
+		return 0.0
+	return float(gs.mods.get("thorns", 0)) + float(gs.mods.get("light-thorns", 0))
 
 
 # ---------------------------------------------------------------------------
@@ -1107,32 +1387,23 @@ func spawn_enemy_missile(origin: Vector3, dir: Vector3, mob: WowCreature) -> voi
 func _update_enemy_missiles(dt: float) -> void:
 	if enemy_missiles.is_empty():
 		return
-	var gs := get_node("/root/GameState")
+	var others: Array = Net.remote_players() if Net.is_host() else []
 	for m in enemy_missiles.duplicate():
 		var node: BillboardAnim = m["node"]
 		node.global_position += m["vel"] * dt
 		m["life"] -= dt
 		var to_p := player.global_position + Vector3(0, 1.0, 0) - node.global_position
 		if to_p.length() < 0.85:
-			var chance := GameState.chance_to_hit(m["ar"],
-					gs.player_defense() + float(gs.mods.get("ac-miss", 0)),
-					int(m["mlvl"]), gs.level)
-			if randf() < chance and randf() >= gs.avoid_chance() \
-					and randf() < gs.block_chance():
-				# blocked: D2 shields stop missiles as well as blows
-				get_node("/root/Sfx").event("blade_impact", node.global_position)
-				player.on_block()
-			elif randf() < chance and randf() >= gs.avoid_chance():
-				get_node("/root/Sfx").event("player_gethit", node.global_position, 0.4)
-				var et := str(m["etype"])
-				if et == "cold":
-					player.chill(2.0)
-				if gs.take_damage(m["dmg"], et if et != "" else "phys", true) \
-						and player.has_method("die"):
-					player.die()
-				else:
-					player.on_hurt(float(m["dmg"]))
+			player_struck(float(m["dmg"]), float(m["ar"]), int(m["mlvl"]), "",
+					true, str(m["etype"]))
 			m["life"] = 0.0
+		else:
+			for rp in others:
+				if (rp.global_position + Vector3(0, 1.0, 0)).distance_to(node.global_position) < 0.85:
+					rp.struck(float(m["dmg"]), float(m["ar"]), int(m["mlvl"]), "",
+							true, str(m["etype"]))
+					m["life"] = 0.0
+					break
 		if m["life"] <= 0.0:
 			if str(m.get("explode", "")) != "":
 				var boom := BillboardAnim.new()
@@ -1200,7 +1471,7 @@ func _hit_monster(mob: WowCreature, ranged: bool, extra: float, thrown := false,
 	for et in parts:
 		parts[et] = float(parts[et]) * _melee_mult
 	if h["noheal"]:
-		mob.noheal = true
+		mob.mark_noheal()
 	if float(h["slow_pct"]) > 0.0:
 		mob.slow(3.0, clampf(1.0 - float(h["slow_pct"]) / 100.0, 0.25, 0.9))
 	if float(h["freeze"]) > 0.0:
@@ -1208,6 +1479,8 @@ func _hit_monster(mob: WowCreature, ranged: bool, extra: float, thrown := false,
 	if h["knock"]:
 		mob.knockback(mob.global_position - player.global_position)
 	gs.on_hit_dealt(h)
+	if mob.remote:
+		_net_hits += 1
 	mob.take_hit(parts)
 
 
@@ -1273,9 +1546,13 @@ func _melee_swing(origin: Vector3, dir: Vector3) -> void:
 			continue
 		var to: Vector3 = mob.global_position - player.global_position
 		to.y = 0.0
-		if to.length() > p.x + mob.attack_range - 2.0:
+		# to the body's edge, not its centre: a broad creature pressed
+		# against the player fills the view and must be in reach
+		var r: float = mob.body_radius
+		if to.length() - r > p.x:
 			continue
-		if flat_dir.angle_to(to.normalized()) > p.y:
+		var pad := atan(r / maxf(0.2, to.length()))
+		if flat_dir.angle_to(to.normalized()) - pad > p.y:
 			continue
 		_hit_monster(mob, false, 0.0)
 		if not connected:
@@ -1290,6 +1567,7 @@ func _on_fire(slot: int, origin: Vector3, dir: Vector3) -> void:
 	if skill in ["Decoy", "Dopplezon", "Valkyrie"]:
 		var cost: float = gs.mana_cost(skill)
 		if gs.mana < cost:
+			_no_mana()
 			return
 		gs.mana -= cost
 		var lvl: int = maxi(1, gs.skill_level(skill))
@@ -1306,6 +1584,7 @@ func _on_fire(slot: int, origin: Vector3, dir: Vector3) -> void:
 	if skill in CAST_SKILLS:
 		var ccost: float = gs.mana_cost(skill)
 		if gs.mana < ccost:
+			_no_mana()
 			return
 		gs.mana -= ccost
 		var csn: Dictionary = gs.skill_numbers(skill, gs.skill_level(skill))
@@ -1415,6 +1694,13 @@ func _on_fire(slot: int, origin: Vector3, dir: Vector3) -> void:
 		_launch_arrow(gs, skill, origin, dir.rotated(Vector3.UP, spread))
 
 
+func _no_mana() -> void:
+	## D2 says so aloud; a cast that quietly did nothing read as a broken skill
+	if hud_node != null:
+		hud_node.show_area("Not enough mana", Color(0.6, 0.7, 1.0), 1.2)
+	get_node("/root/Sfx").event_ui("button")
+
+
 func _launch_arrow(gs, skill: String, origin: Vector3, d2: Vector3) -> void:
 	var lvl: int = maxi(1, gs.skill_level(skill))
 	var gd: Dictionary = get_node("/root/SpriteDB").gamedata()
@@ -1460,6 +1746,10 @@ func _launch_arrow(gs, skill: String, origin: Vector3, d2: Vector3) -> void:
 			"skill": skill, "edmg": edmg, "etype": etype, "explode": explode,
 			"homing": skill == "Guided Arrow",
 			"thrown": skill == "Throw" or skill in THROW_SKILLS})
+	if Net.is_client():
+		# the host's own missiles reach the others through the stream; a
+		# joiner's are its own, so the others get a ghost of each
+		Net.fx_arrow.rpc(cel, origin, d2)
 	get_node("/root/Sfx").event(
 		"xbow_fire" if player.weapon_class == "xbw" else "bow_fire", origin)
 
@@ -1484,9 +1774,42 @@ func _run_swings() -> void:
 	_swings = keep
 
 
+func ghost_arrow(cel: String, origin: Vector3, dir: Vector3) -> void:
+	## Another player's missile, flown straight for its lifetime and drawn
+	## only: what it hits is decided where it was fired
+	if _ghosts == null:
+		_ghosts = Node3D.new()
+		_ghosts.name = "Ghosts"
+		add_child(_ghosts)
+	var node := BillboardAnim.new()
+	_ghosts.add_child(node)
+	node.play("missiles/" + cel, true, "center")
+	node.global_position = origin + dir * 0.5
+	node.facing = atan2(dir.x, dir.z)
+	_ghost_arrows.append({"node": node, "vel": dir * ARROW_SPEED, "life": 3.0})
+
+
+func _update_ghosts(dt: float) -> void:
+	if _ghost_arrows.is_empty():
+		return
+	var space := get_world_3d().direct_space_state
+	for g in _ghost_arrows.duplicate():
+		var node: BillboardAnim = g["node"]
+		var to: Vector3 = node.global_position + g["vel"] * dt
+		var q := PhysicsRayQueryParameters3D.create(node.global_position, to)
+		q.exclude = [player.get_rid()]
+		g["life"] -= dt
+		if g["life"] <= 0.0 or space.intersect_ray(q):
+			_ghost_arrows.erase(g)
+			node.queue_free()
+			continue
+		node.global_position = to
+
+
 func _physics_process(dt: float) -> void:
 	if puppet:
 		return
+	_update_ghosts(dt)
 	_run_swings()
 	_update_enemy_missiles(dt)
 	if player != null:
@@ -1525,10 +1848,14 @@ func _physics_process(dt: float) -> void:
 		var from: Vector3 = node.global_position
 		var to: Vector3 = from + a["vel"] * dt
 		var q := PhysicsRayQueryParameters3D.create(from, to)
-		q.exclude = [player.get_rid()]
-		var hit := space.intersect_ray(q)
-		if hit:
-			var col: Object = hit["collider"]
+		q.exclude = _arrow_exclude()
+		var ray := space.intersect_ray(q)
+		var col: Object = ray["collider"] if ray else null
+		var hit_pos: Vector3 = ray["position"] if ray else to
+		if col == null:
+			# the ray is a line; the arrow is not
+			col = _arrow_touch(space, from, to)
+		if col != null:
 			if col is WowCreature and col.state != WowCreature.State.DEAD:
 				# an arrow that physically connects always hits — the FPS aim
 				# replaces D2's attack-rating roll for missiles
@@ -1553,9 +1880,9 @@ func _physics_process(dt: float) -> void:
 				_hit_monster(col, true, extra, bool(a.get("thrown", false)),
 						str(a.get("etype", "")))
 				if hsn.has("chain"):
-					_chain_lightning(hit["position"], col, int(hsn["chain"]), hsn["bolt"])
-				get_node("/root/Sfx").event("arrow_impact", hit["position"])
-				_skill_impact(a, hit["position"])
+					_chain_lightning(hit_pos, col, int(hsn["chain"]), hsn["bolt"])
+				get_node("/root/Sfx").event("arrow_impact", hit_pos)
+				_skill_impact(a, hit_pos)
 				if randf() < gs.pierce_chance():
 					continue    # arrow pierces through
 			var explode := str(a.get("explode", ""))
@@ -1563,7 +1890,7 @@ func _physics_process(dt: float) -> void:
 				var boom := BillboardAnim.new()
 				add_child(boom)
 				boom.play("missiles/" + explode, false, "center")
-				boom.global_position = hit["position"]
+				boom.global_position = hit_pos
 				boom.finished.connect(boom.queue_free)
 			arrows.erase(a)
 			node.queue_free()
@@ -1611,13 +1938,65 @@ func _on_monster_died(dead: WowCreature) -> void:
 	for dr in doors:
 		if not dr["open"] and str(dr.get("rule", {}).get("boss", "")) == dead.cname:
 			_open_door(dr)
-	# the final boss marks the dungeon complete and advances the ladder
+	# the final boss marks the dungeon complete and advances the ladder,
+	# for every player in the session
 	if dead.is_final_boss:
-		var gsd := get_node("/root/GameState")
-		if gsd.complete_dungeon():
-			gsd.save_game(player)
-			hud_node.show_area("%s conquered!" % get_node("/root/Dungeons")
-					.display_name(gsd.current_dungeon), Color(0.3, 0.95, 0.3), 7.0)
+		on_dungeon_complete()
+		if Net.is_host():
+			Net.dungeon_complete.rpc()
+
+
+func on_session_lost(why: String) -> void:
+	## The host is gone: the creatures are puppets with no one moving them,
+	## so this dungeon is over. Say so, then back to the menu.
+	if hud_node != null:
+		hud_node.show_area(why + " - back to the menu", Color(1.0, 0.55, 0.3), 3.0)
+	get_node("/root/GameState").save_game(player)
+	var t := get_tree().create_timer(3.0)
+	t.timeout.connect(func():
+		if is_inside_tree():
+			get_tree().change_scene_to_file("res://scenes/menu.tscn"))
+
+
+func on_dungeon_complete() -> void:
+	var gsd := get_node("/root/GameState")
+	if gsd.complete_dungeon():
+		gsd.save_game(player)
+		hud_node.show_area("%s conquered!" % get_node("/root/Dungeons")
+				.display_name(gsd.current_dungeon), Color(0.3, 0.95, 0.3), 7.0)
+
+
+func spawn_drop(code: String, gold: int, inst: Dictionary, pos: Vector3) -> GroundItem:
+	## A drop the host owns from here on (the stream carries it to everyone)
+	var gi := GroundItem.new()
+	add_child(gi)
+	if gold > 0:
+		gi.drop("gold", gold)
+	elif inst.is_empty():
+		gi.drop(code)
+	else:
+		gi.drop_instance(inst)
+	gi.global_position = pos
+	ground_items.append(gi)
+	return gi
+
+
+func receive_item(code: String, gold: int, inst: Dictionary) -> void:
+	## The host handed this player the drop they asked for
+	var gs := get_node("/root/GameState")
+	var sfx := get_node("/root/Sfx")
+	if gold > 0:
+		gs.add_gold(gold)
+		sfx.event_ui("gold_drop")
+	elif gs.is_potion(code) and gs.belt_add(code):
+		sfx.event_ui("potion_belt")
+	elif gs.inv_try_add(code, inst):
+		sfx.event_ui("pickup")
+	else:
+		# no room after all: back onto the floor at the feet
+		if hud_node != null:
+			hud_node.show_area("Inventory full")
+		Net.drop_item.rpc_id(1, code, 0, inst, player.global_position + Vector3(0, 0.02, 0))
 
 
 func _item_test() -> void:
@@ -2158,6 +2537,9 @@ func _pickup_nearest() -> void:
 				best = gi
 	if best == null:
 		return
+	if Net.is_client():
+		Net.request_pickup(best)     # the host hands it over (receive_item)
+		return
 	var gs := get_node("/root/GameState")
 	var sfx := get_node("/root/Sfx")
 	if best.gold_amount > 0:
@@ -2201,17 +2583,14 @@ func drop_entry(entry: Dictionary) -> void:
 	## An item dragged out of the inventory lands at the amazon's feet.
 	var gs := get_node("/root/GameState")
 	gs.inv_items.erase(entry)
-	var gi := GroundItem.new()
-	add_child(gi)
 	var inst: Dictionary = entry.get("inst", {})
-	if inst.is_empty():
-		gi.drop(str(entry.get("code", "")))
-	else:
-		gi.drop_instance(inst)
 	var fwd: Vector3 = -player.global_transform.basis.z
-	gi.global_position = player.global_position \
+	var at: Vector3 = player.global_position \
 			+ Vector3(fwd.x, 0, fwd.z).normalized() * 1.2 + Vector3(0, 0.02, 0)
-	ground_items.append(gi)
+	if Net.is_client():
+		Net.drop_item.rpc_id(1, str(entry.get("code", "")), 0, inst, at)
+	else:
+		spawn_drop(str(entry.get("code", "")), 0, inst, at)
 	gs.inventory_changed.emit()
 
 
@@ -2239,6 +2618,8 @@ func _unhandled_input(e: InputEvent) -> void:
 			get_node("/root/GameState").save_game(player)
 			if hud_node != null:
 				hud_node.show_area("Saved")
+		elif e.keycode == KEY_0:
+			set_hitboxes(not show_hitboxes)
 		elif e.keycode == KEY_I:
 			_ui_action("ui:inv")
 		elif e.keycode == KEY_T:
@@ -2313,14 +2694,9 @@ func _process(_dt: float) -> void:
 	else:
 		hud_node.hide_item_labels()
 	# creature under the crosshair -> D2-style name + health plate up top
-	var from := cam2.global_position
-	var q := PhysicsRayQueryParameters3D.create(
-		from, from - cam2.global_transform.basis.z * 45.0)
-	q.exclude = [player.get_rid()]
-	var hit := get_world_3d().direct_space_state.intersect_ray(q)
-	if hit and hit["collider"] is WowCreature \
-			and hit["collider"].state != WowCreature.State.DEAD:
-		hud_node.show_target(hit["collider"])
+	var aimed := aimed_creature(cam2.global_position, -cam2.global_transform.basis.z, 45.0)
+	if aimed != null:
+		hud_node.show_target(aimed)
 	else:
 		hud_node.hide_target()
 	# name whatever E would act on from here
@@ -2371,6 +2747,8 @@ func _visible_items(cam: Camera3D) -> Array:
 
 func _exit_tree() -> void:
 	Replay.end_session()      # the world is going: close the log, drop the puppets
+	if Net.active():
+		Net.leave_dungeon()   # back to the lobby, everyone
 
 
 func _notification(what: int) -> void:

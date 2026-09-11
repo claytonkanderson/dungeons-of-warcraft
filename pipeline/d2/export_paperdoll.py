@@ -8,6 +8,12 @@ order. The game stacks them.
 
 Only the idle (NU) animation and the one direction that faces the camera are
 exported, which is what keeps this to a couple of hundred small strips.
+
+build_layers() is the same idea for the dungeon: every direction of the
+idle, walk, run and attack animations, one sheet per layer (rows are the
+directions, columns the frames), so a co-op player's Amazon can be drawn
+in her own gear from any angle. That is a few thousand sheets; the game
+stacks them once per outfit and animation (gear_sheets.gd).
 """
 import os
 import json
@@ -42,17 +48,120 @@ CODES = {
 }
 
 
-def weapon_classes():
-    """Animation classes that have an idle COF, e.g. bow / 1hs / hth."""
+def weapon_classes(mode=MODE):
+    """Animation classes that have a COF for the mode, e.g. bow / 1hs / hth."""
     out = []
     for path in mpqs().list():
         p = path.split('\\')
         if len(p) >= 6 and p[2].upper() == 'CHARS' and p[3].upper() == TOKEN \
                 and p[4].upper() == 'COF':
             stem = p[-1][:p[-1].rfind('.')].upper()
-            if stem[2:4] == MODE:
+            if stem[2:4] == mode:
                 out.append(stem[4:])
     return sorted(set(out))
+
+
+# the dungeon's animations: standing, walking, running, the attack
+LAYER_MODES = ['NU', 'WL', 'RN', 'A1']
+
+
+def strip_all(comp, armor, mode, wclass, outdir):
+    """One layer, every direction (rows) and frame (columns) -> PNG + metadata.
+    The cell is the union of the directions' boxes, so one origin serves
+    every row, the way the monster sheets are cut."""
+    base = 'data\\global\\CHARS\\%s\\%s\\%s%s%s%s%s' % (
+        TOKEN, comp, TOKEN, comp, armor, mode, wclass)
+    dirs = None
+    for ext in ('.dcc', '.DC6'):
+        try:
+            dirs = decode_sprite(base + ext)
+            break
+        except FileNotFoundError:
+            continue
+    if dirs is None:
+        return None
+    n = max(len(d['frames']) for d in dirs)
+    xmin = min(d['xmin'] for d in dirs)
+    ymin = min(d['ymin'] for d in dirs)
+    xmax = max(d['xmin'] + d['width'] for d in dirs)
+    ymax = max(d['ymin'] + d['height'] for d in dirs)
+    w, h = xmax - xmin, ymax - ymin
+    sheet = Image.new('RGBA', (w * n, h * len(dirs)), (0, 0, 0, 0))
+    flat = palette('act1')
+    for di, d in enumerate(dirs):
+        for fi in range(len(d['frames'])):
+            paste_frame(sheet, flat, d, fi,
+                        fi * w + d['xmin'] - xmin, di * h + d['ymin'] - ymin)
+    sheet.save(os.path.join(outdir, '%s_%s_%s_%s.png' % (
+        comp.lower(), armor.lower(), mode.lower(), wclass.lower())))
+    return {'cell': [w, h], 'off': [xmin, ymin], 'frames': n, 'dirs': len(dirs)}
+
+
+def build_layers():
+    outdir = os.path.join(config.ASSETS, 'amazon', 'layers')
+    os.makedirs(outdir, exist_ok=True)
+    m = mpqs()
+    from sprites import animdata
+    strips = {}
+    modes = {}
+    for mode in LAYER_MODES:
+        classes = {}
+        for wclass in weapon_classes(mode):
+            c = COF(m.read('data\\global\\CHARS\\%s\\COF\\%s%s%s.cof'
+                           % (TOKEN, TOKEN, mode, wclass)))
+            by_comp = {lay['comp']: (lay['wclass'] or wclass).upper()
+                       for lay in c.layers}
+            idx_to_comp = {lay['comp_idx']: lay['comp'] for lay in c.layers}
+            x0 = y0 = 10 ** 6
+            x1 = y1 = -10 ** 6
+            present = {}
+            ndirs = 0
+            for comp, lwc in sorted(by_comp.items()):
+                for armor in CODES.get(comp, []):
+                    key = '%s_%s_%s_%s' % (comp.lower(), armor.lower(),
+                                           mode.lower(), lwc.lower())
+                    if key not in strips:
+                        meta = strip_all(comp, armor, mode, lwc, outdir)
+                        if meta is None:
+                            continue
+                        strips[key] = meta
+                    meta = strips[key]
+                    present.setdefault(comp, []).append(armor)
+                    ndirs = max(ndirs, meta['dirs'])
+                    x0 = min(x0, meta['off'][0])
+                    y0 = min(y0, meta['off'][1])
+                    x1 = max(x1, meta['off'][0] + meta['cell'][0])
+                    y1 = max(y1, meta['off'][1] + meta['cell'][1])
+            if not present:
+                continue
+            # the COF's draw order per direction and frame
+            order = []
+            for di in range(ndirs):
+                frames = []
+                for frame in c.priority[di % c.ndirs]:
+                    frames.append([idx_to_comp[i] for i in frame if i in idx_to_comp])
+                order.append(frames)
+            ad = animdata().get('%s%s%s' % (TOKEN, mode, wclass))
+            fps = round(25.0 * ad[1] / 256.0, 3) if ad else 12.5
+            triggers = [i for i in range(c.nframes) if ad and ad[2][i]] if ad else []
+            classes[wclass.lower()] = {
+                'canvas': [x1 - x0, y1 - y0],
+                'origin': [-x0, -y0],
+                'frames': c.nframes, 'dirs': ndirs, 'fps': fps,
+                'triggers': triggers,
+                'weapon_comp': 'LH' if 'LH' in by_comp else (
+                    'RH' if 'RH' in by_comp else ''),
+                'layers': {k: v.lower() for k, v in by_comp.items()},
+                'codes': {k: v for k, v in present.items()},
+                'order': order,
+            }
+        modes[mode.lower()] = classes
+        print('layers %s: %d weapon classes' % (mode, len(classes)))
+    manifest = {'modes': modes, 'strips': strips}
+    with open(os.path.join(outdir, 'layers.json'), 'w') as f:
+        json.dump(manifest, f)
+    total = sum(os.path.getsize(os.path.join(outdir, f)) for f in os.listdir(outdir))
+    print('layers: %d sheets, %.0f MB -> %s' % (len(strips), total / 1e6, outdir))
 
 
 def strip(comp, armor, wclass, outdir):
@@ -144,3 +253,4 @@ def build():
 
 if __name__ == '__main__':
     build()
+    build_layers()

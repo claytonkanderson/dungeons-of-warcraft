@@ -59,6 +59,11 @@ var res := {}                # elemental resistances in percent; 100 = immune
 var noheal := false          # "Prevents Monster Heal" has landed on it
 var _since_hit := 99.0       # seconds since the last damage, for regeneration
 var puppet := false          # a replay places it; no AI, no physics (replay.gd)
+var remote := false          # a co-op joiner's copy: blows at it go to the host (net.gd)
+var body_radius := 0.5       # the capsule's, for reach measured to the body
+var _burn_acc := 0.0         # damage over time, applied twice a second
+var _burn_tick := 0.0
+var rid := -1                # index in world.monsters: the stream's creature id
 
 # D2 monsters slowly regenerate; here a creature left alone for a while heals
 # a share of its life each second, which is what "Prevents Monster Heal" stops
@@ -141,6 +146,9 @@ func _play(role: String, blend := 0.2) -> void:
 
 
 func slow(duration: float, factor := 0.4) -> void:
+	if remote:
+		Net.forward_creature(self, "slow", [duration, factor])
+		return
 	_slow_t = maxf(_slow_t, duration)
 	_slow_factor = factor
 	if anim != null:
@@ -156,6 +164,9 @@ var _reveal_light: OmniLight3D
 func freeze(duration: float) -> void:
 	## "Freezes target": stopped dead for the duration. Bosses cannot be
 	## frozen in D2, only chilled — they get a hard slow instead.
+	if remote:
+		Net.forward_creature(self, "freeze", [duration])
+		return
 	if is_boss:
 		slow(duration, 0.25)
 		return
@@ -166,12 +177,17 @@ func freeze(duration: float) -> void:
 
 func knockback(dir: Vector3, distance := 0.8) -> void:
 	## shoved along dir, stopping at walls
+	if remote:
+		Net.forward_creature(self, "knockback", [dir, distance])
+		return
 	var flat := Vector3(dir.x, 0.0, dir.z).normalized()
 	move_and_collide(flat * distance)
 
 
 func reveal(duration: float) -> void:
 	## Inner Sight: the creature carries a light and is visible through walls
+	if remote:
+		Net.forward_creature(self, "reveal", [duration])
 	_reveal_t = maxf(_reveal_t, duration)
 	if _reveal_light == null:
 		_reveal_light = OmniLight3D.new()
@@ -184,7 +200,18 @@ func reveal(duration: float) -> void:
 
 
 func slow_missiles(duration: float) -> void:
+	if remote:
+		Net.forward_creature(self, "slow_missiles", [duration])
+		return
 	_slowmis_t = maxf(_slowmis_t, duration)
+
+
+func mark_noheal() -> void:
+	## "Prevents Monster Heal" on the blow that landed
+	if remote:
+		Net.forward_creature(self, "mark_noheal", [])
+		return
+	noheal = true
 
 
 func missile_speed_factor() -> float:
@@ -193,6 +220,9 @@ func missile_speed_factor() -> float:
 
 func burn(dps: float, duration: float, etype := "pois") -> void:
 	## damage over time; the resistance is taken off once, up front
+	if remote:
+		Net.forward_creature(self, "burn", [dps, duration, etype])
+		return
 	dps *= 1.0 - effective_resist(etype) / 100.0
 	if dps <= 0.0:
 		return
@@ -218,6 +248,9 @@ func effective_resist(etype: String) -> float:
 func take_hit(parts: Dictionary) -> void:
 	## One blow made of several damage types ("phys", "fire", ...), each
 	## resisted on its own, landed as one.
+	if remote:
+		Net.forward_creature(self, "take_hit", [parts])
+		return
 	var total := 0.0
 	for et in parts:
 		var d := float(parts[et])
@@ -239,7 +272,11 @@ const CORPSE_SECONDS := 30.0
 var _corpse_t := -1.0
 
 
-func take_damage(dmg: float, etype := "phys") -> void:
+func take_damage(dmg: float, etype := "phys", quiet := false) -> void:
+	## quiet: a tick of damage over time, which neither grunts nor staggers
+	if remote:
+		Net.forward_creature(self, "take_damage", [dmg, etype, quiet])
+		return
 	if state == State.DEAD:
 		return
 	if etype != "phys":
@@ -258,10 +295,15 @@ func take_damage(dmg: float, etype := "phys") -> void:
 		set_collision_layer_value(1, false)
 		died.emit(self)
 		gs.award_xp(xp_value)
+		if Net.is_host():
+			# D2 party: every player in the dungeon is paid for the kill
+			Net.award_xp.rpc(xp_value, str(stats.get("ctype", "")))
 		return
 	if passive:
 		# a kicked critter finally fights back
 		passive = false
+	if quiet:
+		return
 	get_node("/root/WowSfx").voice(voice, "wound", global_position, 0.4)
 	# bosses shrug off most hits instead of being stun-locked
 	if is_boss and randf() > 0.25:
@@ -313,28 +355,17 @@ func _strike() -> void:
 	if target is Ally:
 		target.take_damage(dmg * 2.0)
 		return
-	# attack rating straight off D2's per-level curve (MonLvl TH); defense
-	# is the character's own, no hidden base
+	# attack rating straight off D2's per-level curve (MonLvl TH); the
+	# defence is the character's own, rolled on the machine the character
+	# belongs to (world.player_struck): here for the host's Amazon, over
+	# the network for another player's
 	var ar := float(stats.get("A1TH", 30))
-	var chance := GameState.chance_to_hit(ar,
-			gs.player_defense() + float(gs.mods.get("ac-hth", 0)), mlevel, gs.level)
-	if randf() < chance:
-		if randf() < gs.dodge_chance():
-			return
-		if randf() < gs.block_chance():
-			# the shield takes it: a clang, the arm busy for a moment, no damage
-			get_node("/root/Sfx").event("blade_impact", target.global_position)
-			if target.has_method("on_block"):
-				target.on_block()
-			return
-		get_node("/root/WowSfx").impact(impact_kind, target.global_position, 0.9)
-		get_node("/root/Sfx").event("player_gethit", target.global_position, 0.5)
-		if gs.take_damage(dmg) and target.has_method("die"):
-			target.die()
-		elif target.has_method("on_hurt"):
-			target.on_hurt(dmg)
+	if target.has_method("struck"):     # another player's Amazon (remote_player.gd)
+		target.struck(dmg, ar, mlevel, impact_kind, false, "")
+		return
+	if world != null and world.has_method("player_struck"):
+		var thorns: float = world.player_struck(dmg, ar, mlevel, impact_kind, false, "")
 		# "Attacker Takes Damage of N" / "Attacker Takes Lightning Damage"
-		var thorns := float(gs.mods.get("thorns", 0)) + float(gs.mods.get("light-thorns", 0))
 		if thorns > 0.0:
 			take_damage(thorns)
 
@@ -412,8 +443,15 @@ func _physics_process(dt: float) -> void:
 			if anim != null:
 				anim.speed_scale = 1.0
 	if _burn_t > 0.0:
+		# poison, burning and bleeding: gathered and landed twice a second.
+		# Applied every tick it grunted and flinched sixty times a second
 		_burn_t -= dt
-		take_damage(_burn_dps * dt)
+		_burn_acc += _burn_dps * dt
+		_burn_tick -= dt
+		if _burn_tick <= 0.0 or _burn_t <= 0.0:
+			_burn_tick = 0.5
+			take_damage(_burn_acc, "phys", true)
+			_burn_acc = 0.0
 		if _burn_t <= 0.0:
 			_burn_dps = 0.0
 	_retarget_t -= dt
