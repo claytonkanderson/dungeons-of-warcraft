@@ -26,6 +26,7 @@ var busy := false                # a download is in flight: stay on the menu
 var _checked := false
 var _http: HTTPRequest
 var _dl: HTTPRequest
+var _failed_tag := ""            # an update whose swap failed last time; not retried
 
 
 func _say(s: String) -> void:
@@ -58,6 +59,7 @@ func start() -> void:
 		return
 	if _apply_pending():
 		return
+	_failed_tag = _read_failed()
 	_say("Checking for updates ...")
 	_http = HTTPRequest.new()
 	_http.timeout = 8.0
@@ -88,6 +90,10 @@ func _on_latest(result: int, code: int, _headers: PackedStringArray, body: Packe
 			url = str(a.get("browser_download_url", ""))
 			break
 	if tag != "" and url != "" and VersionInfo.newer(tag, VersionInfo.VERSION):
+		if tag == _failed_tag:
+			_say("Update %s could not be installed last time; playing %s" % [tag, VersionInfo.VERSION])
+			_check_assets()
+			return
 		_download(url, tag)
 	else:
 		_say("")
@@ -147,6 +153,17 @@ func _on_zip(result: int, code: int, _headers: PackedStringArray, _body: PackedB
 	_apply(tag)
 
 
+func _read_failed() -> String:
+	## the tag of an update whose files could not be swapped in last time:
+	## it is not tried again (a fresh download would only fail the same
+	## way); the next release clears it
+	var p := exe_dir().path_join(UPDATE_DIR).path_join("failed.txt")
+	if not FileAccess.file_exists(p):
+		return ""
+	var f := FileAccess.open(p, FileAccess.READ)
+	return f.get_as_text().strip_edges() if f != null else ""
+
+
 func _apply_pending() -> bool:
 	## a download finished on an earlier launch that never got applied
 	var dir := exe_dir().path_join(UPDATE_DIR)
@@ -172,15 +189,33 @@ func _apply(tag: String) -> void:
 		return
 	var dir := exe_dir().path_join(UPDATE_DIR)
 	var pid := OS.get_process_id()
+	# Each move is retried for a minute: a file something still holds (the
+	# antivirus scanning the fresh download, a reader) cannot be replaced
+	# that instant. ping is the sleep, since the script has no console for
+	# timeout. Only a swap of both files clears the download; a failure
+	# leaves failed.txt so the next launch plays instead of trying again.
+	var u := UPDATE_DIR
 	var lines := [
 		"@echo off",
+		"setlocal enabledelayedexpansion",
 		"cd /d \"%~dp0..\"",
 		":w",
 		"tasklist /FI \"PID eq %d\" 2>nul | find \"%d\" >nul" % [pid, pid],
-		"if not errorlevel 1 (timeout /t 1 /nobreak >nul & goto w)",
-		"move /y \"%s\\DungeonsOfWarcraft.exe\" \"DungeonsOfWarcraft.exe\" >nul" % UPDATE_DIR,
-		"move /y \"%s\\setup.exe\" \"setup.exe\" >nul" % UPDATE_DIR,
-		"del \"%s\\ready.json\" \"%s\\latest.zip\" 2>nul" % [UPDATE_DIR, UPDATE_DIR],
+		"if not errorlevel 1 (ping -n 2 127.0.0.1 >nul & goto w)",
+		"set n=0",
+		":m",
+		"move /y \"%s\\DungeonsOfWarcraft.exe\" \"DungeonsOfWarcraft.exe\" >nul 2>&1" % u,
+		"if errorlevel 1 (set /a n+=1 & if !n! lss 60 (ping -n 2 127.0.0.1 >nul & goto m) else goto fail)",
+		"set n=0",
+		":s",
+		"move /y \"%s\\setup.exe\" \"setup.exe\" >nul 2>&1" % u,
+		"if errorlevel 1 (set /a n+=1 & if !n! lss 60 (ping -n 2 127.0.0.1 >nul & goto s) else goto fail)",
+		"del \"%s\\ready.json\" \"%s\\latest.zip\" \"%s\\failed.txt\" 2>nul" % [u, u, u],
+		"goto run",
+		":fail",
+		"echo %s> \"%s\\failed.txt\"" % [tag, u],
+		"del \"%s\\ready.json\" 2>nul" % u,
+		":run",
 		"start \"\" \"DungeonsOfWarcraft.exe\"",
 	]
 	var cmd := dir.path_join("apply.cmd")

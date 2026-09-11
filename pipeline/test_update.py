@@ -88,15 +88,28 @@ def main():
         VERSION_GD.write_text(src)
         export()
     old = md5(TEST / "DungeonsOfWarcraft.exe")
+    stamp = (TEST / "DungeonsOfWarcraft.exe").stat().st_mtime
     print(f"staged {TEST}: executable {old} ({lower}); the release build is {released} ({cur})")
     if args.no_launch:
         print("launch dist/updtest/DungeonsOfWarcraft.exe and watch the menu's bottom line")
         return
 
     print("launching; the menu should say 'Updating to %s: downloading', then restart" % cur)
-    subprocess.Popen([str(TEST / "DungeonsOfWarcraft.exe")], cwd=str(TEST))
+    # detached, as a double-click would start it: the game's own updater
+    # script then owns the restart
+    subprocess.Popen([str(TEST / "DungeonsOfWarcraft.exe")], cwd=str(TEST),
+                     creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                     close_fds=True)
     for i in range(24):
         time.sleep(5)
+        # watched by time stamp: reading the file would hold it open, and
+        # a file held open cannot be moved over on Windows
+        try:
+            if (TEST / "DungeonsOfWarcraft.exe").stat().st_mtime == stamp:
+                continue
+        except OSError:
+            continue
+        time.sleep(3)
         now = md5(TEST / "DungeonsOfWarcraft.exe")
         if now == released:
             print(f"after {5 * (i + 1)} s the folder's executable is the release build: "
