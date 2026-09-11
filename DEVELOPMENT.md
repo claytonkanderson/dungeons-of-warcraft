@@ -326,8 +326,10 @@ python pipeline/build_dist.py
 exports the game with Godot 4.7.2, freezes the pipeline into `setup.exe`
 with the vendored AzerothCore rows, and writes the player README
 (`dist-readme.txt` becomes `README.txt`), the licence and the third-party
-notice into `dist/DungeonsOfWarcraft/`. Neither executable is code-signed,
-so SmartScreen warns on first run.
+notice into `dist/DungeonsOfWarcraft/`, then zips those five files as
+`dist/DungeonsOfWarcraft-<yyyymmdd-hhmm>.zip`, stamped with the build
+time so hand-outs tell apart (`--no-zip` skips it). Neither executable is
+code-signed, so SmartScreen warns on first run.
 
 `README.md` is the repository's front page on GitHub; `dist-readme.txt` is
 the plain-text README that ships in the zip for players who never see
