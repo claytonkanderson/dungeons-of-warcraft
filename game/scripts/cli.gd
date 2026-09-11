@@ -30,6 +30,8 @@ const FLAGS := {
 	"--loot-run": "diagnostic: expected loot from clearing the first four dungeons, quit",
 	"--swim-test": "diagnostic: drop into the dungeon's deepest pool, swim up and along, quit",
 	"--host": "host a co-op session from the start (with --dungeon= the dungeon opens at once)",
+	"--port=": "<n>           co-op on this UDP port instead of 24601 (a second session beside a live one)",
+	"--no-upnp": "co-op: do not ask the router to open the port",
 	"--join=": "<ip>          join a co-op session at that address from the start",
 	"--net-test": "diagnostic: with --host or --join=, report the session for 25 s, quit",
 	"--ally-test": "diagnostic: cast Valkyrie and Decoy, report and capture them, quit",

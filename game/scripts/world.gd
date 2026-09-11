@@ -15,6 +15,7 @@ var floor_y := -200.0
 var monsters: Array = []
 var puppet := false             # a replay drives the world (replay.gd)
 var _ghosts: Node3D             # other players' missiles, drawn only (net.gd)
+var _net_hits := 0              # joiner: blows landed on the host's creatures
 var _ghost_arrows: Array = []
 var arrows: Array = []
 var enemy_missiles: Array = []
@@ -652,12 +653,26 @@ func _net_test() -> void:
 		ev.physical_keycode = code
 		ev.pressed = down
 		Input.parse_input_event(ev)
-	for f in range(25 * 60):
+	# the host outlasts a joiner started a quarter minute after it
+	for f in range((45 if Net.is_host() else 22) * 60):
 		# both sides walk for a while, so poses and the stream carry something
-		if f == (5 if Net.is_client() else 12) * 60:
+		if f == (2 if Net.is_client() else 12) * 60:
 			hold.call(KEY_W, true)
-		if f == (8 if Net.is_client() else 15) * 60:
+		if f == (4 if Net.is_client() else 15) * 60:
 			hold.call(KEY_W, false)
+		# the joiner then stands before the first creature and shoots it: its
+		# life, as the host reports it, must fall
+		if Net.is_client() and f >= 6 * 60 and f < 18 * 60 and not monsters.is_empty() 				and is_instance_valid(monsters[0]):
+			var mob = monsters[0]
+			if f == 6 * 60:
+				var back: Vector3 = (player.global_position - mob.global_position).normalized()
+				player.global_position = mob.global_position + back * 3.0 + Vector3(0, 0.3, 0)
+				player.velocity = Vector3.ZERO
+			var to: Vector3 = mob.global_position + Vector3(0, 0.9, 0) - player.get_node("Camera3D").global_position
+			player.yaw = atan2(-to.x, -to.z)
+			player.pitch = clampf(asin(to.normalized().y), -0.7, 0.7)
+			if f % 40 == 0:
+				player._start_attack(0)
 		if Net.is_client() and f == 10 * 60 and not Net.remote_players().is_empty():
 			# a look at the host's Amazon, to shots/: the puppet and its name
 			var rp = Net.remote_players()[0]
@@ -673,12 +688,12 @@ func _net_test() -> void:
 			var others := []
 			for rp in Net.remote_players():
 				others.append("%s@%s" % [rp.pname, rp.global_position.snapped(Vector3(0.1, 0.1, 0.1))])
-			var mob = monsters[0] if not monsters.is_empty() else null
+			var mob = monsters[0] if not monsters.is_empty() and is_instance_valid(monsters[0]) else null
 			var mob_s := "%s@%s hp %.0f" % [mob.cname, mob.global_position.snapped(
 					Vector3(0.1, 0.1, 0.1)), mob.hp] if mob != null else "none"
-			print("NET-TEST %s t=%ds peers %d tick %d sent %d got %d applied %d me@%s others %s mob0 %s" % [
+			print("NET-TEST %s t=%ds peers %d tick %d sent %d got %d applied %d hits %d calls %d me@%s others %s mob0 %s" % [
 					role, f / 60, Net.player_count(), Replay.tick, Net._sent, Net._got,
-					Replay.live_received,
+					Replay.live_received, _net_hits, Net._calls,
 					player.global_position.snapped(Vector3(0.1, 0.1, 0.1)), others, mob_s])
 		await get_tree().physics_frame
 	print("NET-TEST %s done" % role)
@@ -1362,6 +1377,8 @@ func _hit_monster(mob: WowCreature, ranged: bool, extra: float, thrown := false,
 	if h["knock"]:
 		mob.knockback(mob.global_position - player.global_position)
 	gs.on_hit_dealt(h)
+	if mob.remote:
+		_net_hits += 1
 	mob.take_hit(parts)
 
 

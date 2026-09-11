@@ -432,6 +432,14 @@ func snapshot_line() -> Dictionary:
 	return line
 
 
+func creature_by_rid(rid: int):
+	## Host: the creature a joiner named (the stream's creature ids)
+	var mob = _creatures.get(rid)
+	if mob == null or not is_instance_valid(mob) or mob.is_queued_for_deletion():
+		return null
+	return mob
+
+
 func item_by_id(iid: int) -> GroundItem:
 	## Host: the drop a joiner named (the stream's item ids)
 	for inst_id in _item_ids:

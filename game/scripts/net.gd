@@ -27,7 +27,8 @@ signal start_refused(who: String, did: String, why: String)
 signal session_ended(why: String)     # this side is out of the session
 
 const APP := "dungeons-of-warcraft"
-const PORT := 24601
+const DEFAULT_PORT := 24601
+var port := DEFAULT_PORT              # --port=<n>: a session on another port
 const MAX_PLAYERS := 4
 const RENEW_SEC := 300.0
 const POSE_EVERY := 3                 # ticks between pose sends (20 Hz at 60)
@@ -63,6 +64,7 @@ var _renew_timer: Timer
 var _renewals := 0
 var _sent := 0
 var _got := 0
+var _calls := 0                       # host: creature calls received from joiners
 
 
 func _ready() -> void:
@@ -79,6 +81,8 @@ func _ready() -> void:
 	_renew_timer.timeout.connect(_renew_tick)
 	add_child(_renew_timer)
 	get_node("/root/GameState").equipment_changed.connect(_on_my_gear_changed)
+	if Cli.value("--port=") != "":
+		port = maxi(1024, Cli.value("--port=").to_int())
 
 
 func _on_my_gear_changed() -> void:
@@ -161,19 +165,22 @@ func host() -> String:
 	if role != Role.OFF:
 		return "already in a session"
 	peer = ENetMultiplayerPeer.new()
-	var err := peer.create_server(PORT, MAX_PLAYERS - 1, 8)
+	var err := peer.create_server(port, MAX_PLAYERS - 1, 8)
 	if err != OK:
 		peer = null
-		return "could not open UDP %d: %s (port in use?)" % [PORT, error_string(err)]
+		return "could not open UDP %d: %s (port in use?)" % [port, error_string(err)]
 	multiplayer.multiplayer_peer = peer
 	role = Role.HOST
 	roster = {1: _me()}
-	log_it("hosting on UDP %d; LAN addresses %s" % [PORT, ", ".join(_local_ips())])
+	log_it("hosting on UDP %d; LAN addresses %s" % [port, ", ".join(_local_ips())])
 	_set_status("Hosting. Looking up the public address ...")
 	var herr := _http.request("https://api.ipify.org/?format=text")
 	if herr != OK:
 		log_it("public ip lookup could not start (%s)" % error_string(herr))
-	_start_upnp()
+	if Cli.has("--no-upnp"):
+		_upnp_state = "failed"
+	else:
+		_start_upnp()
 	roster_changed.emit()
 	return ""
 
@@ -185,14 +192,14 @@ func join(ip: String) -> String:
 	if not ip.is_valid_ip_address():
 		return "'%s' is not an ip address" % ip
 	peer = ENetMultiplayerPeer.new()
-	var err := peer.create_client(ip, PORT, 8)
+	var err := peer.create_client(ip, port, 8)
 	if err != OK:
 		peer = null
 		return "could not start the connection: %s" % error_string(err)
 	multiplayer.multiplayer_peer = peer
 	role = Role.CLIENT
 	roster = {}
-	log_it("joining %s:%d" % [ip, PORT])
+	log_it("joining %s:%d" % [ip, port])
 	_set_status("Connecting to %s ... (a failure shows after about 10 s)" % ip)
 	return ""
 
@@ -302,13 +309,13 @@ func _on_server_disconnected() -> void:
 
 func _host_status() -> String:
 	var addr := public_ip if public_ip != "" else "(looking up the public address)"
-	var s := "Hosting on UDP %d. Friends join with %s" % [PORT, addr]
+	var s := "Hosting on UDP %d. Friends join with %s" % [port, addr]
 	if mapped:
 		s += " (router port opened)"
 	elif _upnp_state == "failed":
-		s += " (UPnP failed: forward UDP %d to this PC by hand)" % PORT
+		s += " (UPnP failed: forward UDP %d to this PC by hand)" % port
 	elif _upnp_state == "refused":
-		s += " (router refused the mapping: forward UDP %d by hand)" % PORT
+		s += " (router refused the mapping: forward UDP %d by hand)" % port
 	s += "\nOn this network: %s" % lan_addresses()
 	return s
 
@@ -554,10 +561,11 @@ func creature_call(rid: int, method: String, args: Array) -> void:
 	## A player's blow or skill effect on a creature, applied by the host
 	if not is_host() or world == null or not (method in CREATURE_METHODS):
 		return
-	if rid < 0 or rid >= world.monsters.size():
-		return
-	var mob = world.monsters[rid]
-	if mob == null or not is_instance_valid(mob):
+	# by the stream's creature id, fixed when the world was armed: the
+	# monsters array loses corpses, so its indices drift
+	_calls += 1
+	var mob = Replay.creature_by_rid(rid)
+	if mob == null:
 		return
 	mob.callv(method, args)
 
@@ -659,12 +667,12 @@ func _upnp_work() -> void:
 		call_deferred("_upnp_failed", "UPnP: a device answered but it is not a usable gateway")
 		return
 	var ext := _upnp.query_external_address()
-	var m := _upnp.add_port_mapping(PORT, PORT, APP, "UDP", 0)
+	var m := _upnp.add_port_mapping(port, port, APP, "UDP", 0)
 	call_deferred("_upnp_done", ext, m)
 
 
 func _upnp_renew() -> void:
-	call_deferred("_upnp_renewed", _upnp.add_port_mapping(PORT, PORT, APP, "UDP", 0))
+	call_deferred("_upnp_renewed", _upnp.add_port_mapping(port, port, APP, "UDP", 0))
 
 
 func _renew_tick() -> void:
@@ -686,7 +694,7 @@ func _upnp_done(ext: String, mapping_result: int) -> void:
 	if mapping_result == UPNP.UPNP_RESULT_SUCCESS:
 		mapped = true
 		_renew_timer.start()
-		log_it("UPnP: mapped UDP %d to this machine; router WAN %s" % [PORT, ext])
+		log_it("UPnP: mapped UDP %d to this machine; router WAN %s" % [port, ext])
 	else:
 		_upnp_state = "refused"
 		log_it("UPnP: port mapping refused (result %d)" % mapping_result)
@@ -704,7 +712,7 @@ func _upnp_failed(why: String) -> void:
 
 func _unmap() -> void:
 	if mapped and _upnp != null:
-		_upnp.delete_port_mapping(PORT, "UDP")
+		_upnp.delete_port_mapping(port, "UDP")
 		mapped = false
 
 
