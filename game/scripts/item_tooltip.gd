@@ -29,7 +29,8 @@ func _line(text: String, color: Color) -> void:
 	vbox.add_child(l)
 
 
-func show_item(entry: Dictionary, at: Vector2) -> void:
+func show_item(entry: Dictionary, at: Vector2, extra: Array = []) -> void:
+	## extra: [[text, color], ...] under the item's own lines (a vendor's price)
 	for c in vbox.get_children():
 		c.queue_free()
 	var db := get_node("/root/ItemDB")
@@ -51,6 +52,8 @@ func show_item(entry: Dictionary, at: Vector2) -> void:
 	else:
 		_line(base_name, Color.WHITE)
 		_base_lines(it, {})
+	for pair in extra:
+		_line(str(pair[0]), pair[1])
 	visible = true
 	await get_tree().process_frame
 	var sz := vbox.get_combined_minimum_size() + Vector2(24, 12)

@@ -108,11 +108,16 @@ Run `DungeonsOfWarcraft.exe`, create a character, pick Ragefire Chasm, go.
 | F9 | manual save |
 | 0 | draw every body's hitbox (a debug view) |
 
-A brazier a few steps into every dungeon is the Outpost: gamble gold on
-an unseen item (magic at least, sometimes far more), buy your skill or
-stat points back, and keep a stash of up to four pages that stays with
-the character. The pack opens beside it; click an item in the pack and
-then a stash cell to store it, click a stashed item to take it back.
+A few steps into every dungeon is the Outpost: Fizzwick, a goblin, to
+one side of the way in, and a chest to the other. Fizzwick gambles as
+Gheed did, on Diablo II's own trade screen: click a piece to buy it
+unseen (magic at least, sometimes far more), or press Sell and click an
+item in your pack to sell it (an item picked up in the pack and let go on
+his page sells too). His talk menu also buys your skill or stat points
+back and sells stash pages. The chest is your stash, Diablo II's 6-by-8
+page, up to four of them, kept with the character: click an item in the
+pack and then a stash cell to store it, click a stashed item to take it
+back.
 
 When a dungeon's final boss falls, a portal opens where it fell and leads
 to the next dungeon on the ladder; loot first, it waits. In co-op the

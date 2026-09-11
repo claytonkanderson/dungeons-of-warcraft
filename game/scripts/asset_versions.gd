@@ -6,7 +6,7 @@ class_name AssetVersions
 
 const STAGES := {
 	"d2:tables": 1,
-	"d2:ui": 1,
+	"d2:ui": 2,
 	"d2:missiles": 1,
 	"d2:amazon": 1,
 	"d2:paperdoll": 1,
@@ -18,6 +18,7 @@ const STAGES := {
 	"d2:sounds": 2,
 	"d2:setbonus": 1,
 	"wow:dungeons": 2,
+	"wow:outpost": 1,
 	"wow:backdrops": 1,
 	"wow:soundscape": 1,
 }

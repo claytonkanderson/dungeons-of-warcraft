@@ -12,7 +12,7 @@ caches inside the dungeon stage and needs no bump here.
 
 STAGES = {
     "d2:tables": 1,        # gamedata.json: skills, skilldesc, missiles, monsters
-    "d2:ui": 1,            # interface art, fonts' sheets
+    "d2:ui": 2,            # interface art, fonts' sheets (2: vendor + stash screens)
     "d2:missiles": 1,      # missile sprites
     "d2:amazon": 1,        # the Amazon's animation sheets
     "d2:paperdoll": 1,     # menu paperdoll layers
@@ -24,6 +24,7 @@ STAGES = {
     "d2:sounds": 2,        # sound effects (2: the item drop sounds)
     "d2:setbonus": 1,      # set bonuses
     "wow:dungeons": 2,     # every dungeon (2: liquid grids, texture fallbacks)
+    "wow:outpost": 1,      # the vendor and the stash chest by every entrance
     "wow:backdrops": 1,    # menu backdrops
     "wow:soundscape": 1,   # ambience and music
 }
@@ -31,8 +32,8 @@ STAGES = {
 # the D2 stages in the order the builder runs them; the WoW three follow
 ORDER = ["d2:tables", "d2:ui", "d2:missiles", "d2:amazon", "d2:paperdoll",
          "d2:layers", "d2:monsters", "d2:items", "d2:affixes", "d2:statdisplay",
-         "d2:sounds", "d2:setbonus", "wow:dungeons", "wow:backdrops",
-         "wow:soundscape"]
+         "d2:sounds", "d2:setbonus", "wow:dungeons", "wow:outpost",
+         "wow:backdrops", "wow:soundscape"]
 
 
 def stale(manifest):

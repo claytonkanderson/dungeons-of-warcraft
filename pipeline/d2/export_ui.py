@@ -111,6 +111,12 @@ def build():
         # the red '+' that lights the character / skills panel buttons while
         # points are unspent (frames: lit, pressed, dim)
         ('levelplus', 'data\\global\\ui\\PANEL\\level.dc6'),
+        # the vendor screen's buttons (buy, sell, repair, ?, close, arrows,
+        # check, repair all: idle and pressed pairs), its page tabs, and
+        # the stash's gold-coin button
+        ('buysellbtn', 'data\\global\\ui\\PANEL\\buysellbtn.dc6'),
+        ('buyselltabs', 'data\\global\\ui\\PANEL\\buyselltabs.DC6'),
+        ('goldcoinbtn', 'data\\global\\ui\\PANEL\\goldcoinbtn.dc6'),
     ]:
         try:
             sheet, meta = simple_sheet(path)
@@ -127,6 +133,9 @@ def build():
                     offsets=[0, 165, 293, 421, 549, 683])
     composite_pages('data\\global\\ui\\PANEL\\invchar6.dc6', 'invchar')
     composite_pages('data\\global\\ui\\SPELLS\\skltree_a_back.DC6', 'skltree')
+    # the vendor's trade screen and the expansion stash, for the Outpost
+    composite_pages('data\\global\\ui\\PANEL\\buysell.DC6', 'buysell')
+    composite_pages('data\\global\\ui\\PANEL\\TradeStash.dc6', 'tradestash')
     export_orbs()
 
 

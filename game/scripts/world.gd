@@ -124,16 +124,45 @@ func _open_door(d: Dictionary, boom := false, silent := false) -> void:
 		hud_node.show_area("%s opens" % d["name"], Color(0.9, 0.82, 0.6), 2.5)
 
 
-func _try_interact() -> bool:
+func _usable_index() -> int:
+	## What E acts on: of the unused interactables in reach, the one the
+	## crosshair is nearest to when any sits in the view's middle, else
+	## the closest. The goblin and his chest stand a step apart, so the
+	## nearest alone kept naming him while the player looked at the chest.
+	var cam: Camera3D = player.get_node("Camera3D") if player != null else null
+	var best := -1
+	var best_d := INTERACT_RANGE
+	var best_aimed := -1
+	var best_ang := 0.45
 	for i in range(interactables.size()):
 		var it: Dictionary = interactables[i]
 		if it["used"]:
 			continue
 		var node: Node3D = it["node"]
-		if player.global_position.distance_to(node.global_position) > INTERACT_RANGE:
+		var d: float = player.global_position.distance_to(node.global_position)
+		if d > INTERACT_RANGE:
 			continue
-		if str(it["kind"]) == "shop":
-			_ui_action("ui:shop")
+		if d < best_d:
+			best_d = d
+			best = i
+		if cam != null:
+			var to: Vector3 = node.global_position + Vector3(0, 0.5, 0) - cam.global_position
+			var ang: float = (-cam.global_transform.basis.z).angle_to(to)
+			if ang < best_ang:
+				best_ang = ang
+				best_aimed = i
+	return best_aimed if best_aimed >= 0 else best
+
+
+func _try_interact() -> bool:
+	var i := _usable_index()
+	if i >= 0:
+		var it: Dictionary = interactables[i]
+		if str(it["kind"]) == "vendor":
+			_open_npc_menu()
+			return true
+		if str(it["kind"]) == "stash":
+			_ui_action("ui:stash")
 			return true
 		if str(it["kind"]) == "portal":
 			if Net.is_client():
@@ -214,8 +243,10 @@ var inv_ui: InventoryUI
 var tree_ui: SkillTreeUI
 var char_ui: CharSheet
 var menu_ui: MenuUI
-var shop_ui                     # ShopUI (shop_ui.gd), by path: a new class_name is not cached yet
-var outpost: Node3D             # the brazier by the entrance: E opens the shop
+var vendor_ui                   # the goblin's trade screen (vendor_ui.gd), by path
+var stash_ui                    # the stash page (stash_ui.gd), by path
+var npc_menu                    # the goblin's talk menu (npc_menu.gd), by path
+var outpost: Node3D             # the goblin and the chest by the entrance (outpost.gd)
 var force_labels := false
 var _shot_dir := ""
 var _at_override := Vector3.INF
@@ -325,9 +356,16 @@ func _ready() -> void:
 	menu_ui = MenuUI.new()
 	menu_ui.world = self
 	add_child(menu_ui)
-	shop_ui = load("res://scripts/shop_ui.gd").new()
-	shop_ui.world = self
-	add_child(shop_ui)
+	vendor_ui = load("res://scripts/vendor_ui.gd").new()
+	vendor_ui.world = self
+	add_child(vendor_ui)
+	stash_ui = load("res://scripts/stash_ui.gd").new()
+	stash_ui.world = self
+	add_child(stash_ui)
+	npc_menu = load("res://scripts/npc_menu.gd").new()
+	npc_menu.world = self
+	add_child(npc_menu)
+	inv_ui.sibling_panels = [vendor_ui, stash_ui]
 	_spawn_outpost()
 	player.action_skill = [str(gs._saved_action[0]), str(gs._saved_action[1])]
 	hud_node.show_area(get_node("/root/Dungeons").display_name(gs.current_dungeon))
@@ -630,19 +668,24 @@ func _ui_test() -> void:
 
 
 func _shop_test() -> void:
-	## At the Outpost with a purse: gamble one offer, respec both ways,
-	## buy a stash page, stash an item and take it back, capture the panel.
+	## At the Outpost with a purse: capture the goblin and the chest, open
+	## his menu, gamble a piece, sell one, respec both ways, buy a stash
+	## page, stash an item and take it back; capture both screens.
 	var gs := get_node("/root/GameState")
 	gs.gold = 60000
 	gs.skills["Magic Arrow"] = 3
 	gs.stat.str += 5
 	for w in range(20):
 		await get_tree().physics_frame
-	print("SHOP-TEST outpost at %s, player at %s, %.1f m apart" % [
-			outpost.global_position.snapped(Vector3(0.1, 0.1, 0.1)),
+	var vendor: Node3D = outpost.vendor
+	print("SHOP-TEST goblin at %s, chest at %s, player at %s, %.1f m from the goblin" % [
+			vendor.global_position.snapped(Vector3(0.1, 0.1, 0.1)),
+			outpost.stash.global_position.snapped(Vector3(0.1, 0.1, 0.1)),
 			player.global_position.snapped(Vector3(0.1, 0.1, 0.1)),
-			outpost.global_position.distance_to(player.global_position)])
-	var to: Vector3 = outpost.global_position + Vector3(0, 1.4, 0) - player.get_node("Camera3D").global_position
+			vendor.global_position.distance_to(player.global_position)])
+	print("SHOP-TEST goblin bounds %s, chest bounds %s" % [
+			outpost.extent(vendor), outpost.extent(outpost.stash)])
+	var to: Vector3 = vendor.global_position + Vector3(0, 0.9, 0) - player.get_node("Camera3D").global_position
 	player.yaw = atan2(-to.x, -to.z)
 	player.pitch = clampf(asin(to.normalized().y), -0.6, 0.6)
 	for w in range(3):
@@ -650,33 +693,52 @@ func _shop_test() -> void:
 	var shots := ProjectSettings.globalize_path("res://../shots")
 	DirAccess.make_dir_recursive_absolute(shots)
 	await Cli.capture(get_viewport(), shots + "/outpost.png")
-	if not _try_interact():
-		print("SHOP-TEST the brazier is out of reach")
-		return
-	print("SHOP-TEST shop open %s, inventory open %s, offers %d" % [
-			shop_ui.open, inv_ui.open, shop_ui._offers.size()])
+	# and the chest, to the other side
+	to = outpost.stash.global_position + Vector3(0, 0.4, 0) - player.get_node("Camera3D").global_position
+	player.yaw = atan2(-to.x, -to.z)
+	player.pitch = clampf(asin(to.normalized().y), -0.6, 0.6)
+	for w in range(3):
+		await get_tree().process_frame
+	await Cli.capture(get_viewport(), shots + "/stash_chest.png")
+	_open_npc_menu()
+	for w in range(3):
+		await get_tree().process_frame
+	await Cli.capture(get_viewport(), shots + "/npc_menu.png")
+	npc_menu.close()
+	_ui_action("ui:vendor")
+	print("SHOP-TEST vendor open %s, inventory open %s, stock %d" % [
+			vendor_ui.open, inv_ui.open, vendor_ui._offers.size()])
 	var before: int = gs.gold
 	var n0: int = gs.inv_items.size()
-	shop_ui._gamble(shop_ui._offers[0])
+	vendor_ui._gamble(vendor_ui._offers[0])
 	print("SHOP-TEST gamble: %s; gold %d -> %d, pack %d -> %d items" % [
-			shop_ui._status.text, before, gs.gold, n0, gs.inv_items.size()])
+			vendor_ui.name_field.text, before, gs.gold, n0, gs.inv_items.size()])
+	if gs.inv_items.size() > 0:
+		var last: Dictionary = gs.inv_items[gs.inv_items.size() - 1]
+		before = gs.gold
+		vendor_ui._sell(last)
+		print("SHOP-TEST sell: %s; gold %d -> %d, pack %d items" % [
+				vendor_ui.name_field.text, before, gs.gold, gs.inv_items.size()])
+	for w in range(3):
+		await get_tree().process_frame
+	await Cli.capture(get_viewport(), shots + "/vendor.png")
 	var sp: int = gs.skill_points
-	shop_ui._respec_skills()
-	print("SHOP-TEST %s; skill points %d -> %d" % [shop_ui._status.text, sp, gs.skill_points])
+	print("SHOP-TEST %s; skill points %d -> %d" % [vendor_ui.respec_skills(), sp, gs.skill_points])
 	var st: int = gs.stat_points
-	shop_ui._respec_stats()
-	print("SHOP-TEST %s; stat points %d -> %d, str %d" % [shop_ui._status.text, st, gs.stat_points, gs.stat.str])
-	shop_ui._buy_page()
-	print("SHOP-TEST %s; pages %d" % [shop_ui._status.text, gs.stash_pages])
+	print("SHOP-TEST %s; stat points %d -> %d, str %d" % [vendor_ui.respec_stats(), st, gs.stat_points, gs.stat.str])
+	print("SHOP-TEST %s; pages %d" % [vendor_ui.buy_page(), gs.stash_pages])
+	_ui_action("ui:vendor")
+	_ui_action("ui:stash")
+	print("SHOP-TEST stash open %s, inventory open %s" % [stash_ui.open, inv_ui.open])
 	if not gs.inv_items.is_empty():
 		var ent = gs.inv_items[0]
 		var ok: bool = gs.stash_put(ent, 1, 0, 0)
 		print("SHOP-TEST stashed %s on page 2: %s (stash %d)" % [ent.get("code"), ok, gs.stash_items.size()])
-		shop_ui._page = 1
-		shop_ui.refresh()
+		stash_ui.page = 1
+		stash_ui._refresh()
 		for w in range(3):
 			await get_tree().process_frame
-		await Cli.capture(get_viewport(), shots + "/shop.png")
+		await Cli.capture(get_viewport(), shots + "/stash.png")
 		var back: bool = gs.stash_take(ent)
 		print("SHOP-TEST taken back: %s (stash %d, pack %d)" % [back, gs.stash_items.size(), gs.inv_items.size()])
 
@@ -2110,15 +2172,39 @@ func on_session_lost(why: String) -> void:
 
 
 func _spawn_outpost() -> void:
-	## The Outpost's brazier a few steps into the dungeon from the
-	## entrance, to one side of the way in
-	outpost = load("res://scripts/outpost.gd").new()
+	## The Outpost a few steps into the dungeon from the entrance: the
+	## goblin to one side of the way in, the stash chest to the other
+	var script: GDScript = load("res://scripts/outpost.gd")
+	outpost = script.new()
 	add_child(outpost)
-	var fwd := Vector3(-sin(spawn_yaw), 0.0, -cos(spawn_yaw))
-	var side := Vector3(cos(spawn_yaw), 0.0, -sin(spawn_yaw))
-	outpost.global_position = spawn + fwd * 2.0 + side * 1.9
-	outpost.setup()
-	interactables.append({"kind": "shop", "name": "The Outpost", "node": outpost, "used": false})
+	outpost.setup(spawn, spawn_yaw)
+	interactables.append({"kind": "vendor", "name": script.VENDOR_TITLE,
+			"node": outpost.vendor, "used": false})
+	interactables.append({"kind": "stash", "name": script.STASH_TITLE,
+			"node": outpost.stash, "used": false})
+
+
+func _open_npc_menu() -> void:
+	## the goblin's talk menu: what he offers and what it costs
+	var gs := get_node("/root/GameState")
+	var opts: Array = [
+		{"label": "Gamble", "cb": func(): _ui_action("ui:vendor")},
+		{"label": "Reset Skills  (%d gold)" % vendor_ui.respec_price(),
+				"cb": func(): _outpost_word(vendor_ui.respec_skills())},
+		{"label": "Reset Stats  (%d gold)" % vendor_ui.respec_price(),
+				"cb": func(): _outpost_word(vendor_ui.respec_stats())},
+	]
+	if gs.stash_pages < vendor_ui.MAX_PAGES:
+		opts.append({"label": "Buy a Stash Page  (%d gold)" % vendor_ui.page_price(),
+				"cb": func(): _outpost_word(vendor_ui.buy_page())})
+	var script: GDScript = load("res://scripts/outpost.gd")
+	npc_menu.show_menu(script.VENDOR_TITLE, opts)
+	_sync_ui()
+
+
+func _outpost_word(s: String) -> void:
+	if hud_node != null:
+		hud_node.show_area(s, Color(0.9, 0.82, 0.6), 2.5)
 
 
 func spawn_portal(at: Vector3, did: String) -> void:
@@ -2769,7 +2855,9 @@ func _sync_ui() -> void:
 			or (tree_ui != null and tree_ui.open) \
 			or (char_ui != null and char_ui.open) \
 			or (menu_ui != null and menu_ui.open) \
-			or (shop_ui != null and shop_ui.open)
+			or (vendor_ui != null and vendor_ui.open) \
+			or (stash_ui != null and stash_ui.open) \
+			or (npc_menu != null and npc_menu.open)
 	if player == null:
 		return
 	player.ui_locked = any_open
@@ -2855,17 +2943,24 @@ func _ui_action(act: String) -> void:
 			if char_ui != null:
 				char_ui.toggle()
 				_sync_ui()
-		"ui:shop":
-			# the pack opens beside the shop, so the stash can be filled
-			if shop_ui != null:
-				shop_ui.toggle()
-				if inv_ui != null and inv_ui.open != shop_ui.open:
+		"ui:vendor":
+			# the pack opens beside the goblin's page, for selling
+			if vendor_ui != null:
+				vendor_ui.toggle()
+				if inv_ui != null and inv_ui.open != vendor_ui.open:
+					inv_ui.toggle()
+				_sync_ui()
+		"ui:stash":
+			# and beside the stash, for moving items across
+			if stash_ui != null:
+				stash_ui.toggle()
+				if inv_ui != null and inv_ui.open != stash_ui.open:
 					inv_ui.toggle()
 				_sync_ui()
 		"ui:esc":
 			# Esc closes panels first; with nothing open it toggles the menu
 			var closed := false
-			for panel in [shop_ui, inv_ui, tree_ui, char_ui]:
+			for panel in [npc_menu, vendor_ui, stash_ui, inv_ui, tree_ui, char_ui]:
 				if panel != null and panel.open:
 					panel.toggle()
 					closed = true
@@ -2914,15 +3009,9 @@ func _process(_dt: float) -> void:
 		hud_node.hide_target()
 	# name whatever E would act on from here
 	var use_name := ""
-	var use_d := INTERACT_RANGE
-	for it in interactables:
-		if it["used"]:
-			continue
-		var ud: float = player.global_position.distance_to(
-				(it["node"] as Node3D).global_position)
-		if ud < use_d:
-			use_d = ud
-			use_name = str(it["name"])
+	var use_i := _usable_index()
+	if use_i >= 0:
+		use_name = str(interactables[use_i]["name"])
 	if use_name != "":
 		hud_node.show_interact(use_name)
 	elif aimed_item != null:

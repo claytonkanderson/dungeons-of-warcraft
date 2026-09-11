@@ -44,7 +44,9 @@ The Diablo II stages decode the MPQ archives: game tables, interface art,
 missile sprites, the Amazon animation sheets, paperdoll layers, the item
 catalog and its art, uniques, sets and affixes, the stat text and bitmap
 fonts, sound effects. The WoW stages open the CASC storage and build each
-configured dungeon, then the menu backdrops and the soundscape.
+configured dungeon, then the Outpost's two models (the goblin vendor and
+the stash chest that stand by every entrance), the menu backdrops and the
+soundscape.
 
 Individual stages, for iterating on one thing:
 
@@ -52,6 +54,7 @@ Individual stages, for iterating on one thing:
 python pipeline/build_dungeon.py --dungeon shadowfang-keep    # or --all
 python pipeline/build_creatures.py --dungeon deadmines          # models + stats
 python pipeline/build_creatures.py --dungeon deadmines --stats-only
+python pipeline/build_outpost.py                               # the Outpost's goblin vendor and stash chest
 python pipeline/build_backdrops.py                             # the menu backdrops
 python pipeline/build_audio.py
 python pipeline/d2/build_assets.py                             # every D2 stage
@@ -180,7 +183,7 @@ run_game.bat -- --join=127.0.0.1 --net-test                # co-op probe: join i
 run_game.bat -- --ally-test --dungeon=deadmines            # cast Valkyrie and Decoy, report and capture them
 run_game.bat -- --hitboxes --dungeon=deadmines             # start with every body's capsule drawn (0 toggles it in play)
 run_game.bat -- --portal-test --dungeon=ragefire-chasm     # fell the final boss, capture the portal, go through, report the arrival
-run_game.bat -- --shop-test --dungeon=deadmines            # at the Outpost: gamble, respec, buy a stash page, stash an item, capture
+run_game.bat -- --shop-test --dungeon=deadmines            # at the Outpost: the goblin's menu, gamble, sell, respec, buy a stash page, stash an item, capture
 run_game.bat -- --host --port=24611 --no-upnp --net-test   # a probe session on another port, beside a live one
 run_game.bat -- --topdown=<abs path>.png   # a view straight down on the whole dungeon
 run_game.bat -- --tour=90                   # a recorded survey glide (python tour_videos.py renders one per dungeon)

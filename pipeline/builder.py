@@ -442,11 +442,13 @@ def run_wow_stages(only="", jobs=0, only_stages=None):
     import build_dungeon
     import build_audio
     import build_backdrops
+    import build_outpost
     import build_parallel
     from casc import Storage
     from dungeon_config import DUNGEONS
     want = lambda k: only_stages is None or k in only_stages
-    if not (want("wow:dungeons") or want("wow:backdrops") or want("wow:soundscape")):
+    if not (want("wow:dungeons") or want("wow:outpost") or want("wow:backdrops")
+            or want("wow:soundscape")):
         return
     stage("World of Warcraft: opening the local game storage")
     s = Storage()
@@ -487,6 +489,10 @@ def run_wow_stages(only="", jobs=0, only_stages=None):
         os.environ.pop("DOW_PARALLEL", None)
         if all(results.values()):
             _mark_done("wow:dungeons")
+    if want("wow:outpost"):
+        stage("World of Warcraft: the Outpost's vendor and stash")
+        build_outpost.build(s)
+        _mark_done("wow:outpost")
     if want("wow:backdrops"):
         stage("World of Warcraft: menu backdrops")
         build_backdrops.build(s)
@@ -504,6 +510,8 @@ def wow_stage_count(only="", only_stages=None):
     n = 0
     if want("wow:dungeons"):
         n += 1 if only else len(DUNGEONS) + 1
+    if want("wow:outpost"):
+        n += 1
     if want("wow:backdrops"):
         n += 1
     if want("wow:soundscape"):

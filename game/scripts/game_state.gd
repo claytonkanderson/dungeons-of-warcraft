@@ -1014,10 +1014,10 @@ const POTION_MANA := {"mp1": 20, "mp2": 40, "mp3": 80, "mp4": 150, "mp5": 250}
 
 var belt: Array = [{}, {}, {}, {}]     # {code, count} per slot
 var stash_items: Array = []            # same entry shape as inv_items, plus "page"
-var stash_pages := 1                   # bought at the Outpost, up to ShopUI.MAX_PAGES
+var stash_pages := 1                   # bought from the goblin, up to four
 
-const STASH_W := 10
-const STASH_H := 4
+const STASH_W := 6                     # Diablo II's expansion stash page
+const STASH_H := 8
 
 
 func stash_fits(page: int, x: int, y: int, w: int, h: int, ignore = null) -> bool:
@@ -1042,6 +1042,31 @@ func stash_put(entry: Dictionary, page: int, x: int, y: int) -> bool:
 	stash_items.append(entry)
 	inventory_changed.emit()
 	return true
+
+
+func _stash_refit() -> void:
+	## the stash page went from 10x4 to D2's 6x8: whatever no longer sits
+	## inside a page is re-placed, else handed to the pack, else lost
+	var old: Array = stash_items
+	stash_items = []
+	for item in old:
+		var it: Dictionary = item
+		var page := int(it.get("page", 0))
+		if stash_fits(page, int(it.x), int(it.y), int(it.w), int(it.h)):
+			stash_items.append(it)
+			continue
+		var placed := false
+		for p in range(stash_pages):
+			for y in range(STASH_H):
+				for x in range(STASH_W):
+					if not placed and stash_fits(p, x, y, int(it.w), int(it.h)):
+						it["page"] = p
+						it.x = x
+						it.y = y
+						stash_items.append(it)
+						placed = true
+		if not placed and not inv_try_add(str(it.get("code", "")), it.get("inst", {})):
+			push_warning("stash: no room anywhere for %s; lost" % str(it.get("code", "")))
 
 
 func stash_take(entry: Dictionary) -> bool:
@@ -1486,6 +1511,7 @@ func apply(d: Dictionary, player) -> void:
 	belt = d.get("belt", [{}, {}, {}, {}])
 	stash_items = d.get("stash", [])
 	stash_pages = clampi(int(d.get("stash_pages", 1)), 1, 4)
+	_stash_refit()
 	hotkeys = d.get("hotkeys", {})
 	char_name = str(d.get("name", char_name))
 	dungeons_done = d.get("dungeons_done", [])

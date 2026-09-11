@@ -35,6 +35,8 @@ var open := false
 var panel: D2Panel
 var gold_field: D2Field
 var carried = null            # inventory entry being moved
+var click_hook: Callable      # a page beside this one takes item clicks first (the goblin's Sell)
+var sibling_panels: Array = []   # pages a carried item may be let go on (the goblin's, the stash)
 var _item_nodes := []
 var tooltip_card: ItemTooltip
 
@@ -120,6 +122,8 @@ func _refresh() -> void:
 
 
 func _on_item_clicked(it) -> void:
+	if click_hook.is_valid() and click_hook.call(it):
+		return
 	if carried == null:
 		carried = it
 	elif carried == it:
@@ -139,6 +143,11 @@ func _input(e: InputEvent) -> void:
 		return
 	if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT \
 			and carried != null:
+		# a click on another open page is that page's to handle (sold to the
+		# goblin, stored in the stash), not a drop on the ground
+		for sib in sibling_panels:
+			if sib != null and sib.open and sib.panel.get_global_rect().has_point(e.position):
+				return
 		# the panel's local position is in screen pixels; the page is native
 		var local: Vector2 = panel.get_local_mouse_position() / panel.k
 		if not Rect2(Vector2.ZERO, D2Panel.NATIVE).has_point(local):
