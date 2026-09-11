@@ -180,6 +180,7 @@ run_game.bat -- --join=127.0.0.1 --net-test                # co-op probe: join i
 run_game.bat -- --ally-test --dungeon=deadmines            # cast Valkyrie and Decoy, report and capture them
 run_game.bat -- --hitboxes --dungeon=deadmines             # start with every body's capsule drawn (0 toggles it in play)
 run_game.bat -- --portal-test --dungeon=ragefire-chasm     # fell the final boss, capture the portal, go through, report the arrival
+run_game.bat -- --shop-test --dungeon=deadmines            # at the Outpost: gamble, respec, buy a stash page, stash an item, capture
 run_game.bat -- --host --port=24611 --no-upnp --net-test   # a probe session on another port, beside a live one
 run_game.bat -- --topdown=<abs path>.png   # a view straight down on the whole dungeon
 run_game.bat -- --tour=90                   # a recorded survey glide (python tour_videos.py renders one per dungeon)

@@ -108,6 +108,12 @@ Run `DungeonsOfWarcraft.exe`, create a character, pick Ragefire Chasm, go.
 | F9 | manual save |
 | 0 | draw every body's hitbox (a debug view) |
 
+A brazier a few steps into every dungeon is the Outpost: gamble gold on
+an unseen item (magic at least, sometimes far more), buy your skill or
+stat points back, and keep a stash of up to four pages that stays with
+the character. The pack opens beside it; click an item in the pack and
+then a stash cell to store it, click a stashed item to take it back.
+
 When a dungeon's final boss falls, a portal opens where it fell and leads
 to the next dungeon on the ladder; loot first, it waits. In co-op the
 host's step through it takes everyone.

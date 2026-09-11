@@ -132,6 +132,9 @@ func _try_interact() -> bool:
 		var node: Node3D = it["node"]
 		if player.global_position.distance_to(node.global_position) > INTERACT_RANGE:
 			continue
+		if str(it["kind"]) == "shop":
+			_ui_action("ui:shop")
+			return true
 		if str(it["kind"]) == "portal":
 			if Net.is_client():
 				if hud_node != null:
@@ -211,6 +214,8 @@ var inv_ui: InventoryUI
 var tree_ui: SkillTreeUI
 var char_ui: CharSheet
 var menu_ui: MenuUI
+var shop_ui                     # ShopUI (shop_ui.gd), by path: a new class_name is not cached yet
+var outpost: Node3D             # the brazier by the entrance: E opens the shop
 var force_labels := false
 var _shot_dir := ""
 var _at_override := Vector3.INF
@@ -320,6 +325,10 @@ func _ready() -> void:
 	menu_ui = MenuUI.new()
 	menu_ui.world = self
 	add_child(menu_ui)
+	shop_ui = load("res://scripts/shop_ui.gd").new()
+	shop_ui.world = self
+	add_child(shop_ui)
+	_spawn_outpost()
 	player.action_skill = [str(gs._saved_action[0]), str(gs._saved_action[1])]
 	hud_node.show_area(get_node("/root/Dungeons").display_name(gs.current_dungeon))
 	get_node("/root/Music").set_dungeon(str(gs.current_dungeon))
@@ -425,6 +434,9 @@ func _ready() -> void:
 		get_tree().quit()
 	elif OS.get_cmdline_user_args().has("--portal-test"):
 		await _portal_test()
+	elif OS.get_cmdline_user_args().has("--shop-test"):
+		await _shop_test()
+		get_tree().quit()
 	elif OS.get_cmdline_user_args().has("--replay-test"):
 		await _replay_test()
 		get_tree().quit()
@@ -615,6 +627,58 @@ func _ui_test() -> void:
 	toggle_menu()
 	await _ui_shot(shots + "/ui_menu.png")
 	print("ui captures done")
+
+
+func _shop_test() -> void:
+	## At the Outpost with a purse: gamble one offer, respec both ways,
+	## buy a stash page, stash an item and take it back, capture the panel.
+	var gs := get_node("/root/GameState")
+	gs.gold = 60000
+	gs.skills["Magic Arrow"] = 3
+	gs.stat.str += 5
+	for w in range(20):
+		await get_tree().physics_frame
+	print("SHOP-TEST outpost at %s, player at %s, %.1f m apart" % [
+			outpost.global_position.snapped(Vector3(0.1, 0.1, 0.1)),
+			player.global_position.snapped(Vector3(0.1, 0.1, 0.1)),
+			outpost.global_position.distance_to(player.global_position)])
+	var to: Vector3 = outpost.global_position + Vector3(0, 1.4, 0) - player.get_node("Camera3D").global_position
+	player.yaw = atan2(-to.x, -to.z)
+	player.pitch = clampf(asin(to.normalized().y), -0.6, 0.6)
+	for w in range(3):
+		await get_tree().process_frame
+	var shots := ProjectSettings.globalize_path("res://../shots")
+	DirAccess.make_dir_recursive_absolute(shots)
+	await Cli.capture(get_viewport(), shots + "/outpost.png")
+	if not _try_interact():
+		print("SHOP-TEST the brazier is out of reach")
+		return
+	print("SHOP-TEST shop open %s, inventory open %s, offers %d" % [
+			shop_ui.open, inv_ui.open, shop_ui._offers.size()])
+	var before: int = gs.gold
+	var n0: int = gs.inv_items.size()
+	shop_ui._gamble(shop_ui._offers[0])
+	print("SHOP-TEST gamble: %s; gold %d -> %d, pack %d -> %d items" % [
+			shop_ui._status.text, before, gs.gold, n0, gs.inv_items.size()])
+	var sp: int = gs.skill_points
+	shop_ui._respec_skills()
+	print("SHOP-TEST %s; skill points %d -> %d" % [shop_ui._status.text, sp, gs.skill_points])
+	var st: int = gs.stat_points
+	shop_ui._respec_stats()
+	print("SHOP-TEST %s; stat points %d -> %d, str %d" % [shop_ui._status.text, st, gs.stat_points, gs.stat.str])
+	shop_ui._buy_page()
+	print("SHOP-TEST %s; pages %d" % [shop_ui._status.text, gs.stash_pages])
+	if not gs.inv_items.is_empty():
+		var ent = gs.inv_items[0]
+		var ok: bool = gs.stash_put(ent, 1, 0, 0)
+		print("SHOP-TEST stashed %s on page 2: %s (stash %d)" % [ent.get("code"), ok, gs.stash_items.size()])
+		shop_ui._page = 1
+		shop_ui.refresh()
+		for w in range(3):
+			await get_tree().process_frame
+		await Cli.capture(get_viewport(), shots + "/shop.png")
+		var back: bool = gs.stash_take(ent)
+		print("SHOP-TEST taken back: %s (stash %d, pack %d)" % [back, gs.stash_items.size(), gs.inv_items.size()])
 
 
 func _portal_test() -> void:
@@ -2045,6 +2109,18 @@ func on_session_lost(why: String) -> void:
 			get_tree().change_scene_to_file("res://scenes/menu.tscn"))
 
 
+func _spawn_outpost() -> void:
+	## The Outpost's brazier a few steps into the dungeon from the
+	## entrance, to one side of the way in
+	outpost = load("res://scripts/outpost.gd").new()
+	add_child(outpost)
+	var fwd := Vector3(-sin(spawn_yaw), 0.0, -cos(spawn_yaw))
+	var side := Vector3(cos(spawn_yaw), 0.0, -sin(spawn_yaw))
+	outpost.global_position = spawn + fwd * 2.0 + side * 1.9
+	outpost.setup()
+	interactables.append({"kind": "shop", "name": "The Outpost", "node": outpost, "used": false})
+
+
 func spawn_portal(at: Vector3, did: String) -> void:
 	## The way to the next dungeon where the final boss fell. It waits: the
 	## pile gets picked up first. E within reach goes through; in co-op the
@@ -2692,7 +2768,8 @@ func _sync_ui() -> void:
 	var any_open: bool = (inv_ui != null and inv_ui.open) \
 			or (tree_ui != null and tree_ui.open) \
 			or (char_ui != null and char_ui.open) \
-			or (menu_ui != null and menu_ui.open)
+			or (menu_ui != null and menu_ui.open) \
+			or (shop_ui != null and shop_ui.open)
 	if player == null:
 		return
 	player.ui_locked = any_open
@@ -2778,10 +2855,17 @@ func _ui_action(act: String) -> void:
 			if char_ui != null:
 				char_ui.toggle()
 				_sync_ui()
+		"ui:shop":
+			# the pack opens beside the shop, so the stash can be filled
+			if shop_ui != null:
+				shop_ui.toggle()
+				if inv_ui != null and inv_ui.open != shop_ui.open:
+					inv_ui.toggle()
+				_sync_ui()
 		"ui:esc":
 			# Esc closes panels first; with nothing open it toggles the menu
 			var closed := false
-			for panel in [inv_ui, tree_ui, char_ui]:
+			for panel in [shop_ui, inv_ui, tree_ui, char_ui]:
 				if panel != null and panel.open:
 					panel.toggle()
 					closed = true

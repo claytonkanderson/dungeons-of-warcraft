@@ -1013,7 +1013,81 @@ const POTION_HEAL := {"hp1": 30, "hp2": 60, "hp3": 100, "hp4": 180, "hp5": 320}
 const POTION_MANA := {"mp1": 20, "mp2": 40, "mp3": 80, "mp4": 150, "mp5": 250}
 
 var belt: Array = [{}, {}, {}, {}]     # {code, count} per slot
-var stash_items: Array = []            # same entry shape as inv_items
+var stash_items: Array = []            # same entry shape as inv_items, plus "page"
+var stash_pages := 1                   # bought at the Outpost, up to ShopUI.MAX_PAGES
+
+const STASH_W := 10
+const STASH_H := 4
+
+
+func stash_fits(page: int, x: int, y: int, w: int, h: int, ignore = null) -> bool:
+	if x < 0 or y < 0 or x + w > STASH_W or y + h > STASH_H or page < 0 or page >= stash_pages:
+		return false
+	for it in stash_items:
+		if it == ignore or int(it.get("page", 0)) != page:
+			continue
+		if x < it.x + it.w and it.x < x + w and y < it.y + it.h and it.y < y + h:
+			return false
+	return true
+
+
+func stash_put(entry: Dictionary, page: int, x: int, y: int) -> bool:
+	## an inventory entry into the stash at a cell
+	if not inv_items.has(entry) or not stash_fits(page, x, y, entry.w, entry.h):
+		return false
+	inv_items.erase(entry)
+	entry["page"] = page
+	entry.x = x
+	entry.y = y
+	stash_items.append(entry)
+	inventory_changed.emit()
+	return true
+
+
+func stash_take(entry: Dictionary) -> bool:
+	## a stashed entry back into the pack, wherever it fits
+	if not stash_items.has(entry):
+		return false
+	if not inv_try_add(str(entry.get("code", "")), entry.get("inst", {})):
+		return false
+	stash_items.erase(entry)
+	inventory_changed.emit()
+	return true
+
+
+# ---------------------------------------------------------------------------
+# Respec: the points back, for gold at the Outpost
+# ---------------------------------------------------------------------------
+const BASE_STAT := {"str": 20, "dex": 25, "vit": 20, "ene": 15}   # the Amazon's
+
+
+func respec_skills() -> int:
+	## every skill point back; returns how many
+	var n := 0
+	for k in skills:
+		n += int(skills[k])
+	skills = {}
+	skill_points += n
+	for hk in hotkeys.keys():
+		if skill_level(str(hotkeys[hk])) <= 0 and not (str(hotkeys[hk]) in ["Attack", "Throw"]):
+			hotkeys.erase(hk)
+	_recalc()
+	skills_changed.emit()
+	return n
+
+
+func respec_stats() -> int:
+	## every stat point back; returns how many
+	var n := 0
+	for k in BASE_STAT:
+		n += maxi(0, int(stat.get(k, BASE_STAT[k])) - int(BASE_STAT[k]))
+		stat[k] = int(BASE_STAT[k])
+	stat_points += n
+	_recalc()
+	hp = minf(hp, hp_max)
+	mana = minf(mana, mana_max)
+	hp_changed.emit()
+	return n
 
 
 func is_potion(code: String) -> bool:
@@ -1357,7 +1431,7 @@ func snapshot(player) -> Dictionary:
 		"inv": inv_items, "hp": hp, "mana": mana,
 		"stat_points": stat_points, "equipped": equipped,
 		"current_level": current_level, "waypoints": waypoints,
-		"belt": belt, "stash": stash_items, "hotkeys": hotkeys,
+		"belt": belt, "stash": stash_items, "stash_pages": stash_pages, "hotkeys": hotkeys,
 		"dungeons_done": dungeons_done, "current_dungeon": current_dungeon,
 	}
 	# progression only, never position: a dungeon is always entered at
@@ -1411,6 +1485,7 @@ func apply(d: Dictionary, player) -> void:
 	mana = float(d.get("mana", mana_max))
 	belt = d.get("belt", [{}, {}, {}, {}])
 	stash_items = d.get("stash", [])
+	stash_pages = clampi(int(d.get("stash_pages", 1)), 1, 4)
 	hotkeys = d.get("hotkeys", {})
 	char_name = str(d.get("name", char_name))
 	dungeons_done = d.get("dungeons_done", [])
