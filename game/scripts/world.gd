@@ -15,6 +15,7 @@ var floor_y := -200.0
 var monsters: Array = []
 var puppet := false             # a replay drives the world (replay.gd)
 var _ghosts: Node3D             # other players' missiles, drawn only (net.gd)
+var portal: Node3D              # the way to the next dungeon, once the final boss falls
 var show_hitboxes := false      # 0: every body's capsule drawn (--hitboxes at start)
 var _arrow_sphere := SphereShape3D.new()   # an arrow's breadth for the creature test
 var _net_hits := 0              # joiner: blows landed on the host's creatures
@@ -131,6 +132,13 @@ func _try_interact() -> bool:
 		var node: Node3D = it["node"]
 		if player.global_position.distance_to(node.global_position) > INTERACT_RANGE:
 			continue
+		if str(it["kind"]) == "portal":
+			if Net.is_client():
+				if hud_node != null:
+					hud_node.show_area("The host opens the way", Color(0.6, 0.85, 1.0), 2.0)
+			else:
+				travel(str(it["node"].did))
+			return true
 		if Net.is_client():
 			# the host opens it and the stream shows it opened
 			it["used"] = true
@@ -249,7 +257,10 @@ func _ready() -> void:
 	# leave the geometry and the game state naming different dungeons.
 	Cli.warn_unknown()
 	var did := Cli.value("--dungeon=")
+	if did != "" and Net.dungeon_flag_used:
+		did = ""                 # the flag picks the first dungeon only; a portal moves on
 	if did != "":
+		Net.dungeon_flag_used = true
 		var dg := get_node("/root/Dungeons")
 		if dg.entry(did).is_empty():
 			printerr("unknown dungeon '%s' — staying in %s." % [did, gs.current_dungeon])
@@ -333,6 +344,7 @@ func _ready() -> void:
 	player.refresh_attack_style()
 	if Net.active():
 		Net.attach_world(self)
+		Net.launched.connect(_on_launched)
 		hud_node.show_area("Co-op: %d in the session" % Net.player_count(),
 				Color(0.8, 0.9, 0.6), 3.0)
 
@@ -411,6 +423,8 @@ func _ready() -> void:
 	elif OS.get_cmdline_user_args().has("--ally-test"):
 		await _ally_test()
 		get_tree().quit()
+	elif OS.get_cmdline_user_args().has("--portal-test"):
+		await _portal_test()
 	elif OS.get_cmdline_user_args().has("--replay-test"):
 		await _replay_test()
 		get_tree().quit()
@@ -601,6 +615,71 @@ func _ui_test() -> void:
 	toggle_menu()
 	await _ui_shot(shots + "/ui_menu.png")
 	print("ui captures done")
+
+
+func _portal_test() -> void:
+	## Fell the final boss from where the player stands, capture the portal
+	## that opens, walk through, and report the dungeon on the far side.
+	var gs := get_node("/root/GameState")
+	if Net.portal_probe == 1:
+		print("PORTAL-TEST arrived in %s (done: %s)" % [gs.current_dungeon, gs.dungeons_done])
+		get_tree().quit()
+		return
+	Net.portal_probe = 1
+	var boss = null
+	for mob in monsters:
+		if mob is WowCreature and mob.is_final_boss:
+			boss = mob
+			break
+	if boss == null:
+		print("PORTAL-TEST no final boss in %s" % gs.current_dungeon)
+		get_tree().quit()
+		return
+	if Net.is_host():
+		# give a joiner time to arrive, so the portal reaches it too
+		for f in range(40 * 60):
+			if Net.player_count() > 1:
+				break
+			await get_tree().physics_frame
+		for f in range(15 * 60):
+			await get_tree().physics_frame
+	if Net.is_client():
+		# the host fells the boss; wait for the way to open, then follow
+		for f in range(60 * 60):
+			if portal != null:
+				break
+			await get_tree().physics_frame
+	else:
+		print("PORTAL-TEST felling %s in %s" % [boss.cname, gs.current_dungeon])
+		boss.take_damage(1.0e9)
+		for f in range(30):
+			await get_tree().physics_frame
+	if portal == null:
+		print("PORTAL-TEST no portal opened")
+		get_tree().quit()
+		return
+	var at: Vector3 = portal.global_position
+	var back: Vector3 = (player.global_position - at).normalized()
+	player.global_position = at + back * 2.2 + Vector3(0, 0.3, 0)
+	player.velocity = Vector3.ZERO
+	var to: Vector3 = at + Vector3(0, 1.3, 0) - player.get_node("Camera3D").global_position
+	player.yaw = atan2(-to.x, -to.z)
+	player.pitch = clampf(asin(to.normalized().y), -0.6, 0.6)
+	for f in range(20):
+		await get_tree().process_frame
+	var shots := ProjectSettings.globalize_path("res://../shots")
+	DirAccess.make_dir_recursive_absolute(shots)
+	await Cli.capture(get_viewport(), shots + "/portal.png")
+	print("PORTAL-TEST portal to '%s'; stepping through" % str(portal.did))
+	if not _try_interact():
+		print("PORTAL-TEST nothing to interact with")
+		get_tree().quit()
+	elif Net.is_client():
+		# the host's step moves the party; a joiner that is never moved reports
+		for f in range(60 * 60):
+			await get_tree().physics_frame
+		print("PORTAL-TEST the host never went through")
+		get_tree().quit()
 
 
 func _ally_test() -> void:
@@ -1944,6 +2023,14 @@ func _on_monster_died(dead: WowCreature) -> void:
 		on_dungeon_complete()
 		if Net.is_host():
 			Net.dungeon_complete.rpc()
+		var gsn := get_node("/root/GameState")
+		var next_id: String = get_node("/root/Dungeons").next_playable(gsn.dungeons_done)
+		if next_id == gsn.current_dungeon:
+			next_id = ""          # the ladder ends here: nowhere further to go
+		var at: Vector3 = dead.global_position + Vector3(0, 0.05, 0)
+		spawn_portal(at, next_id)
+		if Net.is_host():
+			Net.open_portal.rpc(at, next_id)
 
 
 func on_session_lost(why: String) -> void:
@@ -1956,6 +2043,48 @@ func on_session_lost(why: String) -> void:
 	t.timeout.connect(func():
 		if is_inside_tree():
 			get_tree().change_scene_to_file("res://scenes/menu.tscn"))
+
+
+func spawn_portal(at: Vector3, did: String) -> void:
+	## The way to the next dungeon where the final boss fell. It waits: the
+	## pile gets picked up first. E within reach goes through; in co-op the
+	## host's step takes everyone, a joiner's E only says so.
+	if portal != null and is_instance_valid(portal):
+		return
+	portal = load("res://scripts/portal.gd").new()
+	add_child(portal)
+	portal.global_position = at
+	var dg := get_node("/root/Dungeons")
+	portal.setup(did, dg.display_name(did) if did != "" else "")
+	interactables.append({"kind": "portal", "name": "Portal to %s" % dg.display_name(did)
+			if did != "" else "Portal (the ladder is climbed)", "node": portal, "used": false})
+	if hud_node != null:
+		hud_node.show_area("The way on opens", Color(0.6, 0.85, 1.0), 4.0)
+
+
+func travel(did: String) -> void:
+	## Through the portal: this character's save, then the next dungeon;
+	## the host takes the whole session along (net.gd go), a joiner
+	## follows the host's step
+	var gs := get_node("/root/GameState")
+	gs.save_game(player)
+	if did == "":
+		if hud_node != null:
+			hud_node.show_area("Every dungeon on the ladder is done", Color(0.6, 0.85, 1.0), 4.0)
+		return
+	if Net.is_host():
+		Net.switching = true
+		Net.request_start(did)          # go() reaches this world as launched
+	elif not Net.is_client():
+		gs.enter_dungeon(did)
+		get_tree().change_scene_to_file("res://scenes/world.tscn")
+
+
+func _on_launched(did: String) -> void:
+	## the session moves on (the host went through the portal)
+	Net.switching = true
+	get_node("/root/GameState").enter_dungeon(did)
+	get_tree().change_scene_to_file.call_deferred("res://scenes/world.tscn")
 
 
 func on_dungeon_complete() -> void:

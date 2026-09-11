@@ -108,6 +108,10 @@ Run `DungeonsOfWarcraft.exe`, create a character, pick Ragefire Chasm, go.
 | F9 | manual save |
 | 0 | draw every body's hitbox (a debug view) |
 
+When a dungeon's final boss falls, a portal opens where it fell and leads
+to the next dungeon on the ladder; loot first, it waits. In co-op the
+host's step through it takes everyone.
+
 ## Playing together
 
 Up to four can clear a dungeon together, straight between your machines.

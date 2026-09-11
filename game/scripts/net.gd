@@ -55,6 +55,9 @@ var session_dungeon := ""
 var last_error := ""                  # for the menu after a drop
 
 var world = null                      # the World while in a dungeon
+var switching := false                # the party is moving to the next dungeon, not the lobby
+var portal_probe := 0                 # --portal-test: which leg of the trip this is
+var dungeon_flag_used := false        # --dungeon= applied once, to the first world
 var remote := {}                      # peer id -> RemotePlayer
 var _pending := {}                    # host: did -> {peer id: bool}
 var _upnp: UPNP
@@ -460,9 +463,10 @@ func leave_dungeon() -> void:
 	## The world is closing on this side. The host's closing sends everyone
 	## back to the lobby; a joiner's own closing is just that joiner's.
 	detach_world()
-	if is_host():
+	if is_host() and not switching:
 		session_dungeon = ""
 		back_to_lobby.rpc()
+	switching = false
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -668,6 +672,13 @@ func interact(index: int) -> void:
 func dungeon_complete() -> void:
 	if world != null:
 		world.on_dungeon_complete()
+
+
+@rpc("authority", "call_remote", "reliable")
+func open_portal(pos: Vector3, did: String) -> void:
+	## the host's final boss fell: the way on stands where it did, here too
+	if world != null:
+		world.spawn_portal(pos, did)
 
 
 @rpc("any_peer", "call_remote", "reliable")

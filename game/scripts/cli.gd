@@ -37,6 +37,7 @@ const FLAGS := {
 	"--ally-test": "diagnostic: cast Valkyrie and Decoy, report and capture them, quit",
 	"--hitboxes": "start with the creature hitboxes drawn (the 0 key toggles them in play)",
 	"--no-update": "do not look for a newer release or stale assets at the menu",
+	"--portal-test": "diagnostic: fell the final boss, capture the portal, walk through, report the arrival, quit",
 	"--after-rebuild": "setup.exe just rebuilt the assets: report what is still stale instead of rebuilding again",
 	"--mob-shot=": "<entry>    diagnostic: capture a creature alive and dead, quit",
 	"--mob-name=": "<name>     with --mob-shot: match by name instead",
@@ -71,7 +72,7 @@ static func hide_window() -> void:
 	# frames: the perf probe and the combat test keep their off-desktop
 	# window open instead (launch those through offdesk.bat / perf.bat)
 	if not has("--perf-test") and not has("--combat-test") and not has("--swim-test") \
-			and not has("--net-test") and not has("--ally-test"):
+			and not has("--net-test") and not has("--ally-test") and not has("--portal-test"):
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_MINIMIZED)
 
 

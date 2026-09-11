@@ -581,6 +581,8 @@ func _sample_world(line: Dictionary) -> void:
 		line["d"] = opened
 	# chests, veins and cannons used (the joiners' prompts drop them)
 	var used: Array = []
+	while _used.size() < world.interactables.size():
+		_used.append(false)      # the portal joins the list when the boss falls
 	for i in range(world.interactables.size()):
 		var u := bool(world.interactables[i]["used"])
 		if u and not _used[i]:
