@@ -373,6 +373,7 @@ def run_d2_stages():
         ("missile sprites", export_missiles.build),
         ("Amazon animation sheets", export_amazon.build),
         ("menu paperdoll layers", export_paperdoll.build),
+        ("Amazon gear layers for co-op", export_paperdoll.build_layers),
         ("summon sprites", lambda: (
             setattr(export_monsters, "ROSTER", {"VK": "valkyrie"}),
             export_monsters.build())),
@@ -393,7 +394,7 @@ def run_d2_stages():
     export_setbonus.main()
 
 
-D2_STAGE_COUNT = 11      # the stages above plus set bonuses
+D2_STAGE_COUNT = 12      # the stages above plus set bonuses
 
 
 def run_wow_stages(only="", jobs=0):
