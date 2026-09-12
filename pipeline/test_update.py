@@ -3,6 +3,15 @@
   python pipeline/test_update.py --local     # against this checkout's own build
   python pipeline/test_update.py             # against the release on GitHub
   python pipeline/test_update.py --no-launch # stage only
+  python pipeline/test_update.py --serve     # build the whole release, serve it, wait
+
+--serve is the player's test: it builds the release in full (game and
+setup.exe, as build_dist.py would publish it), serves it from 127.0.0.1
+and keeps serving until Ctrl+C. A game installed from an older release's
+zip, started with
+    DungeonsOfWarcraft.exe -- --update-url=http://127.0.0.1:8765/latest.json
+then updates itself from it exactly as it would from GitHub, setup and
+stale-asset rebuild included.
 
 --local needs nothing published: the checkout's current version is
 exported and zipped, a small web server on 127.0.0.1 serves it with a
@@ -86,6 +95,8 @@ def main():
     ap.add_argument("--no-launch", action="store_true", help="stage the folder only")
     ap.add_argument("--local", action="store_true",
                     help="serve this checkout's build from 127.0.0.1 as the latest release")
+    ap.add_argument("--serve", action="store_true",
+                    help="build the full release, serve it from 127.0.0.1, wait for Ctrl+C")
     args = ap.parse_args()
     src = VERSION_GD.read_text()
     m = re.search(r'VERSION := "(\d+)\.(\d+)\.(\d+)"', src)
@@ -102,6 +113,26 @@ def main():
         lower = f"{major - 1}.9.9"
     else:
         sys.exit("0.0.0 has nothing below it; bump the version first")
+    if args.serve:
+        sys.path.insert(0, str(HERE))
+        import build_dist
+        print(f"building the {cur} release in full (game, setup.exe, docs)")
+        r = subprocess.run([sys.executable, str(HERE / "build_dist.py"), "--no-zip"])
+        if r.returncode != 0:
+            sys.exit("the release build failed (see above)")
+        zip_path = build_dist.make_zip()
+        srv, update_url = serve_local(zip_path, cur)
+        print(f"\nserving {zip_path.name} as release v{cur} at {update_url}")
+        print("start an installed older game with:\n"
+              f"    DungeonsOfWarcraft.exe -- --update-url={update_url}\n"
+              "Ctrl+C here when done")
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            pass
+        _stop(srv)
+        return
     if not (DIST / "setup.exe").exists():
         sys.exit(f"build the release first: {DIST} is missing setup.exe "
                  "(python pipeline/build_dist.py --only setup --no-zip)")

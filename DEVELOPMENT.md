@@ -287,7 +287,11 @@ the same build.
    (the script prints both hashes). Without `--local` the same test runs
    against the release on GitHub, so it can confirm a publish; the
    restarted game never carries the flag, so it asks GitHub as usual.
-   `--no-launch` only stages the folder.
+   `--no-launch` only stages the folder. `--serve` is the player's test:
+   it builds the whole release (game and setup.exe) and serves it until
+   Ctrl+C; a game installed from an older release's zip and started with
+   `DungeonsOfWarcraft.exe -- --update-url=http://127.0.0.1:8765/latest.json`
+   then updates from it exactly as from GitHub, stale-asset rebuild included.
 
 ## Recording and replaying a session
 
