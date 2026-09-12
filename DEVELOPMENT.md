@@ -282,7 +282,7 @@ the same build.
    GitHub's, exports a throwaway executable stamped one version lower
    into `dist/updtest` with the checkout's assets linked in, and launches
    that with `--update-url=` pointing at the local listing. At the menu
-   it should say "Updating to <version>: downloading", restart, and the
+   a dialog should say "Updating to <version>", download, restart, and the
    folder's executable should then match `dist/DungeonsOfWarcraft/`'s
    (the script prints both hashes). Without `--local` the same test runs
    against the release on GitHub, so it can confirm a publish; the

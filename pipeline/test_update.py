@@ -22,7 +22,7 @@ after the swap it asks GitHub as usual (and finds nothing newer).
 Exports a throwaway game executable stamped one patch version below the
 checkout's, puts it in dist/updtest beside the current setup.exe with the
 checkout's assets linked in (so no rebuild is triggered), and starts it.
-At the menu the game should say "Updating to <version>: downloading",
+At the menu a dialog should say "Updating to <version>", download,
 restart, and come back as the released build: the script waits, then
 compares the folder's executable with dist/DungeonsOfWarcraft/'s. The
 checkout's version.gd is restored either way.
@@ -170,10 +170,10 @@ def main():
     stamp = (TEST / "DungeonsOfWarcraft.exe").stat().st_mtime
     print(f"staged {TEST}: executable {old} ({lower}); the release build is {released} ({cur})")
     if args.no_launch:
-        print("launch dist/updtest/DungeonsOfWarcraft.exe and watch the menu's bottom line")
+        print("launch dist/updtest/DungeonsOfWarcraft.exe and watch the menu's update dialog")
         return
 
-    print("launching; the menu should say 'Updating to %s: downloading', then restart" % cur)
+    print("launching; a dialog on the menu should say 'Updating to %s', download, then restart" % cur)
     # detached, as a double-click would start it: the game's own updater
     # script then owns the restart
     cmd = [str(TEST / "DungeonsOfWarcraft.exe")]
@@ -199,7 +199,7 @@ def main():
             print("close that game window when you are done; dist/updtest can be deleted")
             _stop(srv)
             return
-    print("the executable did not change in two minutes: check the menu's bottom line "
+    print("the executable did not change in two minutes: check the menu's dialog or bottom line "
           "and %APPDATA%\\Godot\\app_userdata\\Dungeons of Warcraft\\logs\\godot.log")
     _stop(srv)
 

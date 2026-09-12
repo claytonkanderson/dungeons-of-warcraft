@@ -11,10 +11,15 @@ const AssetInfo := preload("res://scripts/asset_versions.gd")
 ## this build expects (asset_versions.gd against _build/assets/
 ## build_manifest.json); when any stage is older or missing, setup.exe is
 ## started to redo those stages and start the game after, and this process
-## exits. Offline, or in a checkout, nothing happens. A line on the menu
-## says what is going on; nothing asks.
+## exits. Offline, or in a checkout, nothing happens. While the release is
+## being looked up, downloaded or swapped in, `phase` is set and the menu
+## shows a dialog over itself and takes no clicks: nobody enters a dungeon
+## on a build that is about to restart. Failures and the "updated to" note
+## are a line at the bottom of the menu (`status`); nothing asks.
 
 signal status_changed
+
+const CHECK_TIMEOUT := 5.0       # offline resolves at once; this bounds a half-dead network
 
 const REPO := "claytonkanderson/dungeons-of-warcraft"
 const API := "https://api.github.com/repos/" + REPO + "/releases/latest"
@@ -23,6 +28,11 @@ const SHIPPED := ["DungeonsOfWarcraft.exe", "setup.exe"]
 
 var status := ""
 var busy := false                # a download is in flight: stay on the menu
+var phase := ""                  # "checking", "downloading", "restarting": the menu waits on a dialog
+var phase_tag := ""              # the version being fetched
+var progress := -1.0             # of the download, 0..1 (-1: size unknown)
+var got_mb := 0.0
+var total_mb := 0.0
 var _checked := false
 var _http: HTTPRequest
 var _dl: HTTPRequest
@@ -34,6 +44,34 @@ func _say(s: String) -> void:
 	status_changed.emit()
 	if s != "":
 		print("update: " + s)
+
+
+func blocking() -> bool:
+	return phase != ""
+
+
+func _set_phase(p: String, tag := "") -> void:
+	phase = p
+	phase_tag = tag
+	busy = p != ""
+	if p != "":
+		print("update: %s %s" % [p, tag])
+	status_changed.emit()
+
+
+func _process(_dt: float) -> void:
+	## the download's progress, for the dialog (a quarter megabyte at a time)
+	if phase != "downloading" or _dl == null:
+		return
+	var got := _dl.get_downloaded_bytes()
+	var total := _dl.get_body_size()
+	var mb := got / 1048576.0
+	if absf(mb - got_mb) < 0.25 and total_mb > 0.0:
+		return
+	got_mb = mb
+	total_mb = total / 1048576.0 if total > 0 else 0.0
+	progress = (float(got) / float(total)) if total > 0 else -1.0
+	status_changed.emit()
 
 
 func packaged() -> bool:
@@ -55,14 +93,24 @@ func start() -> void:
 	if str(st.last_version) != "" and str(st.last_version) != VersionInfo.VERSION:
 		_say("Updated to %s" % VersionInfo.VERSION)
 	st.set_last_version(VersionInfo.VERSION)
+	if Cli.has("--fake-update"):
+		# a menu shot of the dialog: a download a third of the way in
+		_set_phase("downloading", "9.9.9")
+		got_mb = 26.4
+		total_mb = 71.3
+		progress = 0.37
+		status_changed.emit()
+		return
 	if not packaged() or Cli.has("--no-update"):
 		return
+	# the swap script of a finished update stays behind: tidy it
+	DirAccess.remove_absolute(exe_dir().path_join(UPDATE_DIR).path_join("apply.cmd"))
 	if _apply_pending():
 		return
 	_failed_tag = _read_failed()
-	_say("Checking for updates ...")
+	_set_phase("checking")
 	_http = HTTPRequest.new()
-	_http.timeout = 8.0
+	_http.timeout = CHECK_TIMEOUT
 	add_child(_http)
 	_http.request_completed.connect(_on_latest)
 	# a local stand-in for the release lookup (test_update.py --local serves
@@ -71,19 +119,19 @@ func start() -> void:
 	var err := _http.request(api, ["User-Agent: DungeonsOfWarcraft/" + VersionInfo.VERSION,
 			"Accept: application/vnd.github+json"])
 	if err != OK:
-		_say("")
+		_set_phase("")
 		_check_assets()
 
 
 func _on_latest(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
 		# offline, rate-limited, or no release yet: play this version
-		_say("")
+		_set_phase("")
 		_check_assets()
 		return
 	var d: Variant = JSON.parse_string(body.get_string_from_utf8())
 	if not (d is Dictionary):
-		_say("")
+		_set_phase("")
 		_check_assets()
 		return
 	var tag := str(d.get("tag_name", "")).trim_prefix("v")
@@ -94,18 +142,21 @@ func _on_latest(result: int, code: int, _headers: PackedStringArray, body: Packe
 			break
 	if tag != "" and url != "" and VersionInfo.newer(tag, VersionInfo.VERSION):
 		if tag == _failed_tag:
+			_set_phase("")
 			_say("Update %s could not be installed last time; playing %s" % [tag, VersionInfo.VERSION])
 			_check_assets()
 			return
 		_download(url, tag)
 	else:
-		_say("")
+		_set_phase("")
 		_check_assets()
 
 
 func _download(url: String, tag: String) -> void:
-	busy = true
-	_say("Updating to %s: downloading ..." % tag)
+	got_mb = 0.0
+	total_mb = 0.0
+	progress = -1.0
+	_set_phase("downloading", tag)
 	var dir := exe_dir().path_join(UPDATE_DIR)
 	DirAccess.make_dir_recursive_absolute(dir)
 	_dl = HTTPRequest.new()
@@ -115,14 +166,14 @@ func _download(url: String, tag: String) -> void:
 	_dl.request_completed.connect(_on_zip.bind(tag))
 	var err := _dl.request(url, ["User-Agent: DungeonsOfWarcraft/" + VersionInfo.VERSION])
 	if err != OK:
-		busy = false
+		_set_phase("")
 		_say("Update download could not start; playing %s" % VersionInfo.VERSION)
 		_check_assets()
 
 
 func _on_zip(result: int, code: int, _headers: PackedStringArray, _body: PackedByteArray,
 		tag: String) -> void:
-	busy = false
+	_set_phase("")
 	var dir := exe_dir().path_join(UPDATE_DIR)
 	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
 		_say("Update download failed; playing %s" % VersionInfo.VERSION)
@@ -229,9 +280,10 @@ func _apply(tag: String) -> void:
 		return
 	f.store_string("\r\n".join(lines) + "\r\n")
 	f.close()
-	_say("Updating to %s: restarting ..." % tag)
+	_set_phase("restarting", tag)
 	var id := OS.create_process("cmd.exe", ["/c", ProjectSettings.globalize_path(cmd)])
 	if id <= 0:
+		_set_phase("")
 		_say("Could not start the updater; playing %s" % VersionInfo.VERSION)
 		_check_assets()
 		return

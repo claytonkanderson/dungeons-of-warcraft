@@ -50,6 +50,14 @@ var _host_btn: Button
 var _join_btn: Button
 var _joining := false           # JOIN pressed: the address field is up
 var _update_lbl: Label
+var _update_dlg: Control          # over everything while the updater works: nothing else takes a click
+var _dlg_title: Label
+var _dlg_text: Label
+var _dlg_note: Label
+var _dlg_bar: ColorRect
+var _dlg_fill: ColorRect
+const DLG_W := 520.0
+const DLG_H := 150.0
 
 @onready var gs := get_node("/root/GameState")
 @onready var dg := get_node("/root/Dungeons")
@@ -326,6 +334,7 @@ func _build() -> void:
 	_update_lbl.size = Vector2(700, 18)
 	_update_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	add_child(_update_lbl)
+	_build_update_dialog()
 	var ver := _label("v" + VersionInfo.VERSION, 13, GREY)
 	ver.position = Vector2(1060, 700)
 	ver.size = Vector2(190, 18)
@@ -574,9 +583,98 @@ func _refresh() -> void:
 	_lobby_refresh()
 
 
+func _build_update_dialog() -> void:
+	## A dark plate mid-screen with what the updater is doing, over a dim
+	## layer that swallows every click: the menu waits until the game is
+	## current (or knows it cannot be), and a player never walks into a
+	## dungeon on a build that is about to restart.
+	_update_dlg = Control.new()
+	_update_dlg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_update_dlg.mouse_filter = Control.MOUSE_FILTER_STOP
+	_update_dlg.visible = false
+	add_child(_update_dlg)
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.62)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_update_dlg.add_child(dim)
+	var at := Vector2((1280.0 - DLG_W) * 0.5, (720.0 - DLG_H) * 0.5)
+	var plate := ColorRect.new()
+	plate.color = Color(0.024, 0.02, 0.016, 0.96)
+	plate.position = at
+	plate.size = Vector2(DLG_W, DLG_H)
+	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_update_dlg.add_child(plate)
+	var edge := ReferenceRect.new()
+	edge.border_color = Color(0.33, 0.27, 0.14, 0.9)
+	edge.border_width = 1.0
+	edge.editor_only = false
+	edge.position = at
+	edge.size = Vector2(DLG_W, DLG_H)
+	edge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_update_dlg.add_child(edge)
+	_dlg_title = _label("", 20, GOLD)
+	_dlg_title.position = at + Vector2(0, 18)
+	_dlg_title.size = Vector2(DLG_W, 28)
+	_update_dlg.add_child(_dlg_title)
+	_dlg_text = _label("", 15, WHITE)
+	_dlg_text.position = at + Vector2(0, 56)
+	_dlg_text.size = Vector2(DLG_W, 22)
+	_update_dlg.add_child(_dlg_text)
+	_dlg_bar = ColorRect.new()
+	_dlg_bar.color = Color(0.12, 0.1, 0.07)
+	_dlg_bar.position = at + Vector2(40, 90)
+	_dlg_bar.size = Vector2(DLG_W - 80, 10)
+	_dlg_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_update_dlg.add_child(_dlg_bar)
+	_dlg_fill = ColorRect.new()
+	_dlg_fill.color = GOLD
+	_dlg_fill.position = _dlg_bar.position
+	_dlg_fill.size = Vector2(0, 10)
+	_dlg_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_update_dlg.add_child(_dlg_fill)
+	_dlg_note = _label("", 13, GOLD_DIM)
+	_dlg_note.position = at + Vector2(0, 112)
+	_dlg_note.size = Vector2(DLG_W, 20)
+	_update_dlg.add_child(_dlg_note)
+
+
 func _update_line() -> void:
 	if _update_lbl != null:
 		_update_lbl.text = Updater.status
+	if _update_dlg == null:
+		return
+	var was: bool = _update_dlg.visible
+	_update_dlg.visible = Updater.blocking()
+	if was and not _update_dlg.visible:
+		_refresh()
+	if not _update_dlg.visible:
+		return
+	var bar_w: float = DLG_W - 80.0
+	match str(Updater.phase):
+		"checking":
+			_dlg_title.text = "CHECKING  FOR  UPDATES"
+			_dlg_text.text = "one moment"
+			_dlg_note.text = ""
+			_dlg_bar.visible = false
+			_dlg_fill.visible = false
+		"downloading":
+			_dlg_title.text = "UPDATING  TO  %s" % Updater.phase_tag
+			if Updater.total_mb > 0.0:
+				_dlg_text.text = "downloading  %.1f of %.1f MB" % [Updater.got_mb, Updater.total_mb]
+			else:
+				_dlg_text.text = "downloading  %.1f MB" % Updater.got_mb
+			_dlg_note.text = "the game restarts itself when the download is done"
+			_dlg_bar.visible = true
+			_dlg_fill.visible = Updater.progress >= 0.0
+			_dlg_fill.size.x = bar_w * clampf(Updater.progress, 0.0, 1.0)
+		"restarting":
+			_dlg_title.text = "UPDATING  TO  %s" % Updater.phase_tag
+			_dlg_text.text = "restarting ..."
+			_dlg_note.text = "the new version starts on its own in a moment"
+			_dlg_bar.visible = true
+			_dlg_fill.visible = true
+			_dlg_fill.size.x = bar_w
 
 
 func _pick_any_character() -> void:
@@ -728,6 +826,8 @@ func _enter(did: String) -> void:
 
 
 func _on_enter() -> void:
+	if Updater.blocking():
+		return
 	if Net.is_host():
 		Net.request_start(sel_dungeon)
 	elif Net.is_client():
