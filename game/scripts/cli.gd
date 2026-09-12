@@ -37,6 +37,7 @@ const FLAGS := {
 	"--ally-test": "diagnostic: cast Valkyrie and Decoy, report and capture them, quit",
 	"--hitboxes": "start with the creature hitboxes drawn (the 0 key toggles them in play)",
 	"--no-update": "do not look for a newer release or stale assets at the menu",
+	"--update-url=": "<url>   ask this address for the latest release instead of GitHub (test_update.py --local serves one)",
 	"--portal-test": "diagnostic: fell the final boss, capture the portal, walk through, report the arrival, quit",
 	"--shop-test": "diagnostic: at the Outpost, gamble, respec, buy a stash page, stash an item, capture, quit",
 	"--after-rebuild": "setup.exe just rebuilt the assets: report what is still stale instead of rebuilding again",

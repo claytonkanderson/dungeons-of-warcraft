@@ -65,7 +65,10 @@ func start() -> void:
 	_http.timeout = 8.0
 	add_child(_http)
 	_http.request_completed.connect(_on_latest)
-	var err := _http.request(API, ["User-Agent: DungeonsOfWarcraft/" + VersionInfo.VERSION,
+	# a local stand-in for the release lookup (test_update.py --local serves
+	# the checkout's own build as if it were the newest release)
+	var api := Cli.value("--update-url=", API)
+	var err := _http.request(api, ["User-Agent: DungeonsOfWarcraft/" + VersionInfo.VERSION,
 			"Accept: application/vnd.github+json"])
 	if err != OK:
 		_say("")

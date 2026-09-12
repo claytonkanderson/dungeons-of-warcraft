@@ -276,12 +276,18 @@ the same build.
    and creates the GitHub release with the zip attached (`gh` must be
    logged in: `winget install GitHub.cli`, then `gh auth login` once).
    `--only docs --publish` zips and publishes executables already built.
-4. `python pipeline/test_update.py` proves the loop: it exports a
-   throwaway executable stamped one version lower into `dist/updtest`
-   with the checkout's assets linked in and launches it. At the menu it
-   should say "Updating to <version>: downloading", restart, and the
+4. `python pipeline/test_update.py --local` proves the loop without
+   publishing anything: it exports and zips the checkout's current
+   version, serves it from 127.0.0.1 with a release listing shaped like
+   GitHub's, exports a throwaway executable stamped one version lower
+   into `dist/updtest` with the checkout's assets linked in, and launches
+   that with `--update-url=` pointing at the local listing. At the menu
+   it should say "Updating to <version>: downloading", restart, and the
    folder's executable should then match `dist/DungeonsOfWarcraft/`'s
-   (the script prints both hashes). `--no-launch` only stages it.
+   (the script prints both hashes). Without `--local` the same test runs
+   against the release on GitHub, so it can confirm a publish; the
+   restarted game never carries the flag, so it asks GitHub as usual.
+   `--no-launch` only stages the folder.
 
 ## Recording and replaying a session
 

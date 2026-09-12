@@ -1,7 +1,14 @@
-"""Prove the self-update against the published release.
+"""Prove the self-update, against the published release or locally.
 
-  python pipeline/test_update.py             # stage and launch
+  python pipeline/test_update.py --local     # against this checkout's own build
+  python pipeline/test_update.py             # against the release on GitHub
   python pipeline/test_update.py --no-launch # stage only
+
+--local needs nothing published: the checkout's current version is
+exported and zipped, a small web server on 127.0.0.1 serves it with a
+release listing shaped like GitHub's, and the throwaway is started with
+--update-url= pointing there. The game restarts without that flag, so
+after the swap it asks GitHub as usual (and finds nothing newer).
 
 Exports a throwaway game executable stamped one patch version below the
 checkout's, puts it in dist/updtest beside the current setup.exe with the
@@ -17,11 +24,15 @@ built with the current version.
 """
 import argparse
 import hashlib
+import http.server
+import json
 import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
+from functools import partial
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -29,6 +40,28 @@ ROOT = HERE.parent
 DIST = ROOT / "dist" / "DungeonsOfWarcraft"
 TEST = ROOT / "dist" / "updtest"
 VERSION_GD = ROOT / "game" / "scripts" / "version.gd"
+LOCAL_PORT = 8765
+
+
+class _Quiet(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+
+def serve_local(zip_path, version):
+    """dist/ over http on 127.0.0.1, with latest.json shaped like GitHub's
+    releases/latest so the updater reads it unchanged. Returns the server
+    (shut it down when done) and the listing's URL."""
+    listing = DIST.parent / "latest.json"
+    listing.write_text(json.dumps({
+        "tag_name": "v" + version,
+        "assets": [{"name": zip_path.name,
+                    "browser_download_url": f"http://127.0.0.1:{LOCAL_PORT}/{zip_path.name}"}],
+    }))
+    handler = partial(_Quiet, directory=str(DIST.parent))
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", LOCAL_PORT), handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv, f"http://127.0.0.1:{LOCAL_PORT}/latest.json"
 
 
 def md5(p):
@@ -51,6 +84,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--no-launch", action="store_true", help="stage the folder only")
+    ap.add_argument("--local", action="store_true",
+                    help="serve this checkout's build from 127.0.0.1 as the latest release")
     args = ap.parse_args()
     src = VERSION_GD.read_text()
     m = re.search(r'VERSION := "(\d+)\.(\d+)\.(\d+)"', src)
@@ -67,7 +102,20 @@ def main():
         lower = f"{major - 1}.9.9"
     else:
         sys.exit("0.0.0 has nothing below it; bump the version first")
-    if not (DIST / "DungeonsOfWarcraft.exe").exists() or not (DIST / "setup.exe").exists():
+    if not (DIST / "setup.exe").exists():
+        sys.exit(f"build the release first: {DIST} is missing setup.exe "
+                 "(python pipeline/build_dist.py --only setup --no-zip)")
+    srv, update_url = None, ""
+    if args.local:
+        # the checkout's current version, zipped as build_dist.py ships it
+        sys.path.insert(0, str(HERE))
+        import build_dist
+        print(f"exporting the checkout at {cur} as the release to serve")
+        export()
+        zip_path = build_dist.make_zip()
+        srv, update_url = serve_local(zip_path, cur)
+        print(f"serving {zip_path.name} at {update_url}")
+    if not (DIST / "DungeonsOfWarcraft.exe").exists():
         sys.exit(f"build the release first: {DIST} is missing the executables")
     released = md5(DIST / "DungeonsOfWarcraft.exe")
 
@@ -97,7 +145,10 @@ def main():
     print("launching; the menu should say 'Updating to %s: downloading', then restart" % cur)
     # detached, as a double-click would start it: the game's own updater
     # script then owns the restart
-    subprocess.Popen([str(TEST / "DungeonsOfWarcraft.exe")], cwd=str(TEST),
+    cmd = [str(TEST / "DungeonsOfWarcraft.exe")]
+    if update_url:
+        cmd += ["--", "--update-url=" + update_url]
+    subprocess.Popen(cmd, cwd=str(TEST),
                      creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
                      close_fds=True)
     for i in range(24):
@@ -115,9 +166,20 @@ def main():
             print(f"after {5 * (i + 1)} s the folder's executable is the release build: "
                   f"the update applied and the game restarted itself")
             print("close that game window when you are done; dist/updtest can be deleted")
+            _stop(srv)
             return
     print("the executable did not change in two minutes: check the menu's bottom line "
           "and %APPDATA%\\Godot\\app_userdata\\Dungeons of Warcraft\\logs\\godot.log")
+    _stop(srv)
+
+
+def _stop(srv):
+    if srv is not None:
+        srv.shutdown()
+        try:
+            (DIST.parent / "latest.json").unlink()
+        except OSError:
+            pass
 
 
 if __name__ == "__main__":
