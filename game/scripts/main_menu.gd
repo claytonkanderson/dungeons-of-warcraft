@@ -56,8 +56,15 @@ var _dlg_text: Label
 var _dlg_note: Label
 var _dlg_bar: ColorRect
 var _dlg_fill: ColorRect
-const DLG_W := 520.0
-const DLG_H := 150.0
+var _dlg_notes_head: Label
+var _dlg_notes_date: Label
+var _dlg_notes: Label
+var _dlg_rule: ColorRect
+var _dlg_plate: ColorRect
+var _dlg_edge: ReferenceRect
+const DLG_W := 560.0
+const DLG_H := 430.0             # with a release's notes under the progress
+const DLG_SLIM_H := 150.0        # with nothing to tell (checking, or notes-less)
 
 @onready var gs := get_node("/root/GameState")
 @onready var dg := get_node("/root/Dungeons")
@@ -587,7 +594,9 @@ func _build_update_dialog() -> void:
 	## A dark plate mid-screen with what the updater is doing, over a dim
 	## layer that swallows every click: the menu waits until the game is
 	## current (or knows it cannot be), and a player never walks into a
-	## dungeon on a build that is about to restart.
+	## dungeon on a build that is about to restart. While a release
+	## downloads, its notes ("what changed") sit on the plate too, so the
+	## wait says what it is for.
 	_update_dlg = Control.new()
 	_update_dlg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_update_dlg.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -598,45 +607,83 @@ func _build_update_dialog() -> void:
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_update_dlg.add_child(dim)
-	var at := Vector2((1280.0 - DLG_W) * 0.5, (720.0 - DLG_H) * 0.5)
-	var plate := ColorRect.new()
-	plate.color = Color(0.024, 0.02, 0.016, 0.96)
-	plate.position = at
-	plate.size = Vector2(DLG_W, DLG_H)
-	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_update_dlg.add_child(plate)
-	var edge := ReferenceRect.new()
-	edge.border_color = Color(0.33, 0.27, 0.14, 0.9)
-	edge.border_width = 1.0
-	edge.editor_only = false
-	edge.position = at
-	edge.size = Vector2(DLG_W, DLG_H)
-	edge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_update_dlg.add_child(edge)
+	_dlg_plate = ColorRect.new()
+	_dlg_plate.color = Color(0.024, 0.02, 0.016, 0.96)
+	_dlg_plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_update_dlg.add_child(_dlg_plate)
+	_dlg_edge = ReferenceRect.new()
+	_dlg_edge.border_color = Color(0.33, 0.27, 0.14, 0.9)
+	_dlg_edge.border_width = 1.0
+	_dlg_edge.editor_only = false
+	_dlg_edge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_update_dlg.add_child(_dlg_edge)
 	_dlg_title = _label("", 20, GOLD)
-	_dlg_title.position = at + Vector2(0, 18)
-	_dlg_title.size = Vector2(DLG_W, 28)
 	_update_dlg.add_child(_dlg_title)
 	_dlg_text = _label("", 15, WHITE)
-	_dlg_text.position = at + Vector2(0, 56)
-	_dlg_text.size = Vector2(DLG_W, 22)
 	_update_dlg.add_child(_dlg_text)
 	_dlg_bar = ColorRect.new()
 	_dlg_bar.color = Color(0.12, 0.1, 0.07)
-	_dlg_bar.position = at + Vector2(40, 90)
-	_dlg_bar.size = Vector2(DLG_W - 80, 10)
 	_dlg_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_update_dlg.add_child(_dlg_bar)
 	_dlg_fill = ColorRect.new()
 	_dlg_fill.color = GOLD
-	_dlg_fill.position = _dlg_bar.position
-	_dlg_fill.size = Vector2(0, 10)
 	_dlg_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_update_dlg.add_child(_dlg_fill)
 	_dlg_note = _label("", 13, GOLD_DIM)
-	_dlg_note.position = at + Vector2(0, 112)
-	_dlg_note.size = Vector2(DLG_W, 20)
 	_update_dlg.add_child(_dlg_note)
+	_dlg_rule = ColorRect.new()
+	_dlg_rule.color = Color(0.33, 0.27, 0.14, 0.6)
+	_dlg_rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_update_dlg.add_child(_dlg_rule)
+	_dlg_notes_head = _label("WHAT'S  NEW", 15, GOLD)
+	_dlg_notes_head.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_update_dlg.add_child(_dlg_notes_head)
+	_dlg_notes_date = _label("", 13, GOLD_DIM)
+	_dlg_notes_date.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_update_dlg.add_child(_dlg_notes_date)
+	_dlg_notes = _label("", 13, WHITE)
+	_dlg_notes.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_dlg_notes.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	_dlg_notes.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_dlg_notes.clip_text = true
+	_update_dlg.add_child(_dlg_notes)
+	_layout_update_dialog(false)
+
+
+func _layout_update_dialog(with_notes: bool) -> void:
+	## the plate at its size for the moment: slim while checking, full
+	## with a release's notes on it
+	var w: float = DLG_W if with_notes else 520.0
+	var h: float = DLG_H if with_notes else DLG_SLIM_H
+	var at := Vector2((1280.0 - w) * 0.5, (720.0 - h) * 0.5)
+	_dlg_plate.position = at
+	_dlg_plate.size = Vector2(w, h)
+	_dlg_edge.position = at
+	_dlg_edge.size = Vector2(w, h)
+	_dlg_title.position = at + Vector2(0, 18)
+	_dlg_title.size = Vector2(w, 28)
+	_dlg_text.position = at + Vector2(0, 56)
+	_dlg_text.size = Vector2(w, 22)
+	_dlg_bar.position = at + Vector2(40, 90)
+	_dlg_bar.size = Vector2(w - 80, 10)
+	_dlg_fill.position = _dlg_bar.position
+	_dlg_fill.size.y = 10
+	_dlg_note.position = at + Vector2(0, 112)
+	_dlg_note.size = Vector2(w, 20)
+	_dlg_rule.visible = with_notes
+	_dlg_notes_head.visible = with_notes
+	_dlg_notes_date.visible = with_notes
+	_dlg_notes.visible = with_notes
+	if not with_notes:
+		return
+	_dlg_rule.position = at + Vector2(40, 140)
+	_dlg_rule.size = Vector2(w - 80, 1)
+	_dlg_notes_head.position = at + Vector2(40, 152)
+	_dlg_notes_head.size = Vector2(w - 80, 22)
+	_dlg_notes_date.position = at + Vector2(40, 155)
+	_dlg_notes_date.size = Vector2(w - 80, 20)
+	_dlg_notes.position = at + Vector2(40, 178)
+	_dlg_notes.size = Vector2(w - 80, h - 194)
 
 
 func _update_line() -> void:
@@ -650,7 +697,16 @@ func _update_line() -> void:
 		_refresh()
 	if not _update_dlg.visible:
 		return
-	var bar_w: float = DLG_W - 80.0
+	var has_notes: bool = str(Updater.phase) != "checking" and not Updater.notes.is_empty()
+	_layout_update_dialog(has_notes)
+	if has_notes:
+		var lines: Array = []
+		for i in range(Updater.notes.size()):
+			var t := str(Updater.notes[i])
+			lines.append(t if i == 0 else "-  " + t)
+		_dlg_notes.text = "\n".join(lines)
+		_dlg_notes_date.text = str(Updater.notes_date)
+	var bar_w: float = _dlg_bar.size.x
 	match str(Updater.phase):
 		"checking":
 			_dlg_title.text = "CHECKING  FOR  UPDATES"

@@ -33,6 +33,8 @@ var phase_tag := ""              # the version being fetched
 var progress := -1.0             # of the download, 0..1 (-1: size unknown)
 var got_mb := 0.0
 var total_mb := 0.0
+var notes: Array = []            # the release's notes for the dialog: [tagline, bullet, bullet ...]
+var notes_date := ""             # when it was published, "13 Sep 2026"
 var _checked := false
 var _http: HTTPRequest
 var _dl: HTTPRequest
@@ -95,6 +97,13 @@ func start() -> void:
 	st.set_last_version(VersionInfo.VERSION)
 	if Cli.has("--fake-update"):
 		# a menu shot of the dialog: a download a third of the way in
+		notes = _parse_notes("The Outpost done properly, and the self-update finishes what it starts.\n\n"
+				+ "**If you have 1.2.0:** the game updates itself at the menu.\n\n**What changed**\n"
+				+ "- **The Outpost is a goblin and a chest now**, not a brazier. Fizzwick stands to one side of the way in, on Warcraft's own goblin model, and talks through a Diablo II menu: Gamble, Reset Skills, Reset Stats, Buy a Stash Page.\n"
+				+ "- **The stash is the chest** across from him, on Diablo II's stash page: 6 by 8 cells, up to four pages turned with the arrows, kept with your character.\n"
+				+ "- The updater's swap of the two programs is retried for up to a minute; the download is cleared only once both are in place.\n"
+				+ "- Poison no longer grunts every frame; a fresh install starts at a sane volume.\n\n**What it is:** vanilla World of Warcraft dungeons.")
+		notes_date = _date_of("2026-09-13T00:14:27Z")
 		_set_phase("downloading", "9.9.9")
 		got_mb = 26.4
 		total_mb = 71.3
@@ -140,6 +149,8 @@ func _on_latest(result: int, code: int, _headers: PackedStringArray, body: Packe
 		if str(a.get("name", "")).ends_with(".zip"):
 			url = str(a.get("browser_download_url", ""))
 			break
+	notes = _parse_notes(str(d.get("body", "")))
+	notes_date = _date_of(str(d.get("published_at", "")))
 	if tag != "" and url != "" and VersionInfo.newer(tag, VersionInfo.VERSION):
 		if tag == _failed_tag:
 			_set_phase("")
@@ -150,6 +161,54 @@ func _on_latest(result: int, code: int, _headers: PackedStringArray, body: Packe
 	else:
 		_set_phase("")
 		_check_assets()
+
+
+func _date_of(iso: String) -> String:
+	## GitHub's "2026-09-13T00:14:27Z" as "13 Sep 2026"
+	var parts := iso.substr(0, 10).split("-")
+	if parts.size() != 3:
+		return ""
+	const MONTHS := ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+	var m := parts[1].to_int()
+	if m < 1 or m > 12:
+		return ""
+	return "%d %s %s" % [parts[2].to_int(), MONTHS[m - 1], parts[0]]
+
+
+func _parse_notes(body: String) -> Array:
+	## The release notes as the dialog shows them: the opening line, then
+	## the bullets under "What changed" (at most five), Markdown marks
+	## stripped. Notes with no such section give their first lines.
+	var out: Array = []
+	var bullets: Array = []
+	var in_changes := false
+	for raw in body.split("\n"):
+		var line := str(raw).strip_edges().replace("**", "").replace("`", "")
+		if line == "":
+			continue
+		if out.is_empty() and not line.begins_with("-") and not line.begins_with("#"):
+			out.append(line)
+			continue
+		if line.to_lower().begins_with("what changed"):
+			in_changes = true
+			continue
+		if in_changes:
+			if line.begins_with("- ") or line.begins_with("* "):
+				if bullets.size() < 5:
+					bullets.append(line.substr(2).strip_edges())
+			elif not bullets.is_empty():
+				break
+	if bullets.is_empty():
+		for raw in body.split("\n"):
+			var line := str(raw).strip_edges().replace("**", "").replace("`", "")
+			if line != "" and not out.has(line) and bullets.size() < 4:
+				bullets.append(line.trim_prefix("- "))
+	for b in bullets:
+		var t := str(b)
+		if t.length() > 150:
+			t = t.substr(0, 147).strip_edges() + "..."
+		out.append(t)
+	return out
 
 
 func _download(url: String, tag: String) -> void:
