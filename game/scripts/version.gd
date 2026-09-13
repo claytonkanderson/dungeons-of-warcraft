@@ -3,7 +3,7 @@ class_name Version
 ## product version, the zip's name and the GitHub release tag (v1.1.0);
 ## the updater compares it with the newest release on launch.
 
-const VERSION := "1.2.3"
+const VERSION := "1.2.4"
 
 
 static func newer(a: String, b: String) -> bool:
